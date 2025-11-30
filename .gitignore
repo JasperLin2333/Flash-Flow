@@ -55,3 +55,10 @@ next-env.d.ts
 # Supabase (if you use local dev)
 supabase/tmp
 supabase/.temp
+
+# 构建和缓存
+dist/ 
+
+# 本地环境和配置
+.history/
+tsconfig.tsbuildinfo
