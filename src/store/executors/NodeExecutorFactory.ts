@@ -3,18 +3,18 @@ import type { NodeExecutor } from "./BaseNodeExecutor";
 import { InputNodeExecutor } from "./InputNodeExecutor";
 import { LLMNodeExecutor } from "./LLMNodeExecutor";
 import { RAGNodeExecutor } from "./RAGNodeExecutor";
-import { HTTPNodeExecutor } from "./HTTPNodeExecutor";
 import { OutputNodeExecutor } from "./OutputNodeExecutor";
 import { BranchNodeExecutor } from "./BranchNodeExecutor";
+import { ToolNodeExecutor } from "./ToolNodeExecutor";
 
 export class NodeExecutorFactory {
   private static executors: Record<NodeKind, NodeExecutor> = {
     input: new InputNodeExecutor(),
     llm: new LLMNodeExecutor(),
     rag: new RAGNodeExecutor(),
-    http: new HTTPNodeExecutor(),
     output: new OutputNodeExecutor(),
     branch: new BranchNodeExecutor(),
+    tool: new ToolNodeExecutor(),
   };
 
   static getExecutor(nodeType: NodeKind): NodeExecutor {

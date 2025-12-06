@@ -1,9 +1,13 @@
 "use client";
-import { Send } from "lucide-react";
+import { Send, Paperclip, Settings, X, File as FileIcon, Image as ImageIcon, FileText } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
 
 interface PromptBubbleProps {
   value: string;
@@ -13,21 +17,23 @@ interface PromptBubbleProps {
   disabled?: boolean;
   className?: string;
   singleLine?: boolean;
+  minRows?: number;
+
+  // Optional Input node enhancement  
+  inputNodeData?: InputNodeData;
+  onFileSelect?: (files: File[]) => void;
+  onFileRemove?: (file: File) => void;
+  onFormDataChange?: (formData: Record<string, unknown>) => void;
+  selectedFiles?: File[];
 }
 
-// 样式常量
-const STYLES = {
-  SINGLE_LINE_CONTAINER: "relative w-full bg-white border border-gray-200 rounded-full px-2 py-1 shadow-sm hover:shadow-md hover:border-gray-300",
-  MULTI_LINE_CONTAINER: "relative w-full bg-white border border-gray-200 rounded-2xl px-2 py-2 shadow-sm hover:shadow-md hover:border-gray-300",
-  SINGLE_LINE_WRAPPER: "mr-14 flex items-center h-9",
-  MULTI_LINE_WRAPPER: "mb-12",
-  TEXTAREA: "w-full resize-none border-0 bg-transparent text-[15px] leading-relaxed text-gray-900 placeholder-gray-400 outline-none transition-colors duration-150 px-4 py-1.5",
-  SINGLE_LINE_TEXTAREA: "max-h-[36px] overflow-hidden",
-  MULTI_LINE_TEXTAREA: "max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400",
-  SINGLE_LINE_BUTTON: "top-1/2 right-2 -translate-y-1/2",
-  MULTI_LINE_BUTTON: "bottom-3 right-3",
-  BUTTON_BASE: "absolute h-8 w-8 rounded-full p-0 bg-black text-white hover:bg-black/90 active:bg-black/95 disabled:bg-gray-300 disabled:text-gray-500 transition-colors duration-150 flex items-center justify-center",
-} as const;
+// File type icon helper
+const getFileIcon = (fileName: string) => {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '')) return ImageIcon;
+  if (['pdf', 'doc', 'docx', 'txt', 'md'].includes(ext || '')) return FileText;
+  return FileIcon;
+};
 
 export default function PromptBubble(props: PromptBubbleProps) {
   const {
@@ -37,78 +43,321 @@ export default function PromptBubble(props: PromptBubbleProps) {
     placeholder = "描述你的流程…（Enter 发送，Shift+Enter 换行）",
     disabled,
     className,
+    inputNodeData,
+    onFileSelect,
+    onFileRemove,
+    onFormDataChange,
+    selectedFiles = [],
   } = props;
+
   const taRef = useRef<HTMLTextAreaElement | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [formPopoverOpen, setFormPopoverOpen] = useState(false);
+  const [formData, setFormData] = useState<Record<string, unknown>>({});
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Determine enabled features from Input node data
+  const enableTextInput = inputNodeData?.enableTextInput !== false; // Default: true
+  const enableFileInput = inputNodeData?.enableFileInput === true;
+  const enableStructuredForm = inputNodeData?.enableStructuredForm === true;
+  const formFields = inputNodeData?.formFields || [];
+  const fileConfig = inputNodeData?.fileConfig || { allowedTypes: ["*/*"], maxSizeMB: 50, maxCount: 999 };
+
+  // 使用 ref 存储回调，避免作为 useEffect 依赖导致无限循环
+  const onFormDataChangeRef = useRef(onFormDataChange);
+  onFormDataChangeRef.current = onFormDataChange;
+
+  // 稳定化 formFields 依赖，只在字段实际变更时触发
+  const formFieldsKey = useMemo(
+    () => JSON.stringify(formFields.map(f => ({ name: f.name, defaultValue: f.defaultValue }))),
+    [formFields]
+  );
+
+  // Initialize form data with default values
+  useEffect(() => {
+    if (enableStructuredForm && formFields.length > 0) {
+      const initialFormData: Record<string, unknown> = {};
+      formFields.forEach((field) => {
+        if (field.defaultValue) {
+          initialFormData[field.name] = field.defaultValue;
+        }
+      });
+      setFormData(initialFormData);
+      onFormDataChangeRef.current?.(initialFormData);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enableStructuredForm, formFieldsKey]);
+
+  const isFormFilled = formFields.length > 0 && Object.keys(formData).some(key => formData[key]);
+
+  // 必填字段验证逻辑
+  const hasRequiredFields = formFields.some(f => f.required);
+  const allRequiredFilled = formFields
+    .filter(f => f.required)
+    .every(f => {
+      const val = formData[f.name];
+      if (Array.isArray(val)) return val.length > 0;
+      return val !== undefined && val !== null && String(val).trim() !== '';
+    });
+
+  // 发送按钮是否可用
+  const canSend = !hasRequiredFields || allRequiredFilled;
+
+  // 计算是否可以发送（考虑非文本输入模式）
+  const hasContent = value.trim().length > 0 || selectedFiles.length > 0 || isFormFilled;
+  const canSubmit = !disabled && canSend && (enableTextInput ? hasContent : (selectedFiles.length > 0 || isFormFilled || !enableTextInput));
+
+  // 需要高亮提示配置按钮（有必填字段但未填完）
+  const needsFormAttention = hasRequiredFields && !allRequiredFilled;
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.nativeEvent.isComposing) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (value.trim() && !disabled) onSubmit();
+        // Allow submit only when canSubmit is true
+        if (canSubmit) onSubmit();
       }
     },
-    [onSubmit, value, disabled]
+    [onSubmit, canSubmit]
   );
 
-  // 检测是否需要多行
-  useEffect(() => {
-    const ta = taRef.current;
-    if (!ta) return;
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
 
-    if (!value.trim()) {
-      setIsExpanded(false);
+    if (files.length > fileConfig.maxCount) {
+      alert(`最多只能上传 ${fileConfig.maxCount} 个文件`);
       return;
     }
 
-    const style = window.getComputedStyle(ta);
-    const lh = parseFloat(style.lineHeight) || 24;
-    const pt = parseFloat(style.paddingTop) || 0;
-    const pb = parseFloat(style.paddingBottom) || 0;
-    const singleLineHeight = lh + pt + pb;
+    const oversizedFiles = files.filter(f => f.size > fileConfig.maxSizeMB * 1024 * 1024);
+    if (oversizedFiles.length > 0) {
+      alert(`文件 "${oversizedFiles[0].name}" 超过最大体积 ${fileConfig.maxSizeMB}MB`);
+      return;
+    }
 
-    const shouldExpand = ta.scrollHeight > singleLineHeight + 2;
-    setIsExpanded(shouldExpand);
-  }, [value]);
+    onFileSelect?.(files);
+    // Reset input so same file can be selected again if needed
+    event.target.value = "";
+  };
+
+  // 表单字段变化时自动保存
+  const handleFieldChange = (fieldName: string, value: unknown) => {
+    const newFormData = { ...formData, [fieldName]: value };
+    setFormData(newFormData);
+    setFormErrors({ ...formErrors, [fieldName]: "" });
+    // 自动保存
+    onFormDataChange?.(newFormData);
+  };
 
   return (
     <div
       className={cn(
-        isExpanded ? STYLES.MULTI_LINE_CONTAINER : STYLES.SINGLE_LINE_CONTAINER,
+        "relative w-full bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 flex flex-col",
         className
       )}
     >
-      <div className={isExpanded ? STYLES.MULTI_LINE_WRAPPER : STYLES.SINGLE_LINE_WRAPPER}>
+      {/* Top: File Previews */}
+      {selectedFiles.length > 0 && (
+        <div className="flex gap-3 p-3 border-b border-gray-50 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+          {selectedFiles.map((file, i) => {
+            const Icon = getFileIcon(file.name);
+            return (
+              <div key={i} className="group relative flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 min-w-[200px] max-w-[240px] shrink-0">
+                <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center border border-gray-100 text-blue-500 shrink-0">
+                  <Icon className="w-6 h-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-700 truncate" title={file.name}>{file.name}</p>
+                  <p className="text-xs text-gray-400 truncate">{(file.size / 1024).toFixed(1)} KB</p>
+                </div>
+                {onFileRemove && (
+                  <button
+                    onClick={() => onFileRemove(file)}
+                    className="absolute -top-2 -right-2 w-5 h-5 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Middle: Text Area */}
+      <div className="relative px-3 py-2">
         <TextareaAutosize
           ref={taRef}
-          minRows={1}
-          maxRows={20}
+          minRows={props.minRows ? props.minRows : (props.singleLine ? 1 : 3)}
+          maxRows={12}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          disabled={disabled}
-          className={cn(
-            STYLES.TEXTAREA,
-            isExpanded ? STYLES.MULTI_LINE_TEXTAREA : STYLES.SINGLE_LINE_TEXTAREA
-          )}
+          className="w-full resize-none border-0 bg-transparent text-[15px] leading-relaxed text-gray-900 placeholder-gray-400 outline-none px-1 py-1"
         />
       </div>
-      <Button
-        onClick={(e) => {
-          e.preventDefault();
-          if (!disabled && value.trim()) onSubmit();
-        }}
-        disabled={!value.trim() || disabled}
-        className={cn(
-          STYLES.BUTTON_BASE,
-          isExpanded ? STYLES.MULTI_LINE_BUTTON : STYLES.SINGLE_LINE_BUTTON,
-          value.trim() ? "scale-100 opacity-100" : "scale-90 opacity-50"
-        )}
-      >
-        <Send className="w-4 h-4" />
-      </Button>
+
+      {/* Bottom: Toolbar */}
+      <div className="flex items-center justify-between px-3 pb-3 pt-1">
+        {/* Left: Config Buttons */}
+        <div className="flex items-center gap-1">
+          {/* File Upload */}
+          {enableFileInput && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple={fileConfig.maxCount > 1}
+                accept={fileConfig.allowedTypes.join(",")}
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                className="h-8 w-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                title="上传文件"
+              >
+                <Paperclip className="w-4 h-4" />
+              </Button>
+            </>
+          )}
+
+          {/* Form Config */}
+          {enableStructuredForm && formFields.length > 0 && (
+            <Popover open={formPopoverOpen} onOpenChange={setFormPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-8 w-8 rounded-lg transition-all duration-200",
+                    needsFormAttention
+                      ? "text-blue-600 bg-blue-100 hover:bg-blue-200 ring-2 ring-blue-300 ring-offset-1 animate-pulse"
+                      : isFormFilled
+                        ? "text-blue-600 bg-blue-50 hover:bg-blue-100"
+                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                  )}
+                  title={needsFormAttention ? "请先填写必填参数" : "配置参数"}
+                >
+                  <Settings className="w-4 h-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-4 space-y-3" side="top" align="start">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">配置参数</h4>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => setFormPopoverOpen(false)}
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+
+                {formFields.map((field) => {
+                  const hasError = !!formErrors[field.name];
+                  return (
+                    <div key={field.name} className="space-y-2">
+                      <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
+                        {field.label}
+                        {field.required && <span className="text-red-500">*</span>}
+                      </label>
+
+                      {field.type === "select" ? (
+                        <Select
+                          value={formData[field.name] as string || ""}
+                          onValueChange={(val) => handleFieldChange(field.name, val)}
+                        >
+                          <SelectTrigger className={`${hasError ? "border-red-500" : "border-gray-200"} h-9`}>
+                            <SelectValue placeholder="请选择" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(field as SelectFieldConfig).options.map((opt) => (
+                              <SelectItem key={opt} value={opt}>
+                                {opt}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : field.type === "multi-select" ? (
+                        <div className={`border rounded-md p-2 space-y-2 max-h-40 overflow-y-auto ${hasError ? "border-red-500" : "border-gray-200"}`}>
+                          {(field as MultiSelectFieldConfig).options.map((opt) => {
+                            const currentVals = (formData[field.name] as string[]) || [];
+                            return (
+                              <div key={opt} className="flex items-center space-x-2">
+                                <input
+                                  type="checkbox"
+                                  id={`${field.name}-${opt}`}
+                                  checked={currentVals.includes(opt)}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    let newVals = [...currentVals];
+                                    if (checked) {
+                                      newVals.push(opt);
+                                    } else {
+                                      newVals = newVals.filter(v => v !== opt);
+                                    }
+                                    handleFieldChange(field.name, newVals);
+                                  }}
+                                  className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"
+                                />
+                                <label
+                                  htmlFor={`${field.name}-${opt}`}
+                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                >
+                                  {opt}
+                                </label>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <Input
+                          placeholder={"请输入..."}
+                          value={(formData[field.name] as string) || ""}
+                          onChange={(e) => handleFieldChange(field.name, e.target.value)}
+                          className={`${hasError ? "border-red-500" : "border-gray-200"} h-9`}
+                        />
+                      )}
+
+                      {hasError && <p className="text-xs text-red-500">{formErrors[field.name]}</p>}
+                    </div>
+                  );
+                })}
+
+              </PopoverContent>
+            </Popover>
+          )}
+        </div>
+
+        {/* Right: Send Button */}
+        <Button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            if (canSubmit) onSubmit();
+          }}
+          disabled={!canSubmit}
+          className={cn(
+            "h-8 w-8 rounded-full p-0 flex items-center justify-center transition-all duration-200",
+            canSubmit
+              ? "bg-black text-white hover:bg-black/90 shadow-sm"
+              : needsFormAttention
+                ? "bg-blue-100 text-blue-400 cursor-not-allowed"
+                : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+          )}
+        >
+          <Send className="w-4 h-4" />
+        </Button>
+      </div>
     </div>
   );
 }

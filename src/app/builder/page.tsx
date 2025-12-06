@@ -23,47 +23,105 @@ function BuilderContent() {
     const setAppMode = useFlowStore((s) => s.setAppMode);
     const flowTitle = useFlowStore((s) => s.flowTitle);
     const setFlowTitle = useFlowStore((s) => s.setFlowTitle);
-    const setFlowIcon = useFlowStore((s) => s.setFlowIcon);
-    const setNodes = useFlowStore((s) => s.setNodes);
-    const setEdges = useFlowStore((s) => s.setEdges);
     const startCopilot = useFlowStore((s) => s.startCopilot);
-    const setCurrentFlowId = useFlowStore((s) => s.setCurrentFlowId);
     const setCopilotBackdrop = useFlowStore((s) => s.setCopilotBackdrop);
     const router = useRouter();
     const hasGeneratedRef = useRef(false);
+    // FIX: Track if we're loading a flow to prevent infinite loop
+    const isLoadingFlowRef = useRef(false);
+    // FIX: Track the last loaded flowId to prevent duplicate loads
+    const loadedFlowIdRef = useRef<string | null>(null);
     // FIX: Add error state to provide user feedback on loading failures
     const [loadError, setLoadError] = useState<string | null>(null);
-    // Track if we're in initial copilot generation to avoid rendering canvas
-    const [isGeneratingInitial, setIsGeneratingInitial] = useState(false);
+
+    // FIX (Bug 4): Persist generation state across page refreshes
+    // WHY: If user refreshes during generation, we need to restore the loading UI
+    const [isGeneratingInitial, setIsGeneratingInitial] = useState(() => {
+        // EDGE: Check sessionStorage on mount to restore generation/operation state
+        if (typeof window !== 'undefined') {
+            const persisted = sessionStorage.getItem('flash-flow:copilot-operation');
+            return persisted === 'generating';
+        }
+        return false;
+    });
+
+    // CRITICAL FIX: Subscribe to currentFlowId to auto-sync URL
+    // WHY: flowId becomes available asynchronously after save completes
+    const currentFlowId = useFlowStore((s) => s.currentFlowId);
 
     // CRITICAL FIX: Load flow from URL if flowId is present
-    // Moved logic inline to avoid unstable function reference in dependencies
+    // FIX (Bug 2 & 4): Enhanced with URL sync and generation state recovery
     useEffect(() => {
         const initialPrompt = searchParams.get("initialPrompt");
+        const flowId = searchParams.get("flowId");
+
+        // SCENARIO 1: User navigated from homepage with a prompt to generate
         if (initialPrompt && initialPrompt.trim() && !hasGeneratedRef.current) {
             hasGeneratedRef.current = true;
             setIsGeneratingInitial(true);
+            // Persist to sessionStorage so refresh can restore state
+            sessionStorage.setItem('flash-flow:generating', 'true');
             setCopilotBackdrop("blank");
-            startCopilot(initialPrompt).then(() => {
-                setIsGeneratingInitial(false);
-                router.replace("/builder");
-            });
+
+            startCopilot(initialPrompt)
+                .then(() => {
+                    // ✅ BUG FIX #2: Fixed malformed URL (removed spaces)
+                    // BEFORE: `/ builder ? flowId = ${...} ` caused 404
+                    // AFTER: `/builder?flowId=${...}` proper URL format
+                    const currentFlowId = useFlowStore.getState().currentFlowId;
+                    if (currentFlowId) {
+                        router.replace(`/builder?flowId=${currentFlowId}`);
+                    } else {
+                        // EDGE: No flowId yet (save may still be pending), just clean URL
+                        router.replace("/builder");
+                    }
+                })
+                .catch((error) => {
+                    console.error('Flow generation failed:', error);
+                    setLoadError('生成流程失败，请重试');
+                })
+                .finally(() => {
+                    // Clear generation state from sessionStorage
+                    sessionStorage.removeItem('flash-flow:generating');
+                    setIsGeneratingInitial(false);
+                });
             return;
         }
-        const flowId = searchParams.get("flowId");
-        if (flowId) {
-            // FIX: Inline async logic instead of calling external loadFlow function
-            // This prevents infinite loop caused by loadFlow reference changing on every render
+
+        // SCENARIO 2: User has flowId in URL (either from link or after generation)
+        if (flowId && !isGeneratingInitial) {
+            // FIX: Skip if already loaded this flow or currently loading
+            if (loadedFlowIdRef.current === flowId || isLoadingFlowRef.current) {
+                return;
+            }
+
+            // FIX: Mark as loading to prevent duplicate loads and skip URL sync
+            isLoadingFlowRef.current = true;
+
             (async () => {
                 try {
                     setLoadError(null);
                     const flow = await flowAPI.getFlow(flowId);
                     if (flow) {
-                        setFlowTitle(flow.name);
-                        setFlowIcon(flow.icon_kind, flow.icon_name || undefined, flow.icon_url || undefined);
-                        setNodes(flow.data?.nodes || []);
-                        setEdges(flow.data?.edges || []);
-                        setCurrentFlowId(flow.id);
+                        // FIX: Use direct store.setState to update all values at once
+                        // This prevents triggering scheduleSave which would cause infinite loop
+                        const store = useFlowStore.getState();
+                        useFlowStore.setState({
+                            flowTitle: flow.name,
+                            flowIconKind: flow.icon_kind,
+                            flowIconName: flow.icon_name || undefined,
+                            flowIconUrl: flow.icon_url || undefined,
+                            nodes: flow.data?.nodes || [],
+                            edges: flow.data?.edges || [],
+                            currentFlowId: flow.id,
+                            saveStatus: "saved", // Mark as saved since we just loaded
+                        });
+
+                        // FIX: Mark this flowId as loaded to prevent re-loading
+                        loadedFlowIdRef.current = flowId;
+
+                        // EDGE: If we had a pending generation, clear it
+                        sessionStorage.removeItem('flash-flow:generating');
                     } else {
                         setLoadError(`流程 ${flowId} 未找到`);
                         console.error(`Flow ${flowId} not found`);
@@ -72,10 +130,47 @@ function BuilderContent() {
                     const errorMsg = error instanceof Error ? error.message : "加载流程失败";
                     setLoadError(errorMsg);
                     console.error("Failed to load flow:", error);
+                } finally {
+                    // FIX: Reset loading flag
+                    isLoadingFlowRef.current = false;
                 }
             })();
         }
-    }, [searchParams, setFlowTitle, setNodes, setEdges, setCurrentFlowId, setCopilotBackdrop, startCopilot, router]);
+
+        // SCENARIO 3: Page refreshed during generation (isGeneratingInitial restored from sessionStorage)
+        // WHY: We check if generating flag is set but no prompt/flowId in URL
+        // This means user refreshed during generation - we should check if flow exists now
+        if (isGeneratingInitial && !initialPrompt && !flowId) {
+            // EDGE: Check if generation completed while page was refreshing
+            const checkForCompletedFlow = async () => {
+                const currentFlowId = useFlowStore.getState().currentFlowId;
+                if (currentFlowId) {
+                    // Flow was saved, redirect to it
+                    router.replace(`/builder?flowId=${currentFlowId}`);
+                } else {
+                    // Generation was interrupted or not yet complete
+                    // Clear the flag and show empty canvas
+                    sessionStorage.removeItem('flash-flow:generating');
+                    setIsGeneratingInitial(false);
+                    setLoadError('流程生成过程中页面被刷新，请重新生成');
+                }
+            };
+            checkForCompletedFlow();
+        }
+    }, [searchParams, setCopilotBackdrop, startCopilot, router, isGeneratingInitial]);
+
+    // CRITICAL FIX (Bug 2): Auto-sync URL when flowId becomes available
+    // WHY: After copilot/save completes, currentFlowId is set asynchronously
+    // We need to update URL to include flowId for proper refresh behavior
+    useEffect(() => {
+        const flowIdParam = searchParams.get('flowId');
+
+        // TIMING: Only update URL if we have a flowId but URL doesn't have it yet
+        if (currentFlowId && currentFlowId !== flowIdParam) {
+            // DEFENSIVE: Avoid infinite loop - only update if actually different
+            router.replace(`/builder?flowId=${currentFlowId}`, { scroll: false });
+        }
+    }, [currentFlowId, searchParams, router]);
 
     // If generating initial flow from prompt, show minimal UI with only copilot overlay
     if (isGeneratingInitial) {
@@ -159,6 +254,7 @@ function BuilderContent() {
                     <div className="fixed top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3">
                         <div className="group flex items-center gap-2">
                             <div
+                                key={flowTitle}
                                 contentEditable
                                 suppressContentEditableWarning
                                 role="textbox"

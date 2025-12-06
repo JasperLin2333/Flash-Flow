@@ -1,6 +1,5 @@
 "use client";
 
-import { Sheet, SheetContent, SheetTrigger, SheetClose, SheetTitle, VisuallyHidden } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +11,20 @@ import { chatHistoryAPI } from "@/services/chatHistoryAPI";
 import type { ChatHistory } from "@/services/chatHistoryAPI";
 import { AccountManager, formatTime, SIDEBAR_COLORS, SIDEBAR_SIZES } from "./sidebar-shared";
 
+// Sidebar width constant - exported for layout calculations
+export const APP_SIDEBAR_WIDTH = 280;
+
+interface AppSidebarProps {
+    isOpen: boolean;
+    onToggle: (open: boolean) => void;
+    currentFlowId?: string;
+    onRefreshTrigger?: number;
+    onNewConversation?: () => void;
+    onLoadChat?: (chatId: string) => void;
+}
+
 /**
- * AppSidebar - App 页面侧边栏组件
+ * AppSidebar - App 页面侧边栏组件 (Persistent Panel)
  * 
  * 功能：
  * 1. 导航返回：Flowbox 跳转按钮（作为返回键）
@@ -22,18 +33,17 @@ import { AccountManager, formatTime, SIDEBAR_COLORS, SIDEBAR_SIZES } from "./sid
  * 4. 排序逻辑：创建时间倒序（最新的对话在最上面）
  * 5. 分组：今天、昨天
  * 6. 底部账号管理
+ * 
+ * 改进：持久化展开，无遮罩，作为页面布局的一部分
  */
 export default function AppSidebar({
+    isOpen,
+    onToggle,
     currentFlowId,
     onRefreshTrigger,
     onNewConversation,
     onLoadChat
-}: {
-    currentFlowId?: string;
-    onRefreshTrigger?: number;
-    onNewConversation?: () => void;
-    onLoadChat?: (chatId: string) => void;
-}) {
+}: AppSidebarProps) {
     const router = useRouter();
     const [todayOpen, setTodayOpen] = useState(true);
     const [yesterdayOpen, setYesterdayOpen] = useState(true);
@@ -44,7 +54,12 @@ export default function AppSidebar({
     // 加载当前 Flow 的聊天历史
     useEffect(() => {
         if (currentFlowId) {
-            setLoading(true);
+            // 只有首次加载时显示 loading（chatHistory 为空），后续刷新静默更新
+            const isFirstLoad = chatHistory.length === 0;
+            if (isFirstLoad) {
+                setLoading(true);
+            }
+
             chatHistoryAPI.getHistory(currentFlowId).then((data: ChatHistory[]) => {
                 // Group by session_id
                 const groups = new Map<string, { id: string, title: string, created_at: string }>();
@@ -77,6 +92,7 @@ export default function AppSidebar({
                 setLoading(false);
             });
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentFlowId, onRefreshTrigger]);
 
     const filteredChats = chatHistory.filter((c) => c.title.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -98,204 +114,176 @@ export default function AppSidebar({
     });
 
     return (
-        <Sheet>
-            <div className="fixed top-20 left-8 flex items-center gap-2 z-50">
-                <SheetTrigger asChild>
-                    <Button
-                        className="rounded-full bg-black text-white hover:bg-black/90 active:bg-black/95 shadow-md font-semibold transition-all duration-150 h-10 px-3 flex items-center gap-2"
-                        aria-label="历史记录"
-                        title="历史记录"
-                    >
-                        <History className="w-4 h-4" />
-                        <span className="text-sm font-medium">历史记录</span>
-                    </Button>
-                </SheetTrigger>
-                {onNewConversation && (
-                    <button
-                        onClick={onNewConversation}
-                        className="group relative rounded-full bg-white text-black border border-gray-200 hover:bg-gray-50 active:bg-gray-100 shadow-md transition-all duration-150 h-10 w-10 flex items-center justify-center"
-                        aria-label="新建对话"
-                    >
-                        <Plus className="w-5 h-5" />
-                        <span className="pointer-events-none absolute -bottom-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-gray-900 text-white text-xs rounded-md px-2 py-1 shadow-md whitespace-nowrap font-medium transition-all duration-150">
-                            新建对话
-                        </span>
-                    </button>
-                )}
-            </div>
+        <>
+            {/* Toggle Button - Only visible when sidebar is closed */}
+            {!isOpen && (
+                <Button
+                    onClick={() => onToggle(true)}
+                    className="fixed top-20 left-8 z-50 rounded-full bg-black text-white hover:bg-black/90 active:bg-black/95 shadow-md font-semibold transition-all duration-150 w-10 h-10 p-0 flex items-center justify-center"
+                    aria-label="历史记录"
+                    title="历史记录"
+                >
+                    <History className="w-4 h-4" />
+                </Button>
+            )}
 
-            <SheetContent side="left" className="bg-white border-r border-gray-200 p-0 shadow-lg">
-                <VisuallyHidden>
-                    <SheetTitle>侧边栏导航</SheetTitle>
-                </VisuallyHidden>
-                <div className="h-full flex flex-col">
-                    {/* 顶部 Logo 和关闭按钮 */}
-                    <div className="py-4 px-4 flex items-center justify-between border-b border-gray-100">
-                        <div className="flex items-center gap-2">
-                            <Zap className="w-5 h-5 text-black" />
-                            <div className="text-[15px] font-bold tracking-tight text-gray-900">Flash Flow</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <SheetClose asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    className="size-6 text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                                    aria-label="Close Sidebar"
-                                    title="Close Sidebar"
-                                >
-                                    <X className="w-[18px] h-[18px]" />
-                                </Button>
-                            </SheetClose>
-                        </div>
-                    </div>
-
-                    {/* 导航按钮 */}
-                    <div className="pt-5 pb-2 px-4">
-                        <div className="mt-3">
+            {/* Sidebar Panel - Persistent, no overlay */}
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.aside
+                        initial={{ x: -APP_SIDEBAR_WIDTH, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        exit={{ x: -APP_SIDEBAR_WIDTH, opacity: 0 }}
+                        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                        className="fixed top-16 left-0 h-[calc(100%-4rem)] bg-white border-r border-gray-200 shadow-lg z-40"
+                        style={{ width: APP_SIDEBAR_WIDTH }}
+                    >
+                        <div className="h-full flex flex-col relative">
+                            {/* 关闭按钮：右侧垂直居中，小箭头折叠 */}
                             <Button
-                                onClick={() => router.push("/flows")}
-                                className="w-full h-9 rounded-lg bg-black text-white hover:bg-black/90 shadow-sm font-medium transition-all duration-150 gap-2 justify-start px-3"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-l-0 border-gray-200 rounded-r-lg shadow-sm hover:bg-gray-50 z-50 flex items-center justify-center"
+                                aria-label="Close Sidebar"
+                                title="Close Sidebar"
+                                onClick={() => onToggle(false)}
                             >
-                                <Zap className="w-4 h-4" />
-                                Flow Box
-                                <ArrowUpRight className="w-4 h-4 ml-auto" />
+                                <ChevronDown className="w-4 h-4 text-gray-400 rotate-90" />
                             </Button>
-                        </div>
-                    </div>
-                    <Separator className="bg-gray-100 h-px mt-1" />
 
-                    {/* 历史记录列表 */}
-                    <div className="flex-1 overflow-y-auto py-5">
-                        <div className="px-4 mb-3">
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="搜索历史记录"
-                                className="h-9 rounded-lg border-gray-200"
-                            />
-                        </div>
-                        <div className="mb-2">
-                            {loading ? (
-                                <div className="text-center py-8 text-sm text-gray-400">加载中...</div>
-                            ) : filteredChats.length === 0 ? (
-                                <div className="text-center py-8 text-sm text-gray-400">
-                                    {searchQuery ? "未找到相关记录" : "还没有历史对话"}
+                            {/* 历史记录列表 */}
+                            <div className="flex-1 overflow-y-auto py-5 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400">
+                                <div className="px-4 mb-3">
+                                    <Input
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        placeholder="搜索历史记录"
+                                        className="h-9 rounded-lg border-gray-200"
+                                    />
                                 </div>
-                            ) : (
-                                <>
-                                    {/* 今天的对话 */}
-                                    {todayChats.length > 0 && (
+                                <div className="mb-2">
+                                    {loading ? (
+                                        <div className="text-center py-8 text-sm text-gray-400">加载中...</div>
+                                    ) : filteredChats.length === 0 ? (
+                                        <div className="text-center py-8 text-sm text-gray-400">
+                                            {searchQuery ? "未找到相关记录" : "还没有历史对话"}
+                                        </div>
+                                    ) : (
                                         <>
-                                            <button
-                                                onClick={() => setTodayOpen((v) => !v)}
-                                                className="w-full px-4 flex items-center justify-between text-left"
-                                            >
-                                                <p className="text-[11px] uppercase tracking-[0.05em] text-gray-400">今天</p>
-                                                <ChevronDown
-                                                    className={`w-4 h-4 ${SIDEBAR_COLORS.icon.default} transition-transform ${todayOpen ? "rotate-0" : "-rotate-90"
-                                                        }`}
-                                                />
-                                            </button>
-                                            <AnimatePresence initial={false}>
-                                                {todayOpen && (
-                                                    <motion.div
-                                                        initial={{ opacity: 0, y: 4 }}
-                                                        animate={{ opacity: 1, y: 0 }}
-                                                        exit={{ opacity: 0, y: 4 }}
-                                                        transition={{ duration: 0.12 }}
-                                                        className="mt-2 space-y-1.5"
+                                            {/* 今天的对话 */}
+                                            {todayChats.length > 0 && (
+                                                <>
+                                                    <button
+                                                        onClick={() => setTodayOpen((v) => !v)}
+                                                        className="w-full px-4 flex items-center justify-between text-left"
                                                     >
-                                                        {todayChats.map((chat, i) => (
-                                                            <button
-                                                                key={`today-${chat.id}-${i}`}
-                                                                className={`w-full h-[34px] px-4 text-left ${SIDEBAR_COLORS.bg.hover} cursor-pointer flex items-center rounded-md`}
-                                                                onClick={() => {
-                                                                    // 加载该条历史对话到右侧主区域
-                                                                    if (onLoadChat) {
-                                                                        onLoadChat(chat.id);
-                                                                    }
-                                                                }}
+                                                        <p className="text-[11px] uppercase tracking-[0.05em] text-gray-400">今天</p>
+                                                        <ChevronDown
+                                                            className={`w-4 h-4 ${SIDEBAR_COLORS.icon.default} transition-transform ${todayOpen ? "rotate-0" : "-rotate-90"
+                                                                }`}
+                                                        />
+                                                    </button>
+                                                    <AnimatePresence initial={false}>
+                                                        {todayOpen && (
+                                                            <motion.div
+                                                                initial={{ opacity: 0, y: 4 }}
+                                                                animate={{ opacity: 1, y: 0 }}
+                                                                exit={{ opacity: 0, y: 4 }}
+                                                                transition={{ duration: 0.12 }}
+                                                                className="mt-2 space-y-1.5"
                                                             >
-                                                                <span
-                                                                    className={`flex-1 min-w-0 ${SIDEBAR_SIZES.text.sm} ${SIDEBAR_COLORS.text.primary} truncate`}
-                                                                >
-                                                                    {chat.title}
-                                                                </span>
-                                                                <span
-                                                                    className={`flex-shrink-0 ml-3 ${SIDEBAR_SIZES.text.xs} ${SIDEBAR_COLORS.text.label} whitespace-nowrap`}
-                                                                >
-                                                                    {formatTime(chat.created_at)}
-                                                                </span>
-                                                            </button>
-                                                        ))}
-                                                    </motion.div>
-                                                )}
-                                            </AnimatePresence>
+                                                                {todayChats.map((chat, i) => (
+                                                                    <button
+                                                                        key={`today-${chat.id}-${i}`}
+                                                                        className={`w-full h-[34px] px-4 text-left ${SIDEBAR_COLORS.bg.hover} cursor-pointer flex items-center rounded-md`}
+                                                                        onClick={() => {
+                                                                            // 加载该条历史对话到右侧主区域
+                                                                            if (onLoadChat) {
+                                                                                onLoadChat(chat.id);
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        <span
+                                                                            className={`flex-1 min-w-0 ${SIDEBAR_SIZES.text.sm} ${SIDEBAR_COLORS.text.primary} truncate`}
+                                                                        >
+                                                                            {chat.title}
+                                                                        </span>
+                                                                        <span
+                                                                            className={`flex-shrink-0 ml-3 ${SIDEBAR_SIZES.text.xs} ${SIDEBAR_COLORS.text.label} whitespace-nowrap`}
+                                                                        >
+                                                                            {formatTime(chat.created_at)}
+                                                                        </span>
+                                                                    </button>
+                                                                ))}
+                                                            </motion.div>
+                                                        )}
+                                                    </AnimatePresence>
+                                                </>
+                                            )}
+
+                                            {/* 昨天的对话 */}
+                                            {yesterdayChats.length > 0 && (
+                                                <div className="mt-4">
+                                                    <button
+                                                        onClick={() => setYesterdayOpen((v) => !v)}
+                                                        className="w-full px-4 flex items-center justify-between text-left"
+                                                    >
+                                                        <p className="text-[11px] uppercase tracking-[0.05em] text-gray-400">昨天</p>
+                                                        <ChevronDown
+                                                            className={`w-4 h-4 ${SIDEBAR_COLORS.icon.default} transition-transform ${yesterdayOpen ? "rotate-0" : "-rotate-90"
+                                                                }`}
+                                                        />
+                                                    </button>
+                                                    <AnimatePresence initial={false}>
+                                                        {yesterdayOpen && (
+                                                            <motion.div
+                                                                initial={{ opacity: 0, y: 4 }}
+                                                                animate={{ opacity: 1, y: 0 }}
+                                                                exit={{ opacity: 0, y: 4 }}
+                                                                transition={{ duration: 0.12 }}
+                                                                className="mt-2 space-y-1.5"
+                                                            >
+                                                                {yesterdayChats.map((chat, i) => (
+                                                                    <button
+                                                                        key={`y-${chat.id}-${i}`}
+                                                                        className={`w-full h-[34px] px-4 text-left ${SIDEBAR_COLORS.bg.hover} cursor-pointer flex items-center rounded-md`}
+                                                                        onClick={() => {
+                                                                            // 加载该条历史对话到右侧主区域
+                                                                            if (onLoadChat) {
+                                                                                onLoadChat(chat.id);
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        <span
+                                                                            className={`flex-1 min-w-0 ${SIDEBAR_SIZES.text.sm} ${SIDEBAR_COLORS.text.primary} truncate`}
+                                                                        >
+                                                                            {chat.title}
+                                                                        </span>
+                                                                        <span
+                                                                            className={`flex-shrink-0 ml-3 ${SIDEBAR_SIZES.text.xs} ${SIDEBAR_COLORS.text.label} whitespace-nowrap`}
+                                                                        >
+                                                                            昨天
+                                                                        </span>
+                                                                    </button>
+                                                                ))}
+                                                            </motion.div>
+                                                        )}
+                                                    </AnimatePresence>
+                                                </div>
+                                            )}
                                         </>
                                     )}
+                                </div>
+                            </div>
 
-                                    {/* 昨天的对话 */}
-                                    {yesterdayChats.length > 0 && (
-                                        <div className="mt-4">
-                                            <button
-                                                onClick={() => setYesterdayOpen((v) => !v)}
-                                                className="w-full px-4 flex items-center justify-between text-left"
-                                            >
-                                                <p className="text-[11px] uppercase tracking-[0.05em] text-gray-400">昨天</p>
-                                                <ChevronDown
-                                                    className={`w-4 h-4 ${SIDEBAR_COLORS.icon.default} transition-transform ${yesterdayOpen ? "rotate-0" : "-rotate-90"
-                                                        }`}
-                                                />
-                                            </button>
-                                            <AnimatePresence initial={false}>
-                                                {yesterdayOpen && (
-                                                    <motion.div
-                                                        initial={{ opacity: 0, y: 4 }}
-                                                        animate={{ opacity: 1, y: 0 }}
-                                                        exit={{ opacity: 0, y: 4 }}
-                                                        transition={{ duration: 0.12 }}
-                                                        className="mt-2 space-y-1.5"
-                                                    >
-                                                        {yesterdayChats.map((chat, i) => (
-                                                            <button
-                                                                key={`y-${chat.id}-${i}`}
-                                                                className={`w-full h-[34px] px-4 text-left ${SIDEBAR_COLORS.bg.hover} cursor-pointer flex items-center rounded-md`}
-                                                                onClick={() => {
-                                                                    // 加载该条历史对话到右侧主区域
-                                                                    if (onLoadChat) {
-                                                                        onLoadChat(chat.id);
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <span
-                                                                    className={`flex-1 min-w-0 ${SIDEBAR_SIZES.text.sm} ${SIDEBAR_COLORS.text.primary} truncate`}
-                                                                >
-                                                                    {chat.title}
-                                                                </span>
-                                                                <span
-                                                                    className={`flex-shrink-0 ml-3 ${SIDEBAR_SIZES.text.xs} ${SIDEBAR_COLORS.text.label} whitespace-nowrap`}
-                                                                >
-                                                                    昨天
-                                                                </span>
-                                                            </button>
-                                                        ))}
-                                                    </motion.div>
-                                                )}
-                                            </AnimatePresence>
-                                        </div>
-                                    )}
-                                </>
-                            )}
+                            {/* 底部账号管理 */}
+                            <div className="border-t border-gray-100 px-4 py-4">
+                                <AccountManager />
+                            </div>
                         </div>
-                    </div>
-
-                    {/* 底部账号管理 */}
-                    <div className="border-t border-gray-100 px-4 py-4">
-                        <AccountManager />
-                    </div>
-                </div>
-            </SheetContent>
-        </Sheet>
+                    </motion.aside>
+                )}
+            </AnimatePresence>
+        </>
     );
 }

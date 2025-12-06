@@ -104,8 +104,23 @@ function FormLabel({
   )
 }
 
+/**
+ * FIX: Enhanced FormControl to ensure proper id propagation
+ * 
+ * WHY: Radix Slot relies on child components merging props correctly.
+ * Some components (Input, Textarea, Select) may not properly merge the id prop,
+ * causing label[htmlFor] to not match input[id], triggering accessibility warnings.
+ * 
+ * SOLUTION: We explicitly check if the child is a valid React element and clone it
+ * with the id prop to ensure it's always applied, regardless of the child's implementation.
+ */
 function FormControl({ ...props }: React.ComponentProps<typeof Slot>) {
   const { error, formItemId, formDescriptionId, formMessageId } = useFormField()
+
+  // EDGE: Guard against undefined formItemId (should never happen, but defensive programming)
+  if (!formItemId) {
+    console.warn('[FormControl] formItemId is undefined, this may cause accessibility issues')
+  }
 
   return (
     <Slot

@@ -48,6 +48,14 @@ export function AvatarDialog({
   const [selectedEmoji, setSelectedEmoji] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Reset state when dialog opens
+  React.useEffect(() => {
+    if (open) {
+      setTab("image");
+      setSelectedEmoji(null);
+    }
+  }, [open]);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;

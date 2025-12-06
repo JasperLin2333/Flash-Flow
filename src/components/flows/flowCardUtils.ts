@@ -6,21 +6,20 @@
 import type { FlowRecord } from "@/types/flow";
 
 /**
- * 计算相对时间字符串（如"5m ago"、"2h ago"）
+ * 格式化更新时间为 "YYYY/MM/DD HH:MM:SS" 格式
  * @param isoDateString - ISO 格式的日期字符串
- * @returns 相对时间字符串
+ * @returns 格式化后的时间字符串
  */
-export function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diff / 60000);
-  
-  if (mins < 60) return `${mins}m ago`;
-  
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
+export function formatUpdateTime(iso: string): string {
+  const date = new Date(iso);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+
+  return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
 }
 
 /**
@@ -46,19 +45,29 @@ export async function uploadFlowIcon(
 ): Promise<string | null> {
   try {
     const bucket = "flow-icons";
-    const path = `${ownerId}/${flowId}/${Date.now()}-${file.name}`;
+
+    // Sanitize filename: extract extension and use timestamp as filename
+    // This avoids issues with non-ASCII characters in Supabase Storage
+    const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+    const safeFileName = `${Date.now()}.${ext}`;
+    const path = `${ownerId}/${flowId}/${safeFileName}`;
 
     // 动态导入 Supabase 客户端（避免循环依赖）
     const { supabase } = await import("@/lib/supabase");
 
+    console.log("[uploadFlowIcon] Uploading to:", { bucket, path, ownerId, flowId });
+
     // 上传文件
-    const { error: uploadError } = await supabase
+    const { data: uploadData, error: uploadError } = await supabase
       .storage.from(bucket)
       .upload(path, file, { upsert: true });
 
     if (uploadError) {
+      console.error("[uploadFlowIcon] Upload error:", uploadError);
       throw uploadError;
     }
+
+    console.log("[uploadFlowIcon] Upload success:", uploadData);
 
     // 获取公开 URL
     const { data } = supabase
@@ -67,7 +76,7 @@ export async function uploadFlowIcon(
 
     return data.publicUrl;
   } catch (error) {
-    console.error("File upload failed:", error);
+    console.error("[uploadFlowIcon] File upload failed:", error);
     return null;
   }
 }

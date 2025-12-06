@@ -4,7 +4,7 @@ import OpenAI from "openai";
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { model, systemPrompt, input, temperature } = body;
+        const { model, systemPrompt, input, temperature, conversationHistory } = body;
 
         if (!model) {
             return NextResponse.json({ error: "Model is required" }, { status: 400 });
@@ -13,8 +13,18 @@ export async function POST(req: Request) {
         const provider = (process.env.LLM_PROVIDER || "openai").toLowerCase();
 
         // Construct messages
-        const messages = [];
+        const messages: { role: string; content: string }[] = [];
         if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+
+        // Add conversation history if provided (for memory feature)
+        if (conversationHistory && Array.isArray(conversationHistory)) {
+            for (const msg of conversationHistory) {
+                if (msg.role && msg.content) {
+                    messages.push({ role: msg.role, content: msg.content });
+                }
+            }
+        }
+
         if (input) {
             if (typeof input === 'string') {
                 messages.push({ role: "user", content: input });
@@ -27,7 +37,18 @@ export async function POST(req: Request) {
 
         let responseText = "";
 
-        if (provider === "doubao") {
+        if (model === "qwen-flash") {
+            const client = new OpenAI({
+                apiKey: process.env.DASHSCOPE_API_KEY || "",
+                baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            });
+            const completion = await client.chat.completions.create({
+                model: "qwen-flash",
+                temperature: temperature || 0.7,
+                messages: messages as any,
+            });
+            responseText = completion.choices?.[0]?.message?.content || "";
+        } else if (provider === "doubao") {
             const apiKey = process.env.DOUBAO_API_KEY || "";
             // Map common model names to Doubao specific endpoints if needed, or just pass through
             // For now, assume the UI passes the correct model ID or we default

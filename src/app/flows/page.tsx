@@ -50,9 +50,7 @@ export default function FlowsPage() {
       // Then create the flow in the database
       const newFlow = await flowAPI.createFlow(
         "Untitled Flow",
-        { nodes: [], edges: [] },
-        "anonymous",
-        "New workflow"
+        { nodes: [], edges: [] }
       );
 
       // Navigate to the builder with the new flow ID
@@ -65,29 +63,15 @@ export default function FlowsPage() {
 
   const filtered = useMemo(() => flows.filter(f => (f.name?.toLowerCase().includes(query.toLowerCase()) || (f.description || "").toLowerCase().includes(query.toLowerCase()))), [flows, query]);
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return "刚刚";
-    if (diffMins < 60) return `${diffMins} 分钟前`;
-    if (diffHours < 24) return `${diffHours} 小时前`;
-    if (diffDays < 7) return `${diffDays} 天前`;
-    return date.toLocaleDateString("zh-CN");
-  };
 
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-[1600px] mx-auto px-6 md:px-12 py-12">
         <div className="flex items-center justify-between mb-8">
-          <h1 className="text-[22px] font-semibold text-black">Flow Box</h1>
+          <h1 className="text-[22px] font-semibold text-black">Flow Box（我的助手）</h1>
           <div className="flex items-center gap-3">
             <div className="relative">
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索 flow" className="w-[240px] pl-8" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索助手" className="w-[240px] pl-8 shadow-sm" />
               <SearchIcon className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
             </div>
             <Button className="bg-gray-100 text-gray-700 hover:bg-gray-200 gap-2 rounded-lg px-6 h-11" onClick={handleCreateFlow}>
@@ -101,7 +85,7 @@ export default function FlowsPage() {
 
         {/* Error State */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 shadow-sm">
             <p className="text-red-600 text-sm">{error}</p>
             <Button
               variant="ghost"
@@ -127,7 +111,7 @@ export default function FlowsPage() {
         {/* Empty State */}
         {!isLoading && !error && flows.length === 0 && (
           <div className="text-center py-24">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <div className="w-16 h-16 bg-white border border-gray-200 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
               <Plus className="w-8 h-8 text-gray-400" />
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">还没有工作流</h3>

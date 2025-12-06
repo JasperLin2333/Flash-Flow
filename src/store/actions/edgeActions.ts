@@ -12,6 +12,10 @@ import { hasCycle } from "../utils/cycleDetection";
 export const createEdgeActions = (set: any, get: any) => ({
     /**
      * 处理节点变更（位置、选中状态等）
+     * 
+     * PERFORMANCE FIX: Only trigger save for significant changes, not during drag
+     * - Position changes during drag are applied but only saved on drag end
+     * - Delete/add operations always trigger immediate save
      */
     onNodesChange: (changes: NodeChange[]) => {
         // 检查删除的节点并清理相关边
@@ -26,10 +30,31 @@ export const createEdgeActions = (set: any, get: any) => ({
                     (e: AppEdge) => !deletedNodeIds.includes(e.source) && !deletedNodeIds.includes(e.target)
                 ),
             }));
-        } else {
-            set({ nodes: applyNodeChanges(changes, get().nodes) as AppNode[] });
+            // Deletion is a significant change - always save
+            get().scheduleSave();
+            return;
         }
-        get().scheduleSave();
+
+        // Apply changes immediately for responsive UI
+        set({ nodes: applyNodeChanges(changes, get().nodes) as AppNode[] });
+
+        // PERFORMANCE: Check if any change requires saving
+        // Position changes during dragging should NOT trigger save
+        // Only save when:
+        // 1. Position change is complete (type === 'position' && dragging === false)
+        // 2. Other significant changes (dimensions, reset, etc.)
+        const needsSave = changes.some((change) => {
+            if (change.type === 'position') {
+                // Only save when drag ends (dragging becomes false)
+                return change.dragging === false;
+            }
+            // Other change types (add, remove already handled, dimensions, etc.) need save
+            return change.type !== 'select'; // Selection changes don't need save
+        });
+
+        if (needsSave) {
+            get().scheduleSave();
+        }
     },
 
     /**

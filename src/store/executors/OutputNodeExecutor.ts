@@ -1,32 +1,21 @@
 import type { AppNode, FlowContext } from "@/types/flow";
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
+import { getUpstreamData, extractTextFromUpstream } from "./contextUtils";
 
+/**
+ * Output 节点执行器
+ * 负责从上游节点提取最终输出文本
+ */
 export class OutputNodeExecutor extends BaseNodeExecutor {
   async execute(_node: AppNode, context: FlowContext, _mockData?: Record<string, unknown>): Promise<ExecutionResult> {
     const { result, time } = await this.measureTime(async () => {
-      await this.delay(500);
+      // 注: 移除了不必要的 500ms 延迟，Output 节点只需透传数据
 
-      let text = '';
-      const upstreamData = Object.values(context)[0];
+      // 使用共享工具函数获取上游数据
+      const upstreamData = getUpstreamData(context);
 
-      if (typeof upstreamData === 'string') {
-        text = upstreamData;
-      } else if (upstreamData && typeof upstreamData === 'object') {
-        const prevObj = upstreamData as Record<string, unknown>;
-        const response = prevObj['response'];
-        const textField = prevObj['text'];
-        const queryField = prevObj['query'];
-
-        const maybeText = typeof response === 'string'
-          ? response
-          : typeof textField === 'string'
-            ? textField
-            : typeof queryField === 'string'
-              ? queryField
-              : undefined;
-
-        text = typeof maybeText === 'string' ? maybeText : JSON.stringify(prevObj);
-      }
+      // 使用共享工具函数提取文本
+      const text = extractTextFromUpstream(upstreamData, true);
 
       return { text };
     });

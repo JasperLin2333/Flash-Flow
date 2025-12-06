@@ -62,3 +62,4 @@ dist/
 # 本地环境和配置
 .history/
 tsconfig.tsbuildinfo
+.env*.local

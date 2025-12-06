@@ -12,37 +12,38 @@ import { executeModification as executeModificationService } from "@/store/servi
 
 // ============ 配置常量 ============
 const CONFIG = {
-  ui: {
-    containerWidth: "640px",
-    buttonPosition: "-left-14",
-    defaultNodePosition: { x: 320, y: 240 },
-  },
-  animation: {
-    initial: { y: 100, opacity: 0 },
-    animate: { y: 0, opacity: 1 },
-    transition: { duration: 0.5 },
-  },
-  modes: {
-    generate: {
-      label: "全量生成",
-      icon: Sparkles,
-      placeholder: "描述你的流程（Enter 发送，Shift+Enter 换行）",
-      loadingText: "正在生成流程…",
+    ui: {
+        containerWidth: "640px",
+        buttonPosition: "-left-14",
+        defaultNodePosition: { x: 320, y: 240 },
     },
-    modify: {
-      label: "局部修改",
-      icon: Edit3,
-      placeholder: "描述修改需求... 如: 删除第二LLM节点",
-      loadingText: "正在修改流程...",
+    animation: {
+        initial: { y: 100, opacity: 0 },
+        animate: { y: 0, opacity: 1 },
+        transition: { duration: 0.5 },
     },
-  },
-  nodeTypes: [
-    { label: "输入", type: "input" as NodeKind },
-    { label: "LLM 节点", type: "llm" as NodeKind },
-    { label: "RAG 搜索", type: "rag" as NodeKind },
-    { label: "HTTP 请求", type: "http" as NodeKind },
-    { label: "输出", type: "output" as NodeKind },
-  ],
+    modes: {
+        generate: {
+            label: "全量生成",
+            icon: Sparkles,
+            placeholder: "描述你的流程（Enter 发送，Shift+Enter 换行）",
+            loadingText: "正在生成流程…",
+        },
+        modify: {
+            label: "局部修改",
+            icon: Edit3,
+            placeholder: "描述你想要修改的内容... 如: LLM节点需要有记忆",
+            loadingText: "正在修改流程...",
+        },
+    },
+    nodeTypes: [
+        { label: "输入", type: "input" as NodeKind },
+        { label: "LLM 生成", type: "llm" as NodeKind },
+        { label: "RAG 检索", type: "rag" as NodeKind },
+        { label: "通用工具", type: "tool" as NodeKind },
+        { label: "逻辑分支", type: "branch" as NodeKind },
+        { label: "输出", type: "output" as NodeKind },
+    ],
 } as const;
 
 // ============ Sub-components ============
@@ -62,11 +63,10 @@ function ModeToggle({
                     <button
                         key={m}
                         onClick={() => setMode(m)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 ${
-                            mode === m
-                                ? "bg-black text-white shadow-sm"
-                                : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                        }`}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 ${mode === m
+                            ? "bg-black text-white shadow-sm"
+                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                            }`}
                         aria-pressed={mode === m}
                     >
                         <Icon className="w-3 h-3" />

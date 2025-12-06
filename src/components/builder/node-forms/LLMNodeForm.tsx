@@ -1,24 +1,27 @@
 "use client";
+import { useState, useEffect } from "react";
+import { useWatch } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
 
 // ============ 配置常量 ============
 const LLM_CONFIG = {
-  DEFAULT_MODEL: "doubao-seed-1-6-flash-250828",
+  DEFAULT_MODEL: "qwen-flash",
   DEFAULT_TEMPERATURE: 0.7,
   TEMPERATURE_MIN: 0,
   TEMPERATURE_MAX: 1,
   TEMPERATURE_STEP: 0.1,
   SYSTEM_PROMPT_MIN_HEIGHT: 120,
+  // Memory defaults
+  DEFAULT_MEMORY_MAX_TURNS: 10,
+  MEMORY_MIN_TURNS: 1,
+  MEMORY_MAX_TURNS: 20,
 } as const;
-
-const AVAILABLE_MODELS = [
-  { value: "doubao-seed-1-6-flash-250828", label: "豆包-1-6-flash" },
-  // 未来可以在这里添加更多模型
-] as const;
 
 // ============ 样式常量 ============
 const STYLES = {
@@ -32,9 +35,32 @@ interface LLMNodeFormProps {
 
 /**
  * LLM 节点配置表单
- * 包含：节点名称、模型选择、温度参数、系统提示词
+ * 包含：节点名称、模型选择、温度参数、系统提示词、对话记忆
+ * 模型列表从 Supabase 动态加载
  */
 export function LLMNodeForm({ form }: LLMNodeFormProps) {
+  const [models, setModels] = useState<LLMModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+
+  // 加载可用模型列表
+  useEffect(() => {
+    const loadModels = async () => {
+      setModelsLoading(true);
+      const data = await llmModelsAPI.listModels();
+      setModels(data);
+      setModelsLoading(false);
+    };
+    loadModels();
+  }, []);
+
+  // 监听记忆开关状态
+  // FIX: Use useWatch for reliable re-renders in child component
+  const enableMemory = useWatch({
+    control: form.control,
+    name: "enableMemory",
+    defaultValue: false,
+  });
+
   return (
     <>
       {/* 节点名称 */}
@@ -61,14 +87,14 @@ export function LLMNodeForm({ form }: LLMNodeFormProps) {
             <FormLabel className={STYLES.LABEL}>模型</FormLabel>
             <Select onValueChange={field.onChange} defaultValue={field.value || LLM_CONFIG.DEFAULT_MODEL}>
               <FormControl>
-                <SelectTrigger className={STYLES.INPUT}>
-                  <SelectValue placeholder="选择模型" />
+                <SelectTrigger className={STYLES.INPUT} disabled={modelsLoading}>
+                  <SelectValue placeholder={modelsLoading ? "加载中..." : "选择模型"} />
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
-                {AVAILABLE_MODELS.map(model => (
-                  <SelectItem key={model.value} value={model.value}>
-                    {model.label}
+                {models.map(model => (
+                  <SelectItem key={model.id} value={model.model_id}>
+                    {model.model_name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -82,25 +108,42 @@ export function LLMNodeForm({ form }: LLMNodeFormProps) {
       <FormField
         control={form.control}
         name="temperature"
-        render={({ field }) => (
-          <FormItem>
-            <div className="flex items-center justify-between">
-              <FormLabel className={STYLES.LABEL}>温度</FormLabel>
-              <span className="text-xs text-gray-600 font-mono">{field.value ?? LLM_CONFIG.DEFAULT_TEMPERATURE}</span>
-            </div>
-            <FormControl>
-              <Slider
-                min={LLM_CONFIG.TEMPERATURE_MIN}
-                max={LLM_CONFIG.TEMPERATURE_MAX}
-                step={LLM_CONFIG.TEMPERATURE_STEP}
-                defaultValue={[field.value ?? LLM_CONFIG.DEFAULT_TEMPERATURE]}
-                onValueChange={(vals) => field.onChange(vals[0])}
-                className="py-2"
-              />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
+        render={({ field }) => {
+          // FIX: Extract current temperature value with proper fallback
+          const currentTemp = field.value ?? LLM_CONFIG.DEFAULT_TEMPERATURE;
+
+          return (
+            <FormItem>
+              <div className="flex items-center justify-between">
+                <FormLabel className={STYLES.LABEL}>温度</FormLabel>
+                <span className="text-xs text-gray-600 font-mono">
+                  {currentTemp.toFixed(1)}
+                </span>
+              </div>
+              <FormControl>
+                {/* 
+                  CRITICAL FIX: Use controlled mode (value) instead of uncontrolled (defaultValue)
+                  
+                  WHY: Radix Slider with defaultValue only sets initial position on mount.
+                  When field.value changes, the slider position doesn't update, causing
+                  visual mismatch between displayed number and slider position.
+                  
+                  SOLUTION: Use value prop to make it fully controlled by form state.
+                  This ensures slider position always reflects field.value.
+                */}
+                <Slider
+                  min={LLM_CONFIG.TEMPERATURE_MIN}
+                  max={LLM_CONFIG.TEMPERATURE_MAX}
+                  step={LLM_CONFIG.TEMPERATURE_STEP}
+                  value={[currentTemp]}
+                  onValueChange={(vals) => field.onChange(vals[0])}
+                  className="py-2"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          );
+        }}
       />
 
       {/* 系统提示词 */}
@@ -126,6 +169,70 @@ export function LLMNodeForm({ form }: LLMNodeFormProps) {
           </FormItem>
         )}
       />
+
+      {/* 分隔线 */}
+      <div className="border-t border-gray-100 my-2" />
+
+      {/* 对话记忆开关 */}
+      <FormField
+        control={form.control}
+        name="enableMemory"
+        render={({ field }) => (
+          <FormItem>
+            <div className="flex items-center justify-between">
+              <div>
+                <FormLabel className={STYLES.LABEL}>对话记忆</FormLabel>
+                <p className="text-[9px] text-gray-400 mt-0.5">
+                  启用后，LLM 将记住同一会话中的对话历史
+                </p>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value ?? false}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </div>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      {/* 最大记忆轮数（仅在记忆启用时显示） */}
+      {enableMemory && (
+        <FormField
+          control={form.control}
+          name="memoryMaxTurns"
+          render={({ field }) => {
+            const currentTurns = field.value ?? LLM_CONFIG.DEFAULT_MEMORY_MAX_TURNS;
+
+            return (
+              <FormItem>
+                <div className="flex items-center justify-between">
+                  <FormLabel className={STYLES.LABEL}>最大记忆轮数</FormLabel>
+                  <span className="text-xs text-gray-600 font-mono">
+                    {currentTurns} 轮
+                  </span>
+                </div>
+                <FormControl>
+                  <Slider
+                    min={LLM_CONFIG.MEMORY_MIN_TURNS}
+                    max={LLM_CONFIG.MEMORY_MAX_TURNS}
+                    step={1}
+                    value={[currentTurns]}
+                    onValueChange={(vals) => field.onChange(vals[0])}
+                    className="py-2"
+                  />
+                </FormControl>
+                <p className="text-[9px] text-gray-400">
+                  保留最近 {currentTurns} 轮对话作为上下文
+                </p>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
+        />
+      )}
     </>
   );
 }

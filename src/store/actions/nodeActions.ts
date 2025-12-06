@@ -73,18 +73,6 @@ export const createNodeActions = (set: any, get: any) => ({
             }
         }
 
-        if (node.type === 'http' && 'url' in data) {
-            const url = data.url as string;
-            if (url && typeof url === 'string' && url !== '') {
-                try {
-                    new URL(url);
-                } catch {
-                    console.error('Invalid URL format');
-                    return;
-                }
-            }
-        }
-
         set({
             nodes: get().nodes.map((n: AppNode) =>
                 n.id === id ? { ...n, data: { ...(n.data || {}), ...data } } : n

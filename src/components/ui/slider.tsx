@@ -13,14 +13,17 @@ function Slider({
   max = 100,
   ...props
 }: React.ComponentProps<typeof SliderPrimitive.Root>) {
+  // HIDDEN BUG FIX: Correct fallback logic for single-value sliders
+  // WHY: Using [min, max] as fallback creates a range slider (2 thumbs)
+  // For single-value sliders, fallback should be [min] (1 thumb at minimum position)
   const _values = React.useMemo(
     () =>
       Array.isArray(value)
         ? value
         : Array.isArray(defaultValue)
           ? defaultValue
-          : [min, max],
-    [value, defaultValue, min, max]
+          : [min], // FIX: Changed from [min, max] to [min]
+    [value, defaultValue, min]
   )
 
   return (

@@ -17,6 +17,9 @@
 - [slider.tsx](file://src/components/ui/slider.tsx)
 - [tooltip.tsx](file://src/components/ui/tooltip.tsx)
 - [dropdown-menu.tsx](file://src/components/ui/dropdown-menu.tsx)
+- [BrainBar.tsx](file://src/components/builder/BrainBar.tsx)
+- [ContextHUD.tsx](file://src/components/builder/ContextHUD.tsx)
+- [Sidebar.tsx](file://src/components/flow/Sidebar.tsx)
 </cite>
 
 ## 目录
@@ -38,8 +41,11 @@ A --> C[流程模块]
 A --> D[通用UI组件]
 B --> B1[AppModeOverlay]
 B --> B2[ControlDock]
+B --> B3[BrainBar]
+B --> B4[ContextHUD]
 C --> C1[FlowCanvas]
 C --> C2[CustomNode]
+C --> C3[Sidebar]
 D --> D1[按钮]
 D --> D2[对话框]
 D --> D3[表单]
@@ -48,20 +54,24 @@ D --> D5[选择器]
 ```
 
 **图示来源**  
-- [AppModeOverlay.tsx](file://src/components/builder/AppModeOverlay.tsx)
-- [ControlDock.tsx](file://src/components/builder/ControlDock.tsx)
-- [FlowCanvas.tsx](file://src/components/flow/FlowCanvas.tsx)
-- [CustomNode.tsx](file://src/components/flow/CustomNode.tsx)
-- [button.tsx](file://src/components/ui/button.tsx)
-- [dialog.tsx](file://src/components/ui/dialog.tsx)
+- [AppModeOverlay.tsx](file://src/components/builder/AppModeOverlay.tsx#L8-103)
+- [ControlDock.tsx](file://src/components/builder/ControlDock.tsx#L12-227)
+- [BrainBar.tsx](file://src/components/builder/BrainBar.tsx#L1-L278)
+- [ContextHUD.tsx](file://src/components/builder/ContextHUD.tsx#L1-L143)
+- [FlowCanvas.tsx](file://src/components/flow/FlowCanvas.tsx#L12-81)
+- [CustomNode.tsx](file://src/components/flow/CustomNode.tsx#L29-186)
+- [Sidebar.tsx](file://src/components/flow/Sidebar.tsx#L1-L146)
+- [button.tsx](file://src/components/ui/button.tsx#L39-58)
+- [dialog.tsx](file://src/components/ui/dialog.tsx#L9-81)
+- [form.tsx](file://src/components/ui/form.tsx#L19-43)
 
 ## 核心UI组件概览
 
 本项目采用模块化组件设计，所有UI组件均基于Radix UI原语构建，并通过Tailwind CSS进行样式定制。组件体系分为三个层级：应用特定组件、流程专用组件和可复用的通用UI组件。
 
 **组件分类结构**
-- **构建器模块组件**：提供流程构建界面的核心交互功能
-- **流程模块组件**：实现流程可视化和节点操作
+- **构建器模块组件**：提供流程构建界面的核心交互功能，包括BrainBar、ControlDock、ContextHUD等
+- **流程模块组件**：实现流程可视化和节点操作，包括FlowCanvas、CustomNode、Sidebar等
 - **通用UI组件**：基于Radix UI封装的基础交互元素
 
 ## 构建器模块组件
@@ -112,6 +122,85 @@ ControlDock 组件提供流程画布的控制面板，包含交互模式切换�
 **图示来源**  
 - [ControlDock.tsx](file://src/components/builder/ControlDock.tsx#L12-227)
 
+### BrainBar 组件
+
+BrainBar 组件是构建器界面的智能辅助工具，提供AI驱动的流程生成功能和节点管理能力。它支持两种操作模式：全量生成和局部修改。
+
+**核心特性**
+- **双模式操作**：通过模式切换按钮实现"全量生成"和"局部修改"两种工作模式
+- **AI驱动生成**：基于自然语言描述自动生成流程结构，集成 `/api/modify-flow` 接口
+- **节点库访问**：提供预定义节点模板快速添加功能，通过节点库对话框实现
+- **实时反馈**：在生成过程中提供视觉反馈和状态指示，使用动画效果
+
+**交互流程**
+```mermaid
+sequenceDiagram
+participant 用户 as 用户
+participant BrainBar as BrainBar
+participant 后端API as 后端API
+participant 状态存储 as 状态存储
+用户->>BrainBar : 输入自然语言描述
+BrainBar->>BrainBar : 验证输入内容
+alt 全量生成模式
+BrainBar->>BrainBar : 显示确认对话框
+用户->>BrainBar : 确认生成
+BrainBar->>后端API : 调用 startCopilot
+后端API-->>BrainBar : 返回生成结果
+else 局部修改模式
+BrainBar->>后端API : 调用 modify-flow API
+后端API-->>BrainBar : 返回修改指令
+BrainBar->>状态存储 : 执行修改操作
+end
+BrainBar->>用户 : 更新界面状态
+```
+
+**与状态管理集成**
+- **状态访问**：获取节点列表、边连接、当前状态
+- **动作触发**：触发节点添加、删除、修改操作
+- **AI交互**：调用copilot相关API和状态管理
+
+**图示来源**  
+- [BrainBar.tsx](file://src/components/builder/BrainBar.tsx#L1-L278)
+
+### ContextHUD 组件
+
+ContextHUD 组件是一个上下文感知的信息面板，当用户选择特定节点时自动显示，提供节点级别的配置和调试功能。
+
+**核心特性**
+- **节点类型适配**：支持不同类型的节点配置
+  - **LLM节点**：配置模型参数、系统提示词、温度设置
+  - **HTTP节点**：设置请求方法、URL地址
+  - **RAG节点**：管理知识库文件上传
+  - **输入输出节点**：配置文本内容
+- **实时配置管理**：表单验证和错误提示、实时预览配置效果、自动保存变更
+- **执行结果展示**：显示最近一次执行的输出结果、JSON格式化展示、滚动浏览大段数据
+
+**交互逻辑**
+```mermaid
+sequenceDiagram
+participant 用户 as 用户
+participant 上下文信息浮层 as 上下文信息浮层
+participant 表单系统 as 表单系统
+participant 状态管理 as 状态管理
+participant 后端服务 as 后端服务
+用户->>上下文信息浮层 : 选择节点
+上下文信息浮层->>上下文信息浮层 : 获取节点类型和数据
+上下文信息浮层->>表单系统 : 初始化表单字段
+表单系统-->>上下文信息浮层 : 表单状态就绪
+用户->>表单系统 : 修改配置
+表单系统->>上下文信息浮层 : 字段变化事件
+上下文信息浮层->>状态管理 : 更新节点数据
+状态管理-->>上下文信息浮层 : 确认更新
+用户->>表单系统 : 提交表单
+表单系统->>上下文信息浮层 : 验证并提交
+上下文信息浮层->>后端服务 : 保存配置
+后端服务-->>上下文信息浮层 : 保存成功
+上下文信息浮层->>用户 : 显示更新状态
+```
+
+**图示来源**  
+- [ContextHUD.tsx](file://src/components/builder/ContextHUD.tsx#L1-L143)
+
 ## 流程模块组件
 
 ### FlowCanvas 组件
@@ -150,6 +239,25 @@ CustomNode 组件是流程中所有节点的统一渲染组件，支持多种节
 
 **图示来源**  
 - [CustomNode.tsx](file://src/components/flow/CustomNode.tsx#L29-186)
+
+### Sidebar 组件
+
+Sidebar 组件提供节点库功能，支持拖拽式添加节点到画布。
+
+**核心功能**
+- **分类展示**：将节点按功能分类展示，包括"Input / Output"、"AI Capabilities"等
+- **拖拽添加**：支持从侧边栏拖拽节点到画布，通过HTML5 Drag and Drop API实现
+- **折叠/展开**：支持侧边栏的折叠和展开，提供更好的空间利用
+- **工具提示**：在折叠状态下提供工具提示显示节点名称
+
+**技术实现**
+- 使用 useState 管理折叠状态
+- 通过 onDragStart 事件处理拖拽操作
+- 使用 Tooltip 组件提供工具提示
+- 支持响应式设计，适配不同屏幕尺寸
+
+**图示来源**  
+- [Sidebar.tsx](file://src/components/flow/Sidebar.tsx#L1-L146)
 
 ## 通用UI组件
 

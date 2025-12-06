@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, Suspense } from "react";
+import { useEffect, Suspense, useMemo, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useFlowStore } from "@/store/flowStore";
 import { flowAPI } from "@/services/flowAPI";
-import AppSidebar from "@/components/sidebar/app-sidebar";
+import AppSidebar, { APP_SIDEBAR_WIDTH } from "@/components/sidebar/app-sidebar";
 import FlowAppInterface from "@/components/apps/FlowAppInterface";
 import { useFlowChat } from "@/hooks/useFlowChat";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 function AppContent() {
     const router = useRouter();
@@ -13,7 +14,11 @@ function AppContent() {
     const flowId = searchParams.get("flowId");
     const urlSessionId = searchParams.get("chatId");
 
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [isInitializing, setIsInitializing] = useState(true);
+
     const setCurrentFlowId = useFlowStore((s) => s.setCurrentFlowId);
+    const currentFlowId = useFlowStore((s) => s.currentFlowId);
     const flowTitle = useFlowStore((s) => s.flowTitle);
     const setFlowTitle = useFlowStore((s) => s.setFlowTitle);
     const setFlowIcon = useFlowStore((s) => s.setFlowIcon);
@@ -23,7 +28,6 @@ function AppContent() {
     const setNodes = useFlowStore((s) => s.setNodes);
     const setEdges = useFlowStore((s) => s.setEdges);
 
-    // Use Custom Hook
     const {
         messages,
         input,
@@ -32,33 +36,96 @@ function AppContent() {
         refreshTrigger,
         loadSession,
         startNewSession,
-        sendMessage
+        sendMessage,
+        streamingText,
+        isStreaming,
     } = useFlowChat({ flowId });
 
-    // Sync Flow Metadata
-    useEffect(() => {
-        if (!flowId) return;
-        flowAPI.getFlow(flowId).then((flow) => {
-            if (flow) {
-                setCurrentFlowId(flowId);
-                setFlowTitle(flow.name);
-                setFlowIcon(flow.icon_kind, flow.icon_name, flow.icon_url);
-                setNodes(flow.data.nodes || []);
-                setEdges(flow.data.edges || []);
-            }
-        });
-    }, [flowId, setCurrentFlowId, setFlowTitle, setFlowIcon, setNodes, setEdges]);
+    const initializedFlowIdRef = useRef<string | null>(null);
 
-    // Sync URL Chat ID
+    // 初始化流程：加载 Flow 数据和 Chat 历史
     useEffect(() => {
-        if (urlSessionId && flowId) {
-            loadSession(urlSessionId);
+        if (!flowId) {
+            setIsInitializing(false);
+            return;
         }
-    }, [urlSessionId, flowId, loadSession]);
+
+        // 当 currentFlowId 与 URL 的 flowId 不匹配时，加载数据
+        const needsDataLoad = currentFlowId !== flowId;
+
+        if (needsDataLoad) {
+            setIsInitializing(true);
+            initializedFlowIdRef.current = flowId;
+        }
+
+        let mounted = true;
+
+        (async () => {
+            try {
+                if (needsDataLoad) {
+                    const flow = await flowAPI.getFlow(flowId);
+                    if (!mounted) return;
+
+                    if (flow) {
+                        setCurrentFlowId(flowId);
+                        setFlowTitle(flow.name);
+                        setFlowIcon(flow.icon_kind, flow.icon_name, flow.icon_url);
+                        setNodes(flow.data.nodes || []);
+                        setEdges(flow.data.edges || []);
+                    }
+                }
+
+                if (urlSessionId) {
+                    await loadSession(urlSessionId);
+                }
+            } catch (err) {
+                console.error("Failed to initialize app:", err);
+            } finally {
+                if (mounted) {
+                    setIsInitializing(false);
+                }
+            }
+        })();
+
+        return () => {
+            mounted = false;
+        };
+    }, [flowId, urlSessionId, currentFlowId, setCurrentFlowId, setFlowTitle, setFlowIcon, setNodes, setEdges, loadSession]);
+
+    // Compute display messages: append streaming text as partial assistant message
+    // 当有流式输出时，将其作为临时助手消息显示
+    const { displayMessages, shouldShowLoading } = useMemo(() => {
+        if (isStreaming && streamingText) {
+            return {
+                displayMessages: [...messages, { role: "assistant" as const, content: streamingText }],
+                shouldShowLoading: false // 流式输出时不显示loading
+            };
+        }
+        // 如果最后一条消息是用户消息，且正在loading，说明正在等待AI回复
+        const lastMessage = messages[messages.length - 1];
+        const isWaitingForResponse = isLoading && lastMessage?.role === "user";
+
+        return {
+            displayMessages: messages,
+            shouldShowLoading: isWaitingForResponse // 只有在等待回复时显示loading
+        };
+    }, [messages, isStreaming, streamingText, isLoading]);
+
+    // 等待数据加载完成
+    if (isInitializing) {
+        return null;
+    }
+
+    // 防止显示错误的 flow 数据
+    if (currentFlowId && flowId && currentFlowId !== flowId) {
+        return null;
+    }
 
     return (
         <div className="h-screen w-full bg-white flex flex-col overflow-hidden">
             <AppSidebar
+                isOpen={sidebarOpen}
+                onToggle={setSidebarOpen}
                 currentFlowId={flowId || undefined}
                 onRefreshTrigger={refreshTrigger}
                 onNewConversation={startNewSession}
@@ -72,21 +139,34 @@ function AppContent() {
                     name: flowIconName,
                     url: flowIconUrl
                 }}
-                messages={messages}
-                isLoading={isLoading}
+                messages={displayMessages}
+                isLoading={shouldShowLoading}
                 input={input}
                 onInputChange={setInput}
                 onSend={sendMessage}
                 onGoHome={() => router.push("/")}
+                onNewConversation={startNewSession}
+                sidebarOffset={sidebarOpen ? APP_SIDEBAR_WIDTH : 0}
             />
+        </div>
+    );
+}
+
+// 统一的加载组件
+function LoadingScreen() {
+    return (
+        <div className="h-screen w-full bg-white flex items-center justify-center">
+            <div className="text-gray-400">加载中...</div>
         </div>
     );
 }
 
 export default function AppPage() {
     return (
-        <Suspense fallback={<div>Loading...</div>}>
-            <AppContent />
+        <Suspense fallback={<LoadingScreen />}>
+            <ProtectedRoute>
+                <AppContent />
+            </ProtectedRoute>
         </Suspense>
     );
 }

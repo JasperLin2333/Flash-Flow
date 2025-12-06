@@ -30,5 +30,23 @@ export const INITIAL_FLOW_STATE = {
     llmDebugNodeId: null,
     llmDebugInputs: {},
 
+    // RAG Debug Dialog
+    ragDebugDialogOpen: false,
+    ragDebugNodeId: null,
+    ragDebugInputs: {},
+
+    // Tool Debug Dialog
+    toolDebugDialogOpen: false,
+    toolDebugNodeId: null,
+    toolDebugInputs: {},
+
     inputPromptOpen: false,
+
+    // Streaming state
+    streamingText: "",
+    isStreaming: false,
+    _streamingAborted: false,
+
+    // 执行锁（内部使用，防止并发执行）
+    _executionLock: false,
 };

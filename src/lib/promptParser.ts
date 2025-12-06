@@ -37,6 +37,7 @@ export function extractVariables(prompt: string): string[] {
  * 
  * @param prompt - Prompt 文本
  * @param values - 变量值映射
+ * @param warnOnMissing - 是否警告未找到的变量（默认 true）
  * @returns 替换后的文本
  * 
  * @example
@@ -48,15 +49,29 @@ export function extractVariables(prompt: string): string[] {
  */
 export function replaceVariables(
     prompt: string,
-    values: Record<string, string>
+    values: Record<string, string>,
+    warnOnMissing = true
 ): string {
     if (!prompt) return '';
 
     let result = prompt;
+    const usedVars = new Set<string>();
 
     for (const [key, value] of Object.entries(values)) {
         const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
+        if (regex.test(result)) {
+            usedVars.add(key);
+        }
         result = result.replace(regex, value || '');
+    }
+
+    // FIX: 检查未替换的变量
+    if (warnOnMissing) {
+        const allVars = extractVariables(prompt);
+        const missingVars = allVars.filter(varName => !usedVars.has(varName));
+        if (missingVars.length > 0) {
+            console.warn(`[PromptParser] 未找到变量: ${missingVars.join(', ')}，已替换为空字符串`);
+        }
     }
 
     return result;

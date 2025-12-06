@@ -3,6 +3,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { nanoid } from 'nanoid';
 import { useFlowStore } from '@/store/flowStore';
 import { chatHistoryAPI } from '@/services/chatHistoryAPI';
+import { quotaService } from '@/services/quotaService';
+import { authService } from '@/services/authService';
+import { extractTextFromUpstream } from '@/store/executors/contextUtils';
 import type { AppNode } from '@/types/flow';
 
 // ============ Constants ============
@@ -36,6 +39,10 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
     const updateNodeData = useFlowStore((s) => s.updateNodeData);
     const nodes = useFlowStore((s) => s.nodes);
 
+    // Streaming state from store
+    const streamingText = useFlowStore((s) => s.streamingText);
+    const isStreaming = useFlowStore((s) => s.isStreaming);
+
     // Local State
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
@@ -50,50 +57,24 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
 
     // ============ Helpers ============
 
-    const extractTextFromOutput = (data: Record<string, unknown> | undefined): string => {
-        if (!data || typeof data !== 'object') return '';
-        if (typeof data.text === 'string' && data.text) return data.text;
-        if (typeof data.response === 'string' && data.response) return data.response;
-        if ('error' in data) {
-            const err = data['error'];
-            if (typeof err === 'string' && err) return err;
-        }
-        if (typeof data.query === 'string' && data.query) return data.query;
-        return Object.keys(data).length > 0 ? JSON.stringify(data, null, 2) : '';
-    };
-
+    // 使用共享的 extractTextFromUpstream 函数来正确过滤 Branch 节点元数据
     const extractFlowOutput = (
         currentNodes: AppNode[],
         currentContext: Record<string, unknown>
     ): string => {
         const outputNode = currentNodes.find(n => n.type === "output");
-        if (outputNode) {
-            const outData = currentContext[outputNode.id] as Record<string, unknown> | undefined;
-            if (outData) {
-                return extractTextFromOutput(outData);
-            }
+
+        if (!outputNode) {
+            return "请在工作流中添加 Output 节点以显示输出结果。";
         }
 
-        const executedNodes = currentNodes.filter(n =>
-            n.data.executionTime !== undefined &&
-            currentContext[n.id] !== undefined
-        );
-
-        if (executedNodes.length > 0) {
-            executedNodes.sort((a, b) => {
-                const tA = (a.data.executionTime as number) || 0;
-                const tB = (b.data.executionTime as number) || 0;
-                return tB - tA;
-            });
-
-            for (const node of executedNodes) {
-                const outData = currentContext[node.id] as Record<string, unknown>;
-                const text = extractTextFromOutput(outData);
-                if (text) return text;
-            }
+        const outData = currentContext[outputNode.id] as Record<string, unknown> | undefined;
+        if (!outData) {
+            return MESSAGES.EMPTY_OUTPUT;
         }
 
-        return MESSAGES.EMPTY_OUTPUT;
+        // 使用共享工具函数正确过滤 Branch 节点元数据
+        return extractTextFromUpstream(outData, true) || MESSAGES.EMPTY_OUTPUT;
     };
 
     // ============ Actions ============
@@ -180,10 +161,22 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
     const startNewSession = useCallback(() => {
         // Save current session to cache if valid
         if (currentSessionId && messages.length > 0) {
+            // 如果正在执行中，添加中断提示消息并标记为不再执行中（与刷新逻辑保持一致）
+            let sessionMessages = [...messages];
+            if (isLoading) {
+                // 检查最后一条消息是否是用户消息（说明 AI 还没回复完）
+                const lastMessage = messages[messages.length - 1];
+                if (lastMessage?.role === "user") {
+                    sessionMessages = [
+                        ...messages,
+                        { role: "assistant" as const, content: "(上次执行被中断，请重新发送消息)" }
+                    ];
+                }
+            }
             sessionCacheRef.current.set(currentSessionId, {
                 sessionId: currentSessionId,
-                messages: [...messages],
-                isExecuting: isLoading,
+                messages: sessionMessages,
+                isExecuting: false, // 不再标记为执行中，与刷新逻辑保持一致
             });
         }
 
@@ -194,31 +187,91 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         setIsLoading(false);
         activeSessionIdRef.current = null;
 
+        // Abort streaming to stop displaying AI response (marks as intentionally interrupted)
+        useFlowStore.getState().abortStreaming();
+
         // Clean URL
         router.replace(`/app?flowId=${flowId}`);
         setRefreshTrigger(prev => prev + 1);
     }, [flowId, router, currentSessionId, messages, isLoading]);
 
     const sendMessage = async () => {
-        if (!input.trim() || isLoading || !flowId) return;
+        // 获取 Input 节点配置
+        const inputNodes = nodes.filter(n => n.type === "input");
+        const inputNode = inputNodes[0];
+        const inputNodeData = inputNode?.data as import("@/types/flow").InputNodeData | undefined;
+        const enableTextInput = inputNodeData?.enableTextInput !== false;
 
-        const userMsg = input;
-        setInput("");
-        setIsLoading(true);
+        // 检查是否有内容可发送
+        const hasText = input.trim().length > 0;
+        const hasFormData = inputNodeData?.enableStructuredForm && inputNodeData?.formFields?.length;
 
-        // 1. Determine Session ID
+        // 如果启用文本输入但没有文本，不发送
+        if (enableTextInput && !hasText) return;
+        // 如果禁用文本输入，但也没有表单数据，不发送
+        if (!enableTextInput && !hasFormData) return;
+        if (isLoading || !flowId) return;
+
+
+        // QUOTA CHECK: Verify user has remaining app usage quota
+        try {
+            const user = await authService.getCurrentUser();
+
+            // Require authentication
+            if (!user) {
+                setMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: "请先登录以使用 APP 功能。"
+                }]);
+                return;
+            }
+
+            // Check quota availability
+            const quotaCheck = await quotaService.checkQuota(user.id, "app_usages");
+            if (!quotaCheck.allowed) {
+                setMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: `您的 APP 使用次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额以继续使用。`
+                }]);
+                return;
+            }
+        } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : String(e);
+            console.error("[useFlowChat] Quota check failed:", errorMsg);
+
+            // SECURITY FIX: Fail fast instead of degraded mode
+            setMessages(prev => [...prev, {
+                role: "assistant",
+                content: "配额检查失败，请稍后重试。如果问题持续，请联系支持。"
+            }]);
+            return;
+        }
+
+        // 构建用户消息（支持空文本时显示友好提示）
+        const userMsg = hasText
+            ? input
+            : "📋 已通过表单提交信息";
+
+        // 1. Determine Session ID FIRST (before any UI updates)
         let activeSessionId = currentSessionId;
         if (!activeSessionId) {
             activeSessionId = nanoid();
-            setCurrentSessionId(activeSessionId);
-            activeSessionIdRef.current = activeSessionId;
-            // Update URL
+            // Update URL silently (no state update yet)
             window.history.replaceState(null, '', `/app?flowId=${flowId}&chatId=${activeSessionId}`);
         }
 
-        // 2. Optimistic UI Update
+        // 2. Batch UI Updates: Add message + set loading + clear input together
+        // This reduces intermediate renders and prevents flicker
         const newMessages = [...messages, { role: "user" as const, content: userMsg }];
+
+        // Update all states in quick succession (React 18 batches these automatically)
         setMessages(newMessages);
+        setInput("");
+        setIsLoading(true);
+        if (!currentSessionId) {
+            setCurrentSessionId(activeSessionId);
+            activeSessionIdRef.current = activeSessionId;
+        }
 
         // Update Cache
         sessionCacheRef.current.set(activeSessionId, {
@@ -249,8 +302,8 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 }
             }
 
-            // 5. Run Flow
-            await runFlow();
+            // 5. Run Flow（传递 sessionId 用于 LLM 记忆功能）
+            await runFlow(activeSessionId);
 
             // Race Check
             if (activeSessionIdRef.current !== activeSessionId) return;
@@ -267,8 +320,18 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 responseText = MESSAGES.ERROR_EXECUTION;
             }
 
-            // 7. Update UI
+            // 7. Update UI - Clear streaming and loading BEFORE adding message to prevent flash
+            useFlowStore.getState().clearStreaming();
+            setIsLoading(false);
+
+            // Race check again before updating messages (React state updates are async)
+            if (activeSessionIdRef.current !== activeSessionId) return;
+
             setMessages(prev => {
+                // Double check inside callback to prevent cache corruption after session switch
+                if (activeSessionIdRef.current !== activeSessionId) {
+                    return prev; // Don't update if session changed
+                }
                 const updatedMessages = [...prev, { role: "assistant" as const, content: responseText }];
                 sessionCacheRef.current.set(activeSessionId!, {
                     sessionId: activeSessionId!,
@@ -278,8 +341,29 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 return updatedMessages;
             });
 
-            // 8. Persist Response
-            if (currentMessageId) {
+            // QUOTA INCREMENT: Track successful app usage
+            try {
+                const user = await authService.getCurrentUser();
+                if (user) {
+                    const updated = await quotaService.incrementUsage(user.id, "app_usages");
+                    if (!updated) {
+                        console.warn("[useFlowChat] Failed to increment quota - quota service returned null");
+                    } else {
+                        // 🧹 CODE IMPROVEMENT: Refresh quota display for user feedback
+                        const { refreshQuota } = await import("@/store/quotaStore").then(m => m.useQuotaStore.getState());
+                        await refreshQuota(user.id);
+                    }
+                } else {
+                    console.warn("[useFlowChat] Cannot increment quota - user not authenticated");
+                }
+            } catch (e) {
+                const errorMsg = e instanceof Error ? e.message : String(e);
+                console.error("[useFlowChat] Failed to increment quota:", errorMsg);
+                // DEFENSIVE: We don't show error to user since message was sent successfully
+            }
+
+            // 8. Persist Response - only if session is still active
+            if (currentMessageId && activeSessionIdRef.current === activeSessionId) {
                 chatHistoryAPI.updateAssistantMessage(currentMessageId, responseText)
                     .catch(e => console.error("Failed to persist response:", e));
             }
@@ -287,11 +371,12 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         } catch (error) {
             console.error("Critical error in sendMessage:", error);
             if (activeSessionIdRef.current === activeSessionId) {
+                useFlowStore.getState().clearStreaming();
+                setIsLoading(false);
                 setMessages(prev => [...prev, { role: "assistant", content: MESSAGES.ERROR_EXECUTION }]);
             }
         } finally {
             if (activeSessionIdRef.current === activeSessionId) {
-                setIsLoading(false);
                 setRefreshTrigger(prev => prev + 1);
             }
         }
@@ -306,6 +391,9 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         refreshTrigger,
         loadSession,
         startNewSession,
-        sendMessage
+        sendMessage,
+        // Streaming state for real-time display
+        streamingText,
+        isStreaming,
     };
 }

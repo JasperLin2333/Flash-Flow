@@ -1,5 +1,5 @@
 "use client";
-import { MousePointer2, Hand, Minus, Plus, Maximize, Play, Network } from "lucide-react";
+import { MousePointer2, Hand, Minus, Plus, Maximize, Play, Network, Trash2 } from "lucide-react";
 import { useReactFlow } from "@xyflow/react";
 import { useFlowStore } from "@/store/flowStore";
 import { Button } from "@/components/ui/button";
@@ -146,7 +146,7 @@ function ZoomControls({
               <Maximize className="w-4 h-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">適配视图</TooltipContent>
+          <TooltipContent side="top">适配视图</TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
@@ -199,6 +199,34 @@ function RunButton({
   );
 }
 
+/**
+ * 清除缓存按钮
+ */
+function ClearCacheButton({
+  onClear,
+}: {
+  onClear: () => void;
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={BUTTON_STYLES.default}
+            onClick={onClear}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top">清除缓存</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+
 export default function ControlDock() {
   const reactFlow = useReactFlow();
   const { zoomPct, zoomIn, zoomOut, zoomTo, fitView } = useZoomControl(reactFlow);
@@ -209,6 +237,7 @@ export default function ControlDock() {
   const executionError = useFlowStore((s) => s.executionError);
   const resetExecution = useFlowStore((s) => s.resetExecution);
   const organizeNodes = useFlowStore((s) => s.organizeNodes);
+
 
   const isRunning = executionStatus === "running";
   const [showError, setShowError] = useState(false);
@@ -239,6 +268,8 @@ export default function ControlDock() {
         <Separator orientation="vertical" className="h-6 bg-gray-200" />
         <ZoomControls zoomPct={zoomPct} zoomIn={zoomIn} zoomOut={zoomOut} zoomTo={zoomTo} fitView={fitView} organizeNodes={organizeNodes} />
         <Separator orientation="vertical" className="h-6 bg-gray-200" />
+
+        <ClearCacheButton onClear={resetExecution} />
         <RunButton isRunning={isRunning} runFlow={runFlow} />
       </div>
 

@@ -1,15 +1,37 @@
 "use client";
-import { useCallback } from "react";
+import { useCallback, useMemo, memo } from "react";
 import { ReactFlow, Background, BackgroundVariant, useReactFlow, SelectionMode, PanOnScrollMode } from "@xyflow/react";
 import { useFlowStore } from "@/store/flowStore";
 import CustomNode from "./CustomNode";
+import ToolNode from "./nodes/ToolNode";
 import LLMDebugDialog from "./LLMDebugDialog";
+import RAGDebugDialog from "./RAGDebugDialog";
+import ToolDebugDialog from "./ToolDebugDialog";
 import InputPromptDialog from "./InputPromptDialog";
 import type { NodeKind } from "@/types/flow";
 
-const nodeTypes = { input: CustomNode, llm: CustomNode, output: CustomNode, rag: CustomNode, http: CustomNode };
+// FIX (Bug 3): Move nodeTypes outside component to prevent recreation on every render
+// WHY: Creating a new object on every render causes ReactFlow to re-register node types,
+// triggering expensive internal recalculations that cause drag lag
+const nodeTypes = {
+  input: CustomNode,
+  llm: CustomNode,
+  output: CustomNode,
+  rag: CustomNode,
+  tool: ToolNode,
+  branch: CustomNode,
+};
 
-export default function FlowCanvas() {
+/**
+ * FIX (Bug 3): Performance-optimized FlowCanvas with memoization
+ * 
+ * PERFORMANCE NOTES:
+ * - React.memo prevents re-renders when parent components update
+ * - useMemo caches defaultEdgeOptions to prevent ReactFlow recalculation
+ * - nodeTypes constant moved outside to avoid recreation
+ * - These optimizations are critical for smooth 60fps drag performance
+ */
+function FlowCanvasComponent() {
   const nodes = useFlowStore((s) => s.nodes);
   const edges = useFlowStore((s) => s.edges);
   const onNodesChange = useFlowStore((s) => s.onNodesChange);
@@ -36,6 +58,17 @@ export default function FlowCanvas() {
     [screenToFlowPosition, addNode]
   );
 
+  // FIX (Bug 3): Memoize defaultEdgeOptions to prevent object recreation
+  // WHY: New object on every render causes ReactFlow to update all edges unnecessarily
+  const defaultEdgeOptions = useMemo(
+    () => ({
+      type: 'smoothstep',
+      animated: true,
+      style: { stroke: '#E5E5E5', strokeWidth: 1.5 },
+    }),
+    []
+  );
+
   return (
     <div className="flex-1 relative h-full w-full overflow-hidden bg-white">
       <ReactFlow
@@ -57,11 +90,7 @@ export default function FlowCanvas() {
         selectionOnDrag={interactionMode === "select"}
         zoomOnPinch={true}
         panOnScrollMode={PanOnScrollMode.Free}
-        defaultEdgeOptions={{
-          type: 'smoothstep',
-          animated: true,
-          style: { stroke: '#E5E5E5', strokeWidth: 1.5 },
-        }}
+        defaultEdgeOptions={defaultEdgeOptions}
         proOptions={{ hideAttribution: true }}
         minZoom={0.1}
         maxZoom={2}
@@ -75,7 +104,16 @@ export default function FlowCanvas() {
         />
       </ReactFlow>
       <LLMDebugDialog />
+      <RAGDebugDialog />
+      <ToolDebugDialog />
       <InputPromptDialog />
     </div>
   );
 }
+
+// FIX (Bug 3): Wrap with React.memo to prevent unnecessary re-renders
+// WHY: Parent components (builder page) may re-render frequently,
+// but FlowCanvas only needs to update when its props/store values change
+const FlowCanvas = memo(FlowCanvasComponent);
+
+export default FlowCanvas;

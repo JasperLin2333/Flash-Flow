@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useFlowStore } from "@/store/flowStore";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { nanoid } from "nanoid";
 import FlowAppInterface from "@/components/apps/FlowAppInterface";
+import { extractTextFromUpstream } from "@/store/executors/contextUtils";
 
 // ============ Constants ============
 const ANIMATION = {
@@ -19,28 +21,26 @@ const ERROR_MSG = "Error executing flow.";
 // ============ Utilities ============
 /**
  * 提取执行结果文本
- * 优先查找 output 节点，然后 fallback 到最后一个节点
+ * 必须通过 output 节点才能输出结果
+ * 使用 extractTextFromUpstream 正确过滤 Branch 元数据
  */
 function extractExecutionOutput(
     flowContext: Record<string, any>,
     nodes: Array<{ id: string; type: string }>
 ): string {
     const outputNode = nodes.find((n) => n.type === "output");
-    if (outputNode) {
-        const outData = flowContext[outputNode.id];
-        return (outData as any)?.text || JSON.stringify(outData);
+
+    if (!outputNode) {
+        return "请在工作流中添加 Output 节点以显示输出结果。";
     }
 
-    // Fallback: 查找最后一个节点
-    const lastNodeId = Object.keys(flowContext).pop();
-    if (lastNodeId) {
-        const outData = flowContext[lastNodeId];
-        return (
-            (outData as any)?.response || (outData as any)?.text || JSON.stringify(outData)
-        );
+    const outData = flowContext[outputNode.id];
+    if (!outData) {
+        return DEFAULT_ASSISTANT_MSG;
     }
 
-    return DEFAULT_ASSISTANT_MSG;
+    // 使用 extractTextFromUpstream 正确过滤 Branch 节点元数据
+    return extractTextFromUpstream(outData, true) || DEFAULT_ASSISTANT_MSG;
 }
 
 export default function AppModeOverlay() {
@@ -56,51 +56,103 @@ export default function AppModeOverlay() {
     const flowIconName = useFlowStore((s) => s.flowIconName);
     const flowIconUrl = useFlowStore((s) => s.flowIconUrl);
 
-    const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+    // Streaming state
+    const streamingText = useFlowStore((s) => s.streamingText);
+    const isStreaming = useFlowStore((s) => s.isStreaming);
+
+    const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string; files?: File[] }[]>([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
 
-    // 新建对话：重置对话状态
-    const handleNewConversation = () => {
+    // 会话 ID：用于 LLM 对话记忆功能
+    // 每个对话保持同一个 sessionId，新建对话时重置
+    const [sessionId, setSessionId] = useState(() => nanoid(10));
+
+    // 新建对话：重置对话状态和会话 ID
+    const handleNewConversation = useCallback(() => {
+        // 如果正在执行中，中止 streaming
+        if (isLoading) {
+            useFlowStore.getState().abortStreaming();
+            setIsLoading(false);
+        }
+
+        // 重置对话状态
         setMessages([]);
         setInput("");
-    };
+        setSessionId(nanoid(10)); // 生成新的会话 ID
+    }, [isLoading]);
 
     // Auto-scroll to bottom
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages, isLoading]);
+    }, [messages, isLoading, streamingText]);
 
-    // \u5904\u7406\u6d41\u7a0b\u5b8c\u6210\u6216\u9519\u8bef
+    // 处理流程完成或错误
     useEffect(() => {
         if (executionStatus === "completed" && isLoading) {
             setIsLoading(false);
             const outputText = extractExecutionOutput(flowContext, nodes);
             setMessages((prev) => [...prev, { role: "assistant", content: outputText }]);
+            // Clear streaming AFTER adding the message to prevent flash
+            // Use setTimeout to ensure state updates are processed first
+            setTimeout(() => {
+                useFlowStore.getState().clearStreaming();
+            }, 0);
         } else if (executionStatus === "error" && isLoading) {
             setIsLoading(false);
             setMessages((prev) => [...prev, { role: "assistant", content: ERROR_MSG }]);
+            setTimeout(() => {
+                useFlowStore.getState().clearStreaming();
+            }, 0);
         }
     }, [executionStatus, flowContext, nodes, isLoading]);
 
-    const handleSend = async () => {
-        if (!input.trim() || isLoading) return;
+    const handleSend = async (files?: File[]) => {
+        // 获取 Input 节点配置
+        const inputNode = nodes.find((n) => n.type === "input");
+        const inputNodeData = inputNode?.data as import("@/types/flow").InputNodeData | undefined;
+        const enableTextInput = inputNodeData?.enableTextInput !== false;
 
-        const userMsg = input;
+        // 检查是否有内容可发送
+        const hasText = input.trim().length > 0;
+        const hasFiles = files && files.length > 0;
+        const hasFormData = inputNodeData?.enableStructuredForm && inputNodeData?.formFields?.length;
+
+        // 如果启用文本输入但没有任何内容，不发送
+        if (enableTextInput && !hasText && !hasFiles) return;
+        // 如果禁用文本输入，但既没有文件也没有表单，不发送
+        if (!enableTextInput && !hasFiles && !hasFormData) return;
+        if (isLoading) return;
+
+        // 构建用户消息（支持空文本时显示友好提示）
+        const userMsg = hasText
+            ? input
+            : hasFiles
+                ? `📎 已上传 ${files.length} 个文件`
+                : "📋 已通过表单提交信息";
+
         setInput("");
-        setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+        setMessages((prev) => [...prev, { role: "user", content: userMsg, files }]);
         setIsLoading(true);
 
-        // 更新 Input Node并运行 Flow
-        const inputNode = nodes.find((n) => n.type === "input");
+        // 更新 Input Node并运行 Flow（传递 sessionId 用于记忆功能）
         if (inputNode) {
-            updateNodeData(inputNode.id, { text: userMsg });
+            updateNodeData(inputNode.id, { text: input }); // 仍然存储原始文本（可能为空）
         }
-        await runFlow();
+        await runFlow(sessionId);
     };
+
+
+    // Compute display messages: append streaming text as partial assistant message
+    const displayMessages = useMemo(() => {
+        if (isStreaming && streamingText && isLoading) {
+            return [...messages, { role: "assistant" as const, content: streamingText }];
+        }
+        return messages;
+    }, [messages, isStreaming, streamingText, isLoading]);
 
     return (
         <AnimatePresence>
@@ -111,17 +163,6 @@ export default function AppModeOverlay() {
                     exit={ANIMATION.exit}
                     className="fixed inset-0 z-50 bg-white flex flex-col"
                 >
-                    {/* 新建对话按钮 */}
-                    <button
-                        onClick={handleNewConversation}
-                        className="group fixed top-20 left-8 z-50 rounded-full bg-white text-black border border-gray-200 hover:bg-gray-50 active:bg-gray-100 shadow-md transition-all duration-150 h-10 w-10 flex items-center justify-center"
-                        aria-label="新建对话"
-                    >
-                        <Plus className="w-5 h-5" />
-                        <span className="pointer-events-none absolute -bottom-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-gray-900 text-white text-xs rounded-md px-2 py-1 shadow-md whitespace-nowrap font-medium transition-all duration-150">
-                            新建对话
-                        </span>
-                    </button>
                     <FlowAppInterface
                         flowTitle={flowTitle}
                         flowIcon={{
@@ -129,15 +170,17 @@ export default function AppModeOverlay() {
                             name: flowIconName,
                             url: flowIconUrl,
                         }}
-                        messages={messages}
-                        isLoading={isLoading}
+                        messages={displayMessages}
+                        isLoading={isLoading && !isStreaming}
                         input={input}
                         onInputChange={setInput}
                         onSend={handleSend}
                         onClose={() => setAppMode(false)}
+                        onNewConversation={handleNewConversation}
                     />
                 </motion.div>
             )}
         </AnimatePresence>
     );
 }
+

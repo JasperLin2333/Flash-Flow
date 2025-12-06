@@ -2,16 +2,23 @@
 
 <cite>
 **本文档中引用的文件**
-- [src/app/api/health/route.ts](file://src/app/api/health/route.ts)
-- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts)
-- [src/app/api/modify-flow/route.ts](file://src/app/api/modify-flow/route.ts)
-- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts)
-- [src/lib/supabase.ts](file://src/lib/supabase.ts)
-- [src/utils/validation.ts](file://src/utils/validation.ts)
-- [src/services/flowAPI.ts](file://src/services/flowAPI.ts)
-- [src/types/database.ts](file://src/types/database.ts)
-- [package.json](file://package.json)
+- [src/app/api/health/route.ts](file://src/app/api/health/route.ts) - *新增健康检查接口*
+- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts) - *新增工作流规划接口*
+- [src/app/api/modify-flow/route.ts](file://src/app/api/modify-flow/route.ts) - *新增工作流修改接口*
+- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts) - *新增节点执行接口*
+- [src/lib/supabase.ts](file://src/lib/supabase.ts) - *Supabase客户端配置*
+- [src/utils/validation.ts](file://src/utils/validation.ts) - *请求数据验证逻辑*
+- [src/types/database.ts](file://src/types/database.ts) - *数据库表结构定义*
+- [package.json](file://package.json) - *项目依赖与版本信息*
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增了四个核心API端点的详细文档：健康检查、工作流规划、工作流修改和节点执行
+- 更新了项目架构概览图以包含新增的API层组件
+- 补充了各接口的认证机制、数据验证流程及与Supabase数据库的交互说明
+- 增加了curl调用示例和客户端集成模式代码片段
+- 完善了错误处理机制和安全验证流程的描述
 
 ## 目录
 1. [简介](#简介)
@@ -80,10 +87,10 @@ SUPABASE --> FLOWS
 ```
 
 **图表来源**
-- [src/app/api/health/route.ts](file://src/app/api/health/route.ts#L1-L52)
-- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L1-L123)
-- [src/app/api/modify-flow/route.ts](file://src/app/api/modify-flow/route.ts#L1-L104)
-- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts#L1-L66)
+- [src/app/api/health/route.ts](file://src/app/api/health/route.ts#L1-L52) - *健康检查接口实现*
+- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L1-L171) - *工作流规划接口实现*
+- [src/app/api/modify-flow/route.ts](file://src/app/api/modify-flow/route.ts#L1-L135) - *工作流修改接口实现*
+- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts#L1-L66) - *节点执行接口实现*
 
 ## 环境配置
 
@@ -100,9 +107,9 @@ SUPABASE --> FLOWS
 | `LLM_PROVIDER` | String | 否 | 大语言模型提供商，可选"openai"或"doubao" |
 
 **节来源**
-- [src/lib/supabase.ts](file://src/lib/supabase.ts#L4-L17)
-- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L51-L52)
-- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts#L13-L13)
+- [src/lib/supabase.ts](file://src/lib/supabase.ts#L4-L18) - *Supabase客户端初始化*
+- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L51-L52) - *LLM提供商配置*
+- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts#L13-L13) - *LLM提供商读取*
 
 ## API接口详情
 
@@ -170,7 +177,7 @@ async function checkHealth() {
 ```
 
 **节来源**
-- [src/app/api/health/route.ts](file://src/app/api/health/route.ts#L4-L51)
+- [src/app/api/health/route.ts](file://src/app/api/health/route.ts#L4-L51) - *健康检查接口完整实现*
 
 ### 2. 工作流规划接口
 
@@ -290,8 +297,8 @@ async function planWorkflow(prompt) {
 ```
 
 **节来源**
-- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L6-L122)
-- [src/utils/validation.ts](file://src/utils/validation.ts#L3-L5)
+- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L6-L170) - *工作流规划接口完整实现*
+- [src/utils/validation.ts](file://src/utils/validation.ts#L3-L5) - *请求参数验证逻辑*
 
 ### 3. 工作流修改接口
 
@@ -404,7 +411,7 @@ async function modifyWorkflow(currentNodes, currentEdges, prompt) {
 ```
 
 **节来源**
-- [src/app/api/modify-flow/route.ts](file://src/app/api/modify-flow/route.ts#L4-L103)
+- [src/app/api/modify-flow/route.ts](file://src/app/api/modify-flow/route.ts#L4-L134) - *工作流修改接口完整实现*
 
 ### 4. 节点执行接口
 
@@ -498,7 +505,7 @@ async function runNode(model, systemPrompt, input, temperature = 0.7) {
 ```
 
 **节来源**
-- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts#L4-L65)
+- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts#L4-L65) - *节点执行接口完整实现*
 
 ## 数据验证与安全
 
@@ -518,7 +525,7 @@ ERROR --> CLIENT_ERROR[客户端错误处理]
 ```
 
 **图表来源**
-- [src/utils/validation.ts](file://src/utils/validation.ts#L3-L28)
+- [src/utils/validation.ts](file://src/utils/validation.ts#L3-L28) - *Zod验证Schema定义*
 
 ### 验证规则
 
@@ -538,14 +545,14 @@ ERROR --> CLIENT_ERROR[客户端错误处理]
 - `target`: 必需字符串（目标节点ID）
 
 **节来源**
-- [src/utils/validation.ts](file://src/utils/validation.ts#L3-L28)
+- [src/utils/validation.ts](file://src/utils/validation.ts#L3-L28) - *完整验证规则定义*
 
 ### 认证机制
 
 系统使用Supabase进行用户认证，虽然当前API路由中存在认证逻辑的注释，但实际实现主要依赖于环境变量和数据验证。
 
 **节来源**
-- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L17-L33)
+- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L17-L33) - *认证逻辑相关代码注释*
 
 ## 错误处理机制
 
@@ -599,8 +606,8 @@ end
 ```
 
 **图表来源**
-- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L11-L14)
-- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts#L62-L64)
+- [src/app/api/plan/route.ts](file://src/app/api/plan/route.ts#L11-L14) - *错误处理代码片段*
+- [src/app/api/run-node/route.ts](file://src/app/api/run-node/route.ts#L62-L64) - *异常捕获与响应*
 
 ## 客户端集成指南
 

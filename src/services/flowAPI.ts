@@ -1,6 +1,60 @@
 "use client";
 import { supabase } from "@/lib/supabase";
+import { authService } from "@/services/authService";
 import type { FlowRecord, FlowData } from "@/types/flow";
+
+// Supabase 行类型定义
+type SupabaseFlowRow = {
+    id: string;
+    owner_id: string;
+    name: string;
+    description: string | null;
+    icon_kind: string | null;
+    icon_name: string | null;
+    icon_url: string | null;
+    node_count: number | null;
+    data: unknown;
+    created_at: string;
+    updated_at: string;
+};
+
+/**
+ * 将 Supabase 行数据映射为 FlowRecord
+ * 包含运行时验证和降级处理
+ */
+function mapRowToFlowRecord(row: SupabaseFlowRow): FlowRecord {
+    // 验证和解析 FlowData
+    let flowData: FlowData;
+    try {
+        const rawData = row.data;
+        if (typeof rawData === 'object' && rawData !== null) {
+            flowData = rawData as FlowData;
+            // 验证必需字段
+            if (!Array.isArray(flowData.nodes)) flowData.nodes = [];
+            if (!Array.isArray(flowData.edges)) flowData.edges = [];
+        } else {
+            console.error('[flowAPI] Invalid flow data structure for flow:', row.id);
+            flowData = { nodes: [], edges: [] };
+        }
+    } catch (e) {
+        console.error('[flowAPI] Failed to parse flow data:', e);
+        flowData = { nodes: [], edges: [] };
+    }
+
+    return {
+        id: row.id,
+        owner_id: row.owner_id,
+        name: row.name || '未命名工作流',
+        description: row.description ?? undefined,
+        icon_kind: (row.icon_kind as FlowRecord['icon_kind']) ?? undefined,
+        icon_name: row.icon_name ?? undefined,
+        icon_url: row.icon_url ?? undefined,
+        node_count: row.node_count ?? flowData.nodes.length,
+        data: flowData,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    };
+}
 
 /**
  * Flow API Service
@@ -9,64 +63,31 @@ import type { FlowRecord, FlowData } from "@/types/flow";
 
 export const flowAPI = {
     /**
+     * Get current user ID or throw error if not authenticated
+     */
+    async getCurrentUserId(): Promise<string> {
+        const user = await authService.getCurrentUser();
+        if (!user) {
+            throw new Error("用户未登录，请先登录");
+        }
+        return user.id;
+    },
+
+    /**
      * Get all flows for current user
      */
     async listFlows(ownerId?: string): Promise<FlowRecord[]> {
-        const query = supabase.from('flows').select('*').order('updated_at', { ascending: false });
-        if (ownerId) query.eq('owner_id', ownerId);
+        // If no ownerId provided, use current user
+        const userId = ownerId || await this.getCurrentUserId();
 
-        const { data, error } = await query;
+        const { data, error } = await supabase
+            .from('flows')
+            .select('*')
+            .eq('owner_id', userId)
+            .order('updated_at', { ascending: false });
         if (error) throw error;
 
-        // FIX: Use Database type from Supabase schema instead of manual type
-        type SupabaseRow = {
-            id: string;
-            owner_id: string;
-            name: string;
-            description: string | null;
-            icon_kind: string | null;
-            icon_name: string | null;
-            icon_url: string | null;
-            node_count: number | null;
-            data: any;
-            created_at: string;
-            updated_at: string;
-        };
-
-        return ((data || []) as SupabaseRow[]).map((row) => {
-            // FIX: Add runtime validation for FlowData structure
-            let flowData: FlowData;
-            try {
-                const rawData = row.data as unknown;
-                if (typeof rawData === 'object' && rawData !== null) {
-                    flowData = rawData as FlowData;
-                    // FIX: Validate required fields exist
-                    if (!Array.isArray(flowData.nodes)) flowData.nodes = [];
-                    if (!Array.isArray(flowData.edges)) flowData.edges = [];
-                } else {
-                    // FIX: Degraded handling when data is corrupted
-                    console.error('[flowAPI] Invalid flow data structure for flow:', row.id);
-                    flowData = { nodes: [], edges: [] };
-                }
-            } catch (e) {
-                console.error('[flowAPI] Failed to parse flow data:', e);
-                flowData = { nodes: [], edges: [] };
-            }
-
-            return {
-                id: row.id,
-                owner_id: row.owner_id,
-                name: row.name || '未命名工作流',  // FIX: Null protection
-                description: row.description ?? undefined,
-                icon_kind: (row.icon_kind as FlowRecord['icon_kind']) ?? undefined,
-                icon_name: row.icon_name ?? undefined,
-                icon_url: row.icon_url ?? undefined,
-                node_count: row.node_count ?? flowData.nodes.length,  // FIX: Use validated flowData
-                data: flowData,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-            };
-        });
+        return ((data || []) as SupabaseFlowRow[]).map(mapRowToFlowRecord);
     },
 
     /**
@@ -86,19 +107,7 @@ export const flowAPI = {
 
         if (!data) return null;
 
-        return {
-            id: data.id,
-            owner_id: data.owner_id,
-            name: data.name,
-            description: data.description || undefined,
-            icon_kind: (data.icon_kind as FlowRecord['icon_kind']) || undefined,
-            icon_name: data.icon_name || undefined,
-            icon_url: data.icon_url || undefined,
-            node_count: data.node_count ?? ((data.data as unknown as FlowData)?.nodes || []).length,
-            data: data.data as unknown as FlowData,
-            created_at: data.created_at,
-            updated_at: data.updated_at,
-        };
+        return mapRowToFlowRecord(data as SupabaseFlowRow);
     },
 
     /**
@@ -107,13 +116,16 @@ export const flowAPI = {
     async createFlow(
         name: string,
         flowData: FlowData,
-        ownerId: string = "anonymous",
+        ownerId?: string,
         description?: string
     ): Promise<FlowRecord> {
+        // Use provided ownerId or get current user's ID
+        const userId = ownerId || await this.getCurrentUserId();
+
         const { data, error } = await supabase
             .from("flows")
             .insert({
-                owner_id: ownerId,
+                owner_id: userId,
                 name,
                 description: description || null,
                 data: flowData as any, // Cast to satisfy Json type
@@ -127,19 +139,7 @@ export const flowAPI = {
             throw new Error(`Failed to create flow: ${error.message}`);
         }
 
-        return {
-            id: data.id,
-            owner_id: data.owner_id,
-            name: data.name,
-            description: data.description || undefined,
-            icon_kind: (data.icon_kind as FlowRecord['icon_kind']) || undefined,
-            icon_name: data.icon_name || undefined,
-            icon_url: data.icon_url || undefined,
-            node_count: data.node_count ?? ((data.data as unknown as FlowData)?.nodes || []).length,
-            data: data.data as unknown as FlowData,
-            created_at: data.created_at,
-            updated_at: data.updated_at,
-        };
+        return mapRowToFlowRecord(data as SupabaseFlowRow);
     },
 
     /**
@@ -178,19 +178,7 @@ export const flowAPI = {
             throw new Error(`Failed to update flow: ${error.message}`);
         }
 
-        return {
-            id: data.id,
-            owner_id: data.owner_id,
-            name: data.name,
-            description: data.description || undefined,
-            icon_kind: (data.icon_kind as FlowRecord['icon_kind']) || undefined,
-            icon_name: data.icon_name || undefined,
-            icon_url: data.icon_url || undefined,
-            node_count: data.node_count ?? ((data.data as unknown as FlowData)?.nodes || []).length,
-            data: data.data as unknown as FlowData,
-            created_at: data.created_at,
-            updated_at: data.updated_at,
-        };
+        return mapRowToFlowRecord(data as SupabaseFlowRow);
     },
 
     /**
@@ -229,11 +217,12 @@ export const flowAPI = {
         if (!existing) throw new Error("Flow not found");
         const copyName = `${existing.name} Copy`;
         const newFlow = await this.createFlow(copyName, existing.data, existing.owner_id, existing.description);
-        await this.updateFlow(newFlow.id, {
+        // Update icon fields and return the result directly (no need for extra getFlow call)
+        const updatedFlow = await this.updateFlow(newFlow.id, {
             icon_kind: existing.icon_kind,
             icon_name: existing.icon_name,
             icon_url: existing.icon_url,
         });
-        return (await this.getFlow(newFlow.id)) as FlowRecord;
+        return updatedFlow;
     },
 };

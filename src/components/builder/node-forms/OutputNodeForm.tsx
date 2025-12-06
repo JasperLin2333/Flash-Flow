@@ -27,19 +27,7 @@ export function OutputNodeForm({ form }: OutputNodeFormProps) {
         )}
       />
 
-      <FormField
-        control={form.control}
-        name="text"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel className={LABEL_CLASS}>输出文本内容</FormLabel>
-            <FormControl>
-              <Textarea {...field} readOnly placeholder="运行后将填充输出…" className={`min-h-[100px] ${INPUT_CLASS} cursor-default`} />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
+
     </>
   );
 }

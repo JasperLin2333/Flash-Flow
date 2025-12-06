@@ -69,9 +69,9 @@ export function EditFlowDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={DIALOG_STYLE.content}>
         <DialogHeader>
-          <DialogTitle className="font-bold text-base">编辑工作流</DialogTitle>
+          <DialogTitle className="font-bold text-base">编辑助手</DialogTitle>
           <DialogDescription className="text-xs text-gray-500">
-            修改基本信息或更换头像
+            修改基本信息
           </DialogDescription>
         </DialogHeader>
 
@@ -104,7 +104,7 @@ export function EditFlowDialog({
 
           {/* 摘要输入 */}
           <div>
-            <div className="text-xs font-medium text-gray-600 mb-1">摘要</div>
+            <div className="text-xs font-medium text-gray-600 mb-1">描述</div>
             <Textarea
               value={formState.description}
               onChange={(e) =>
