@@ -103,20 +103,32 @@ interface MutationInstruction {
 
 ## 1. Input 节点
 \`\`\`json
-{"label": "名称", "enableTextInput": true, "enableFileInput": false, "enableStructuredForm": false,
- "fileConfig": {"allowedTypes": [".pdf", ".xlsx", "image/*"], "maxSizeMB": 50, "maxCount": 10},
- "formFields": [{"type": "text|select|multi-select", "name": "field_xxx", "label": "标签", "required": false, "options": [], "defaultValue": ""}]}
+{"label": "危机分析", "enableTextInput": true, "enableFileInput": false, "enableStructuredForm": true,
+ "formFields": [{"type": "text", "name": "stock_code", "label": "股票代码", "required": true},
+               {"type": "select", "name": "risk_type", "label": "风险类型", "options": [...]}]}
 \`\`\`
 **输出**: user_input, timestamp, files（数组，每个文件有 name/type/size/url）, formData（嵌套对象）
 
-**⚠️ files 引用规则（重要！）**:
+### ⚠️⚠️⚠️ formData 引用规则（最重要！）
+**formFields 属性**:
+| 属性 | 用途 | 示例 |
+|------|------|------|
+| \`name\` | **引用时使用** | \`stock_code\`、\`risk_type\` |
+| \`label\` | 仅前端显示 | \`股票代码\`、\`风险类型\` |
+
+**✅ 正确 vs ❌ 错误**:
+| 场景 | ✅ 正确 | ❌ 错误 |
+|------|--------|--------|
+| 引用股票代码 | \`{{危机分析.formData.stock_code}}\` | \`{{输入.股票代码}}\`、\`{{危机分析.stock_code}}\` |
+| Branch条件 | \`危机分析.formData.risk_type === 'A'\` | \`输入.风险类型 === 'A'\` |
+
+**规则**: 1) 必须有 \`formData.\` 前缀；2) 使用 \`name\` 属性值，不是 \`label\` 中文名
+
+**⚠️ files 引用规则**:
 | 场景 | 正确格式 | 错误写法 |
 |------|---------|----------|
 | RAG inputMappings.files | \`{{节点名称.files}}\` | - |
 | LLM/Tool 引用单个文件 | \`{{节点名称.files[0].name}}\` | ❌ \`{{节点名称.files.name}}\` |
-| 引用第2个文件URL | \`{{节点名称.files[1].url}}\` | ❌ \`{{节点名称.files}}\` |
-
-**formData**: \`{{节点名称.formData.fieldName}}\`
 
 ## 2. LLM 节点
 \`\`\`json
@@ -231,22 +243,29 @@ interface MutationInstruction {
 
 # 🔄 变量引用
 
-**格式**: \`{{节点名称.字段名}}\`
+**格式**: \`{{节点label.字段name}}\`
 
 | 示例 | 说明 |
 |------|------|
 | \`{{user_input}}\` | 直接引用（在所有上游中查找）|
-| \`{{用户输入.user_input}}\` | 按节点名称引用（推荐）|
+| \`{{用户输入.user_input}}\` | 按节点label引用（推荐）|
 | \`{{AI助手.response}}\` | LLM 输出 |
-| \`{{表单.formData.style}}\` | 表单嵌套字段 |
 | \`{{搜索.results}}\` | 工具输出 |
 
-**⚠️ files 数组引用（必看）**:
+**⚠️⚠️⚠️ formData 引用（最常犯错）**:
+formFields: \`{"name": "stock_code", "label": "股票代码"}\`
+| 场景 | ✅ 正确 | ❌ 错误 |
+|------|--------|--------|
+| 引用表单字段 | \`{{节点label.formData.stock_code}}\` | \`{{节点label.股票代码}}\` |
+| Branch条件 | \`表单.formData.type === 'A'\` | \`输入.类型 === 'A'\` |
+
+**关键**: 1) \`formData.\` 前缀必须有；2) 用 \`name\` 属性，不是 \`label\`
+
+**⚠️ files 数组引用**:
 | 场景 | 正确写法 | 错误写法 |
 |------|---------|----------|
 | RAG inputMappings.files | \`{{输入.files}}\` | - |
 | LLM prompt 引用文件名 | \`{{输入.files[0].name}}\` | ❌ \`{{输入.files.name}}\` |
-| LLM prompt 引用文件URL | \`{{输入.files[0].url}}\` | ❌ \`{{输入.files}}\` |
 
 **⚠️ 变量安全**: 引用不存在的变量返回空字符串，Branch 条件中视为 false
 
@@ -334,10 +353,11 @@ interface MutationInstruction {
 4. ✅ enableFileInput=true时配置fileConfig
 5. ✅ enableStructuredForm=true时配置formFields
 6. ✅ 分支LLM启用enableMemory，分类LLM禁用
-7. ✅ 使用 {{节点名称.变量}} 引用（表单用formData.xx，**文件必须用files[0].xx索引访问**）
-8. ✅ Output配置正确的mode
-9. ⚠️ **分支场景必须用select模式，不要用template**
-10. ⚠️ **分类LLM必须声明"只输出类别名称"**
+7. ⚠️ **formData引用: \`{{节点label.formData.字段name}}\`，不是 \`{{节点.中文标签}}\`**
+8. ⚠️ **files引用: \`{{节点.files[0].name}}\`，必须用索引[0]访问**
+9. ✅ Output配置正确的mode
+10. ⚠️ **分支场景必须用select模式，不要用template**
+11. ⚠️ **分类LLM必须声明"只输出类别名称"**
 
 # 输出
 只输出纯JSON：{"action": "...", ...}
