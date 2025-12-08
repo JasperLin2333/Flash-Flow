@@ -1,13 +1,13 @@
 import { z } from "zod";
 import type { LucideIcon } from "lucide-react";
-import { Search, Calculator as CalcIcon } from "lucide-react";
+import { Search, Calculator as CalcIcon, Clock, CloudSun, Globe } from "lucide-react";
 
 // ============ Type Definitions ============
 
 /**
  * Available tool types in the registry
  */
-export type ToolType = "web_search" | "calculator";
+export type ToolType = "web_search" | "calculator" | "datetime" | "weather" | "url_reader";
 
 /**
  * Zod schema type helper - extracts input type from schema
@@ -24,7 +24,7 @@ export interface ToolConfig<T extends z.ZodTypeAny = z.ZodTypeAny> {
     description: string;
     icon: LucideIcon;
     schema: T;
-    category: "search" | "math" | "data" | "integration";
+    category: "search" | "math" | "data" | "integration" | "utility";
 }
 
 // ============ Tool Schemas ============
@@ -54,6 +54,59 @@ const calculatorSchema = z.object({
     expression: z.string()
         .min(1, "Expression is required")
         .describe("请在此输入你想要计算的表达式"),
+});
+
+/**
+ * Datetime Tool Schema
+ * Provides date/time operations: get current time, format, diff, add/subtract
+ */
+const datetimeSchema = z.object({
+    operation: z.enum(["now", "format", "diff", "add"])
+        .default("now")
+        .describe("操作类型：now(获取当前时间)、format(格式化)、diff(日期差)、add(日期加减)"),
+    date: z.string()
+        .optional()
+        .describe("输入日期（ISO 格式或常见格式），留空则使用当前时间"),
+    targetDate: z.string()
+        .optional()
+        .describe("目标日期（用于计算日期差）"),
+    format: z.string()
+        .default("YYYY-MM-DD HH:mm:ss")
+        .optional()
+        .describe("输出格式，如 YYYY-MM-DD、HH:mm:ss 等"),
+    amount: z.number()
+        .optional()
+        .describe("增减数量（用于日期加减）"),
+    unit: z.enum(["year", "month", "day", "hour", "minute", "second"])
+        .optional()
+        .describe("时间单位（用于日期加减）"),
+});
+
+/**
+ * Weather Tool Schema
+ * Queries real-time weather for a specified city
+ */
+const weatherSchema = z.object({
+    city: z.string()
+        .min(1, "城市名称不能为空")
+        .describe("请输入要查询天气的城市名称，如：北京、上海"),
+});
+
+/**
+ * URL Reader Tool Schema
+ * Extracts and parses main content from a web page
+ */
+const urlReaderSchema = z.object({
+    url: z.string()
+        .url("请输入有效的 URL")
+        .describe("请输入要读取的网页 URL"),
+    maxLength: z.number()
+        .int()
+        .min(100)
+        .max(50000)
+        .default(5000)
+        .optional()
+        .describe("返回内容的最大字符数（100-50000）"),
 });
 
 // ============ Tool Registry ============
@@ -88,6 +141,30 @@ export const TOOL_REGISTRY = {
         icon: CalcIcon,
         schema: calculatorSchema,
         category: "math" as const,
+    },
+    datetime: {
+        id: "datetime" as const,
+        name: "日期时间",
+        description: "获取当前时间、日期格式化、日期计算",
+        icon: Clock,
+        schema: datetimeSchema,
+        category: "utility" as const,
+    },
+    weather: {
+        id: "weather" as const,
+        name: "天气查询",
+        description: "实时查询指定城市的天气信息",
+        icon: CloudSun,
+        schema: weatherSchema,
+        category: "data" as const,
+    },
+    url_reader: {
+        id: "url_reader" as const,
+        name: "网页读取",
+        description: "提取并解析网页的正文内容",
+        icon: Globe,
+        schema: urlReaderSchema,
+        category: "data" as const,
     },
 } as const satisfies Record<ToolType, ToolConfig>;
 

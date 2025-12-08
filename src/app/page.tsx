@@ -65,7 +65,7 @@ export default function Home() {
               Flash Flow
             </h1>
           </div>
-          <p className="text-zinc-500 text-lg text-center tracking-wide font-light">想要什么，就做什么</p>
+          <p className="text-zinc-700 text-lg text-center tracking-wide font-light">想要什么，就做什么</p>
 
           <div className="mt-10 w-full">
             <PromptBubble

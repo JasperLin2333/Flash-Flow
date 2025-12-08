@@ -280,40 +280,48 @@ export default function PromptBubble(props: PromptBubbleProps) {
                             <SelectValue placeholder="请选择" />
                           </SelectTrigger>
                           <SelectContent>
-                            {(field as SelectFieldConfig).options.map((opt) => (
-                              <SelectItem key={opt} value={opt}>
-                                {opt}
-                              </SelectItem>
-                            ))}
+                            {(field as SelectFieldConfig).options.map((opt) => {
+                              // Handle both string and {label, value} object formats
+                              const optValue = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
+                              const optLabel = typeof opt === 'object' && opt !== null ? (opt as { label: string }).label : opt;
+                              return (
+                                <SelectItem key={optValue} value={optValue}>
+                                  {optLabel}
+                                </SelectItem>
+                              );
+                            })}
                           </SelectContent>
                         </Select>
                       ) : field.type === "multi-select" ? (
                         <div className={`border rounded-md p-2 space-y-2 max-h-40 overflow-y-auto ${hasError ? "border-red-500" : "border-gray-200"}`}>
                           {(field as MultiSelectFieldConfig).options.map((opt) => {
+                            // Handle both string and {label, value} object formats
+                            const optValue = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
+                            const optLabel = typeof opt === 'object' && opt !== null ? (opt as { label: string }).label : opt;
                             const currentVals = (formData[field.name] as string[]) || [];
                             return (
-                              <div key={opt} className="flex items-center space-x-2">
+                              <div key={optValue} className="flex items-center space-x-2">
                                 <input
                                   type="checkbox"
-                                  id={`${field.name}-${opt}`}
-                                  checked={currentVals.includes(opt)}
+                                  id={`${field.name}-${optValue}`}
+                                  checked={currentVals.includes(optValue)}
                                   onChange={(e) => {
                                     const checked = e.target.checked;
                                     let newVals = [...currentVals];
                                     if (checked) {
-                                      newVals.push(opt);
+                                      newVals.push(optValue);
                                     } else {
-                                      newVals = newVals.filter(v => v !== opt);
+                                      newVals = newVals.filter(v => v !== optValue);
                                     }
                                     handleFieldChange(field.name, newVals);
                                   }}
                                   className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"
                                 />
                                 <label
-                                  htmlFor={`${field.name}-${opt}`}
+                                  htmlFor={`${field.name}-${optValue}`}
                                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                                 >
-                                  {opt}
+                                  {optLabel}
                                 </label>
                               </div>
                             )

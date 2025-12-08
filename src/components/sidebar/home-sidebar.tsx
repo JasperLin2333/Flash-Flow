@@ -9,6 +9,8 @@ import {
     ArrowUpRight,
     List,
 } from "lucide-react";
+import Image from "next/image";
+import LogoBlack from "@/app/logoBlack.png";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -133,12 +135,13 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
                                     className="w-full group flex items-center justify-between px-4 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white shadow-sm hover:shadow-md transition-all duration-200"
                                 >
                                     <div className="flex items-center gap-3">
-                                        <div className="w-5 h-5 rounded flex items-center justify-center bg-white/10 text-zinc-100">
-                                            <Zap className="w-3.5 h-3.5" />
+                                        <div className="w-5 h-5 flex items-center justify-center">
+                                            <Image src={LogoBlack} alt="Flow Box" className="w-full h-full object-contain" />
                                         </div>
                                         <span className="text-[15px] font-medium tracking-wide">Flow Box</span>
                                     </div>
                                     <ArrowUpRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+
                                 </button>
                             </div>
                             <Separator className="bg-gray-100 h-px mt-1" />

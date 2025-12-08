@@ -1,12 +1,12 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useFlowStore } from "@/store/flowStore";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { nanoid } from "nanoid";
 import FlowAppInterface from "@/components/apps/FlowAppInterface";
 import { extractTextFromUpstream } from "@/store/executors/contextUtils";
+import { fileUploadService } from "@/services/fileUploadService";
+import type { FlowContext } from "@/types/flow";
 
 // ============ Constants ============
 const ANIMATION = {
@@ -25,7 +25,7 @@ const ERROR_MSG = "Error executing flow.";
  * 使用 extractTextFromUpstream 正确过滤 Branch 元数据
  */
 function extractExecutionOutput(
-    flowContext: Record<string, any>,
+    flowContext: FlowContext,
     nodes: Array<{ id: string; type: string }>
 ): string {
     const outputNode = nodes.find((n) => n.type === "output");
@@ -63,7 +63,6 @@ export default function AppModeOverlay() {
     const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string; files?: File[] }[]>([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const scrollRef = useRef<HTMLDivElement>(null);
 
     // 会话 ID：用于 LLM 对话记忆功能
     // 每个对话保持同一个 sessionId，新建对话时重置
@@ -82,13 +81,6 @@ export default function AppModeOverlay() {
         setInput("");
         setSessionId(nanoid(10)); // 生成新的会话 ID
     }, [isLoading]);
-
-    // Auto-scroll to bottom
-    useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [messages, isLoading, streamingText]);
 
     // 处理流程完成或错误
     useEffect(() => {
@@ -115,6 +107,7 @@ export default function AppModeOverlay() {
         const inputNode = nodes.find((n) => n.type === "input");
         const inputNodeData = inputNode?.data as import("@/types/flow").InputNodeData | undefined;
         const enableTextInput = inputNodeData?.enableTextInput !== false;
+        const currentFlowId = useFlowStore.getState().currentFlowId;
 
         // 检查是否有内容可发送
         const hasText = input.trim().length > 0;
@@ -138,9 +131,35 @@ export default function AppModeOverlay() {
         setMessages((prev) => [...prev, { role: "user", content: userMsg, files }]);
         setIsLoading(true);
 
-        // 更新 Input Node并运行 Flow（传递 sessionId 用于记忆功能）
+        // 上传文件并获取 URL（如果有文件）
+        let uploadedFiles: { name: string; size: number; type: string; url: string }[] = [];
+        if (hasFiles && inputNode && currentFlowId) {
+            try {
+                const uploadPromises = files.map(async (file) => {
+                    const result = await fileUploadService.uploadFile(file, inputNode.id, currentFlowId);
+                    if (result) {
+                        return {
+                            name: file.name,
+                            size: file.size,
+                            type: file.type,
+                            url: result.url,
+                        };
+                    }
+                    return null;
+                });
+                const results = await Promise.all(uploadPromises);
+                uploadedFiles = results.filter((f): f is NonNullable<typeof f> => f !== null);
+            } catch (error) {
+                console.error("文件上传失败:", error);
+            }
+        }
+
+        // 更新 Input Node 并运行 Flow（传递 sessionId 用于记忆功能）
         if (inputNode) {
-            updateNodeData(inputNode.id, { text: input }); // 仍然存储原始文本（可能为空）
+            updateNodeData(inputNode.id, {
+                text: input,
+                files: uploadedFiles.length > 0 ? uploadedFiles : undefined,
+            });
         }
         await runFlow(sessionId);
     };

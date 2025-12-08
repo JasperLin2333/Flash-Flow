@@ -185,7 +185,7 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
               <Pencil className="w-4 h-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">修改助手</TooltipContent>
+          <TooltipContent side="top">编辑flow</TooltipContent>
         </Tooltip>
       </div>
 

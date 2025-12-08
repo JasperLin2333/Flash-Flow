@@ -66,6 +66,10 @@ export async function POST(req: Request) {
                     temperature: temperature || 0.7,
                 }),
             });
+            if (!resp.ok) {
+                const errorData = await resp.json();
+                return NextResponse.json({ error: "Doubao API error", details: errorData }, { status: resp.status });
+            }
             const data = await resp.json();
             responseText = data?.choices?.[0]?.message?.content || data?.output_text || "Error calling Doubao";
         } else {

@@ -40,7 +40,10 @@
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-hook-form": "^7.66.1",
+    "react-markdown": "^10.1.0",
     "react-textarea-autosize": "^8.5.9",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.1.13",
     "zustand": "^5.0.8"

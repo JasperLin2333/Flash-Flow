@@ -23,11 +23,9 @@ export class InputNodeExecutor extends BaseNodeExecutor {
         output.files = inputData.files;
       }
 
-      // Spread form data fields as individual variables
-      if (inputData.formData) {
-        Object.entries(inputData.formData).forEach(([key, value]) => {
-          output[key] = value;
-        });
+      // Include formData as a nested object (fields accessible via formData.fieldName)
+      if (inputData.formData && Object.keys(inputData.formData).length > 0) {
+        output.formData = inputData.formData;
       }
 
       return output;

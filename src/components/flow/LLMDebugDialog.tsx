@@ -5,8 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useFlowStore } from "@/store/flowStore";
-import { extractVariables } from "@/lib/promptParser";
-import type { AppNode, LLMNodeData, DebugInputs } from "@/types/flow";
+import type { DebugInputs } from "@/types/flow";
 import { Play, AlertCircle } from "lucide-react";
 
 export default function LLMDebugDialog() {
@@ -17,61 +16,30 @@ export default function LLMDebugDialog() {
     const setDebugInputs = useFlowStore((s) => s.setLLMDebugInputs);
     const confirmRun = useFlowStore((s) => s.confirmLLMDebugRun);
 
-    const [inputValues, setInputValues] = useState<Record<string, string>>({});
-    const [variables, setVariables] = useState<string[]>([]);
+    const [userInputValue, setUserInputValue] = useState("");
 
-    // 当弹窗打开或节点ID变化时，提取变量
+    // 当弹窗打开时重置输入
     useEffect(() => {
         if (!open || !nodeId) {
-            setVariables([]);
-            setInputValues({});
+            setUserInputValue("");
             return;
         }
-
-        const node = nodes.find(n => n.id === nodeId) as AppNode | undefined;
-        if (!node || node.type !== 'llm') {
-            setVariables([]);
-            return;
-        }
-
-        const llmData = node.data as LLMNodeData;
-        const systemPrompt = llmData.systemPrompt || '';
-        const extractedVars = extractVariables(systemPrompt);
-
-        setVariables(extractedVars);
-
-        // 初始化输入值
-        const initialValues: Record<string, string> = {};
-        extractedVars.forEach(v => {
-            initialValues[v] = '';
-        });
-        setInputValues(initialValues);
-    }, [open, nodeId, nodes]);
-
-    const handleInputChange = (varName: string, value: string) => {
-        setInputValues(prev => ({
-            ...prev,
-            [varName]: value
-        }));
-    };
+        setUserInputValue("");
+    }, [open, nodeId]);
 
     const handleConfirm = () => {
-        // 检查是否所有变量都已填写
-        const allFilled = variables.every(v => inputValues[v]?.trim());
-
-        if (!allFilled) {
-            // 可以添加更友好的错误提示
+        // 检查 user_input 是否已填写
+        if (!userInputValue.trim()) {
             return;
         }
 
         // 转换为扩展性数据结构
-        const debugInputs: DebugInputs = {};
-        Object.entries(inputValues).forEach(([key, value]) => {
-            debugInputs[key] = {
+        const debugInputs: DebugInputs = {
+            user_input: {
                 type: 'text',
-                value
-            };
-        });
+                value: userInputValue
+            }
+        };
 
         setDebugInputs(debugInputs);
         confirmRun();
@@ -79,6 +47,7 @@ export default function LLMDebugDialog() {
 
     const currentNode = nodes.find(n => n.id === nodeId);
     const nodeName = currentNode?.data?.label || 'LLM';
+    const isEmpty = !userInputValue.trim();
 
     return (
         <Dialog open={open} onOpenChange={(val) => { if (!val) close(); }}>
@@ -89,43 +58,31 @@ export default function LLMDebugDialog() {
                         填写测试数据
                     </DialogTitle>
                     <DialogDescription className="text-xs text-gray-500">
-                        正在调试节点 <span className="font-semibold text-gray-700">{nodeName}</span>，请为以下变量填写测试值
+                        正在调试节点 <span className="font-semibold text-gray-700">{nodeName}</span>，请填写测试输入
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 py-4 max-h-[400px] overflow-y-auto">
-                    {variables.length === 0 ? (
-                        <div className="text-center py-8 text-sm text-gray-500">
-                            当前 Prompt 中没有检测到变量
-                            <div className="mt-2 text-xs text-gray-400">
-                                变量格式示例: {`{{user_input}}`}
-                            </div>
-                        </div>
-                    ) : (
-                        variables.map((varName) => {
-                            const isEmpty = !inputValues[varName]?.trim();
-
-                            return (
-                                <div key={varName} className="space-y-2">
-                                    <Label className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                        {varName}
-                                        {isEmpty && (
-                                            <span className="text-xs text-red-600 font-medium">(必填)</span>
-                                        )}
-                                    </Label>
-                                    <Input
-                                        placeholder={`请输入 ${varName} 的测试值...`}
-                                        value={inputValues[varName] || ''}
-                                        onChange={(e) => handleInputChange(varName, e.target.value)}
-                                        className={`transition-all duration-150 ${isEmpty
-                                                ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
-                                                : 'border-gray-200'
-                                            }`}
-                                    />
-                                </div>
-                            );
-                        })
-                    )}
+                <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                        <Label className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                            user_input
+                            {isEmpty && (
+                                <span className="text-xs text-red-600 font-medium">(必填)</span>
+                            )}
+                        </Label>
+                        <Input
+                            placeholder="请输入用户消息内容..."
+                            value={userInputValue}
+                            onChange={(e) => setUserInputValue(e.target.value)}
+                            className={`transition-all duration-150 ${isEmpty
+                                ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
+                                : 'border-gray-200'
+                                }`}
+                        />
+                        <p className="text-xs text-gray-400">
+                            这是 LLM 节点所需的用户输入，对应"需要的上游输入"中的 user_input 字段
+                        </p>
+                    </div>
                 </div>
 
                 <DialogFooter>
@@ -138,7 +95,7 @@ export default function LLMDebugDialog() {
                     </Button>
                     <Button
                         onClick={handleConfirm}
-                        disabled={variables.length === 0 || !variables.every(v => inputValues[v]?.trim())}
+                        disabled={isEmpty}
                         className="gap-2 bg-black text-white hover:bg-black/85 active:bg-black/95 font-semibold transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Play className="w-3 h-3" />

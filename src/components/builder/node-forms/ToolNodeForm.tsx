@@ -140,7 +140,7 @@ export function ToolNodeForm({ form }: ToolNodeFormProps) {
                 render={({ field }) => (
                     <FormItem>
                         <FormLabel className={LABEL_CLASS}>工具类型</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value || "web_search"}>
                             <FormControl>
                                 <SelectTrigger className={INPUT_CLASS}>
                                     <SelectValue placeholder="选择工具" />

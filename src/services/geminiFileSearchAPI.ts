@@ -240,6 +240,101 @@ class GeminiFileSearchAPI {
     }
 
     /**
+     * 使用多模态直接处理文件（不经过 File Search Store）
+     * 适用于动态上传的文件，速度更快
+     */
+    async queryWithFiles(
+        query: string,
+        files: Array<{ name: string; url: string; type?: string }>
+    ): Promise<SearchResult> {
+        this.ensureInitialized();
+
+        if (!files || files.length === 0) {
+            throw new Error('No files provided for multimodal query');
+        }
+
+        try {
+            // 构建多模态内容（文件 + 查询）
+            const parts: any[] = [];
+
+            // 添加文件内容
+            for (const file of files) {
+                if (!file.url) continue;
+
+                try {
+                    // 从 URL 获取文件
+                    const response = await fetch(file.url);
+                    if (!response.ok) {
+                        console.warn(`[GeminiFileSearchAPI] Failed to fetch file: ${file.name}`);
+                        continue;
+                    }
+
+                    const blob = await response.blob();
+                    const arrayBuffer = await blob.arrayBuffer();
+                    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+
+                    // 确定 MIME 类型
+                    const mimeType = file.type || blob.type || this.getMimeType(file.name);
+
+                    parts.push({
+                        inlineData: {
+                            mimeType,
+                            data: base64Data
+                        }
+                    });
+
+                    console.log(`[GeminiFileSearchAPI] Added file: ${file.name} (${mimeType})`);
+                } catch (fetchError) {
+                    console.warn(`[GeminiFileSearchAPI] Error fetching file ${file.name}:`, fetchError);
+                }
+            }
+
+            if (parts.length === 0) {
+                throw new Error('No valid files could be loaded');
+            }
+
+            // 添加查询文本
+            parts.push({ text: query });
+
+            // 调用 Gemini 多模态 API
+            const response = await this.ai!.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: [{ role: 'user', parts }]
+            });
+
+            const text = response.text || '';
+
+            return {
+                documents: [text],
+                citations: files.map(f => ({ source: f.name, chunk: '' }))
+            };
+        } catch (error) {
+            console.error('[GeminiFileSearchAPI] queryWithFiles error:', error);
+            throw new Error(`Multimodal query failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    /**
+     * 根据文件扩展名推断 MIME 类型
+     */
+    private getMimeType(filename: string): string {
+        const ext = filename.split('.').pop()?.toLowerCase();
+        const mimeTypes: Record<string, string> = {
+            'pdf': 'application/pdf',
+            'txt': 'text/plain',
+            'md': 'text/markdown',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+        };
+        return mimeTypes[ext || ''] || 'application/octet-stream';
+    }
+
+    /**
      * 列出所有 File Search Stores
      */
     async listFileSearchStores(): Promise<FileSearchStore[]> {

@@ -55,7 +55,7 @@ export async function uploadFlowIcon(
     // 动态导入 Supabase 客户端（避免循环依赖）
     const { supabase } = await import("@/lib/supabase");
 
-    console.log("[uploadFlowIcon] Uploading to:", { bucket, path, ownerId, flowId });
+    // console.log("[uploadFlowIcon] Uploading to:", { bucket, path, ownerId, flowId });
 
     // 上传文件
     const { data: uploadData, error: uploadError } = await supabase
@@ -67,7 +67,7 @@ export async function uploadFlowIcon(
       throw uploadError;
     }
 
-    console.log("[uploadFlowIcon] Upload success:", uploadData);
+    // console.log("[uploadFlowIcon] Upload success:", uploadData);
 
     // 获取公开 URL
     const { data } = supabase

@@ -4,11 +4,12 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { User, Brain, Download, Search, Clock, CheckCircle2, Loader2, AlertCircle, Play, Wrench, GitBranch } from "lucide-react";
-import type { LLMNodeData, RAGNodeData, InputNodeData, ExecutionStatus } from "@/types/flow";
+import type { LLMNodeData, RAGNodeData, InputNodeData, ExecutionStatus, AppNode } from "@/types/flow";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFlowStore } from "@/store/flowStore";
 import { useShallow } from "zustand/shallow";
+import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
 
 // ============ Constants ============
 const ICON: Record<string, React.ReactNode> = {
@@ -35,8 +36,49 @@ const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 tra
 
 // PERFORMANCE FIX: Wrap with React.memo to prevent unnecessary re-renders
 // When one node updates, all other nodes won't re-render
+// FIX: Extract LLM metadata component to properly use Hooks
+function LLMMetadata({ llm }: { llm: LLMNodeData }) {
+  const [modelName, setModelName] = React.useState<string>(llm?.model || "");
+
+  React.useEffect(() => {
+    if (!llm?.model) return;
+
+    import("@/services/llmModelsAPI").then(({ llmModelsAPI }) => {
+      llmModelsAPI.listModels().then(models => {
+        const found = models.find(m => m.model_id === llm.model);
+        if (found) {
+          setModelName(found.model_name);
+        }
+      });
+    });
+  }, [llm?.model]);
+
+  const hasConfig = llm?.model;
+  if (!hasConfig) return null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <span className={METADATA_LABEL_STYLE}>模型</span>
+        <span className={METADATA_VALUE_STYLE}>{modelName}</span>
+      </div>
+      {typeof llm.temperature === "number" && (
+        <div className="flex items-center gap-2">
+          <span className={METADATA_LABEL_STYLE}>温度</span>
+          <span className={METADATA_VALUE_STYLE}>{llm.temperature}</span>
+        </div>
+      )}
+      {llm.enableMemory && (
+        <div className="flex items-center gap-2">
+          <span className={METADATA_LABEL_STYLE}>记忆</span>
+          <span className={METADATA_VALUE_STYLE}>开启 ({llm.memoryMaxTurns || 10}轮)</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const CustomNode = ({ id, data, type, selected }: NodeProps) => {
-  // FIX: Removed dangerous double assertions, use direct cast with optional chaining
   const llm = data as LLMNodeData;
   const rag = data as RAGNodeData;
   const input = data as InputNodeData;
@@ -44,63 +86,21 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   const executionTime = data.executionTime as number | undefined;
 
   // PERFORMANCE FIX: Use useShallow for batched store subscriptions
-  // This prevents re-renders when the object reference changes but values are same
-  const { runNode, openLLMDebugDialog, openRAGDebugDialog, openToolDebugDialog, edges, flowContext } = useFlowStore(
+  const { runNode, openLLMDebugDialog, openRAGDebugDialog, openToolDebugDialog, edges, nodes } = useFlowStore(
     useShallow((s) => ({
       runNode: s.runNode,
       openLLMDebugDialog: s.openLLMDebugDialog,
       openRAGDebugDialog: s.openRAGDebugDialog,
       openToolDebugDialog: s.openToolDebugDialog,
       edges: s.edges,
-      flowContext: s.flowContext,
+      nodes: s.nodes,
     }))
   );
 
   const renderMetadata = () => {
     // ===== LLM 节点 =====
     if (type === "llm") {
-      // eslint-disable-next-line react-hooks/rules-of-hooks
-      const [modelName, setModelName] = React.useState<string>(llm?.model || "");
-
-      // eslint-disable-next-line react-hooks/rules-of-hooks
-      React.useEffect(() => {
-        if (!llm?.model) return;
-
-        // Simple cache map to avoid repeated requests for same model
-        // In a real app, use React Query or a global store
-        import("@/services/llmModelsAPI").then(({ llmModelsAPI }) => {
-          llmModelsAPI.listModels().then(models => {
-            const found = models.find(m => m.model_id === llm.model);
-            if (found) {
-              setModelName(found.model_name);
-            }
-          });
-        });
-      }, [llm?.model]);
-
-      const hasConfig = llm?.model;
-      if (!hasConfig) return null;
-
-      return (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className={METADATA_LABEL_STYLE}>模型</span>
-            <span className={METADATA_VALUE_STYLE}>{modelName}</span>
-          </div>
-          {typeof llm.temperature === "number" && (
-            <div className="flex items-center gap-2">
-              <span className={METADATA_LABEL_STYLE}>温度</span>
-              <span className={METADATA_VALUE_STYLE}>{llm.temperature}</span>
-            </div>
-          )}
-          {llm.enableMemory && (
-            <div className="flex items-center gap-2">
-              <span className={METADATA_LABEL_STYLE}>记忆</span>
-              <span className={METADATA_VALUE_STYLE}>开启 ({llm.memoryMaxTurns || 10}轮)</span>
-            </div>
-          )}
-        </div>
-      );
+      return <LLMMetadata llm={llm} />;
     }
 
     // ===== RAG 节点 =====
@@ -168,7 +168,9 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
       const toolLabels: Record<string, string> = {
         web_search: "网页搜索",
         calculator: "计算器",
-        code_executor: "代码执行",
+        datetime: "日期时间",
+        weather: "天气查询",
+        url_reader: "网页读取",
       };
 
       if (!toolType) return null;
@@ -205,8 +207,19 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   };
 
   const handleTestNode = () => {
-    // LLM 节点：直接打开调试弹窗
+    // LLM 节点：检查 inputMappings.user_input 是否已配置
     if (type === 'llm') {
+      const llmData = data as LLMNodeData;
+      const inputMappings = (llmData as unknown as { inputMappings?: Record<string, string> })?.inputMappings;
+      const userInputValue = inputMappings?.user_input;
+
+      // 如果已配置且不是变量引用（没有 {{），则直接运行
+      if (userInputValue && userInputValue.trim() && !userInputValue.includes('{{')) {
+        runNode(id as string, { user_input: userInputValue });
+        return;
+      }
+
+      // 否则打开调试弹窗让用户填写
       openLLMDebugDialog(id as string);
       return;
     }
@@ -217,9 +230,17 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
       return;
     }
 
-    // Tool 节点：直接打开调试弹窗
+    // Tool 节点：检查参数是否充分配置
     if (type === 'tool') {
-      openToolDebugDialog(id as string);
+      // 获取当前节点（从 store 中获取完整的节点对象）
+      const currentNode = nodes.find(n => n.id === id);
+      if (currentNode && isToolNodeParametersConfigured(currentNode)) {
+        // 如果参数充分配置，直接运行
+        runNode(id as string);
+      } else {
+        // 否则打开调试弹窗
+        openToolDebugDialog(id as string);
+      }
       return;
     }
 

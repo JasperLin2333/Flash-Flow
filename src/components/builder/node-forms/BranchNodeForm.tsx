@@ -35,10 +35,10 @@ export function BranchNodeForm({ form }: BranchNodeFormProps) {
                         <FormItem>
                             <FormLabel className={LABEL_CLASS}>判断条件 (JavaScript 表达式)</FormLabel>
                             <FormControl>
-                                <Input {...field} className={INPUT_CLASS} placeholder='input.text.length > 5' />
+                                <Input {...field} className={INPUT_CLASS} placeholder='用户输入.user_input.length > 5' />
                             </FormControl>
                             <FormDescription className="text-[10px] text-gray-400">
-                                支持使用变量，例如: input.text === "hello"
+                                使用节点名称引用变量，例如: 用户输入.user_input === "hello"
                             </FormDescription>
                             <FormMessage />
                         </FormItem>

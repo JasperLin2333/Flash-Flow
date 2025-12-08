@@ -1,0 +1,94 @@
+import { useState } from "react";
+import PromptBubble from "@/components/ui/prompt-bubble";
+import { useFlowStore } from "@/store/flowStore";
+import type { InputNodeData } from "@/types/flow";
+import { Header } from "./Header";
+import { ChatArea } from "./ChatArea";
+import { LAYOUT, UI_TEXT, type FlowAppInterfaceProps, type Message } from "./constants";
+
+// Re-export types for external use
+export type { Message, FlowAppInterfaceProps };
+
+/**
+ * FlowAppInterface - 主应用界面
+ * 提供完整的聊天交互体验
+ */
+export default function FlowAppInterface({
+    flowTitle,
+    flowIcon,
+    messages,
+    isLoading,
+    input,
+    onInputChange,
+    onSend,
+    onClose,
+    onGoHome,
+    onNewConversation,
+    sidebarOffset = 0,
+}: FlowAppInterfaceProps) {
+    const nodes = useFlowStore((s) => s.nodes);
+    const updateNodeData = useFlowStore((s) => s.updateNodeData);
+    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+
+    // Find Input node to get configuration
+    const inputNode = nodes.find(n => n.type === "input");
+    const inputNodeData = inputNode?.data as InputNodeData | undefined;
+
+    // Handle send with files and form data
+    const handleSend = () => {
+        if (inputNode) {
+            // Update Input node with files and form data before sending
+            updateNodeData(inputNode.id, {
+                text: input,
+                // In a real implementation, we would upload files here and pass URLs
+            });
+        }
+
+        onSend(selectedFiles);
+        setSelectedFiles([]);
+    };
+
+    // Handle file selection (append)
+    const handleFileSelect = (newFiles: File[]) => {
+        setSelectedFiles((prev) => [...prev, ...newFiles]);
+    };
+
+    // Handle file removal
+    const handleFileRemove = (fileToRemove: File) => {
+        setSelectedFiles((prev) => prev.filter((f) => f !== fileToRemove));
+    };
+
+    return (
+        <div className="flex flex-col flex-1 w-full h-full bg-white">
+            <Header flowTitle={flowTitle} flowIcon={flowIcon} onClose={onClose} onGoHome={onGoHome} onNewConversation={onNewConversation} />
+            <div
+                className="flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-out"
+                style={{ marginLeft: sidebarOffset }}
+            >
+                <ChatArea messages={messages} isLoading={isLoading} flowIcon={flowIcon} inputNodeData={inputNodeData} />
+                <div className={`${LAYOUT.spacing.input} bg-gray-50`}>
+                    <div className={`${LAYOUT.inputMaxWidth} mx-auto`}>
+                        <PromptBubble
+                            value={input}
+                            onChange={onInputChange}
+                            onSubmit={handleSend}
+                            placeholder={UI_TEXT.inputPlaceholder}
+                            disabled={isLoading}
+                            minRows={1}
+                            inputNodeData={inputNodeData}
+                            selectedFiles={selectedFiles}
+                            onFileSelect={handleFileSelect}
+                            onFileRemove={handleFileRemove}
+                            onFormDataChange={(formData) => {
+                                // 实时同步表单数据到 Input 节点
+                                if (inputNode) {
+                                    updateNodeData(inputNode.id, { formData });
+                                }
+                            }}
+                        />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}

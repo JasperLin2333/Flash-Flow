@@ -105,7 +105,6 @@ function BuilderContent() {
                     if (flow) {
                         // FIX: Use direct store.setState to update all values at once
                         // This prevents triggering scheduleSave which would cause infinite loop
-                        const store = useFlowStore.getState();
                         useFlowStore.setState({
                             flowTitle: flow.name,
                             flowIconKind: flow.icon_kind,

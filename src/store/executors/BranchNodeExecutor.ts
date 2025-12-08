@@ -6,77 +6,124 @@ import { getUpstreamData } from "./contextUtils";
  * 安全表达式求值器
  * 只允许特定的操作，防止代码注入攻击
  * 
- * 支持的表达式格式:
- * - input.response.includes('关键词')
- * - input.text.startsWith('前缀')
- * - input.text.endsWith('后缀')
- * - input.score > 60
- * - input.value >= 100
- * - input.count < 10
- * - input.amount <= 50
- * - input.status === 'active'
- * - input.status !== 'deleted'
- * - input.text.length > 5
+ * 支持的表达式格式 (nodeName 为上游节点名称):
+ * - nodeName.response.includes('关键词')
+ * - nodeName.text.startsWith('前缀')
+ * - nodeName.text.endsWith('后缀')
+ * - nodeName.score > 60
+ * - nodeName.value >= 100
+ * - nodeName.count < 10
+ * - nodeName.amount <= 50
+ * - nodeName.status === 'active'
+ * - nodeName.status !== 'deleted'
+ * - nodeName.text.length > 5
  */
-function safeEvaluateCondition(condition: string, input: unknown): boolean {
-    if (!condition || !input) return false;
+function safeEvaluateCondition(condition: string, context: FlowContext): boolean {
+    if (!condition) return false;
 
     const trimmed = condition.trim();
 
-    // Pattern 1: input.xxx.includes('yyy')
-    const includesMatch = trimmed.match(/^input\.(\w+(?:\.\w+)*)\.includes\(['"](.+)['"]\)$/);
+    // 通用模式: 提取 nodeName.path 格式
+    // Pattern: nodeName.path.method('arg') or nodeName.path op value
+    const extractNodeAndPath = (expr: string): { nodeData: unknown; path: string } | null => {
+        // 匹配 nodeName.path 格式 (nodeName 可以是中文或英文)
+        const match = expr.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.([\w.]+)/);
+        if (!match) return null;
+
+        const nodeName = match[1];
+        const path = match[2];
+
+        // 在 context 中查找匹配的节点（按 label 或 nodeId 匹配）
+        for (const [nodeId, nodeOutput] of Object.entries(context)) {
+            if (nodeId.startsWith('_')) continue; // 跳过 _meta 等内部字段
+
+            // 检查 nodeOutput 中是否有 label 字段与 nodeName 匹配
+            if (typeof nodeOutput === 'object' && nodeOutput !== null) {
+                const output = nodeOutput as Record<string, unknown>;
+                // 直接匹配 nodeId（如 input_1, llm_1）或节点 label
+                if (nodeId === nodeName || nodeId.toLowerCase() === nodeName.toLowerCase()) {
+                    return { nodeData: output, path };
+                }
+            }
+        }
+
+        // 如果没找到，尝试从 _meta 中按 label 查找
+        const meta = context._meta as Record<string, unknown> | undefined;
+        if (meta?.nodeLabels) {
+            const nodeLabels = meta.nodeLabels as Record<string, string>;
+            for (const [nodeId, label] of Object.entries(nodeLabels)) {
+                if (label === nodeName || label.toLowerCase() === nodeName.toLowerCase()) {
+                    const nodeOutput = context[nodeId];
+                    if (nodeOutput && typeof nodeOutput === 'object') {
+                        return { nodeData: nodeOutput, path };
+                    }
+                }
+            }
+        }
+
+        return null;
+    };
+
+    // Pattern 1: nodeName.xxx.includes('yyy')
+    const includesMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.includes\(['"](.+)['"]\)$/);
     if (includesMatch) {
-        const path = includesMatch[1];
+        const extracted = extractNodeAndPath(includesMatch[1]);
+        if (!extracted) return false;
         const searchStr = includesMatch[2];
-        const value = getNestedValue(input, path);
+        const value = getNestedValue(extracted.nodeData, extracted.path);
         return typeof value === 'string' && value.includes(searchStr);
     }
 
-    // Pattern 2: input.xxx.startsWith('yyy')
-    const startsWithMatch = trimmed.match(/^input\.(\w+(?:\.\w+)*)\.startsWith\(['"](.+)['"]\)$/);
+    // Pattern 2: nodeName.xxx.startsWith('yyy')
+    const startsWithMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.startsWith\(['"](.+)['"]\)$/);
     if (startsWithMatch) {
-        const path = startsWithMatch[1];
+        const extracted = extractNodeAndPath(startsWithMatch[1]);
+        if (!extracted) return false;
         const searchStr = startsWithMatch[2];
-        const value = getNestedValue(input, path);
+        const value = getNestedValue(extracted.nodeData, extracted.path);
         return typeof value === 'string' && value.startsWith(searchStr);
     }
 
-    // Pattern 3: input.xxx.endsWith('yyy')
-    const endsWithMatch = trimmed.match(/^input\.(\w+(?:\.\w+)*)\.endsWith\(['"](.+)['"]\)$/);
+    // Pattern 3: nodeName.xxx.endsWith('yyy')
+    const endsWithMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.endsWith\(['"](.+)['"]\)$/);
     if (endsWithMatch) {
-        const path = endsWithMatch[1];
+        const extracted = extractNodeAndPath(endsWithMatch[1]);
+        if (!extracted) return false;
         const searchStr = endsWithMatch[2];
-        const value = getNestedValue(input, path);
+        const value = getNestedValue(extracted.nodeData, extracted.path);
         return typeof value === 'string' && value.endsWith(searchStr);
     }
 
-    // Pattern 4: input.xxx === 'yyy' or input.xxx === 123
-    const strictEqualMatch = trimmed.match(/^input\.(\w+(?:\.\w+)*)\s*===\s*['"]?(.+?)['"]?$/);
+    // Pattern 4: nodeName.xxx === 'yyy' or nodeName.xxx === 123
+    const strictEqualMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*===\s*['"]?(.+?)['"]?$/);
     if (strictEqualMatch) {
-        const path = strictEqualMatch[1];
+        const extracted = extractNodeAndPath(strictEqualMatch[1]);
+        if (!extracted) return false;
         const compareValueRaw = strictEqualMatch[2];
-        const value = getNestedValue(input, path);
+        const value = getNestedValue(extracted.nodeData, extracted.path);
         const compareValue = parseCompareValue(compareValueRaw);
         return value === compareValue;
     }
 
-    // Pattern 5: input.xxx !== 'yyy'
-    const notEqualMatch = trimmed.match(/^input\.(\w+(?:\.\w+)*)\s*!==\s*['"]?(.+?)['"]?$/);
+    // Pattern 5: nodeName.xxx !== 'yyy'
+    const notEqualMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*!==\s*['"]?(.+?)['"]?$/);
     if (notEqualMatch) {
-        const path = notEqualMatch[1];
+        const extracted = extractNodeAndPath(notEqualMatch[1]);
+        if (!extracted) return false;
         const compareValueRaw = notEqualMatch[2];
-        const value = getNestedValue(input, path);
+        const value = getNestedValue(extracted.nodeData, extracted.path);
         const compareValue = parseCompareValue(compareValueRaw);
         return value !== compareValue;
     }
 
-    // Pattern 6: input.xxx > 123 (or >=, <, <=)
-    const comparisonMatch = trimmed.match(/^input\.(\w+(?:\.\w+)*)\s*(>=|<=|>|<)\s*(-?\d+\.?\d*)$/);
+    // Pattern 6: nodeName.xxx > 123 (or >=, <, <=)
+    const comparisonMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*(>=|<=|>|<)\s*(-?\d+\.?\d*)$/);
     if (comparisonMatch) {
-        const path = comparisonMatch[1];
+        const extracted = extractNodeAndPath(comparisonMatch[1]);
+        if (!extracted) return false;
         const operator = comparisonMatch[2];
         const compareNum = parseFloat(comparisonMatch[3]);
-        const value = getNestedValue(input, path);
+        const value = getNestedValue(extracted.nodeData, extracted.path);
         const numValue = typeof value === 'number' ? value : parseFloat(String(value));
 
         if (isNaN(numValue) || isNaN(compareNum)) return false;
@@ -92,7 +139,7 @@ function safeEvaluateCondition(condition: string, input: unknown): boolean {
 
     // 不支持的表达式格式
     console.warn(`[BranchNodeExecutor] Unsupported condition format: ${condition}`);
-    console.warn('[BranchNodeExecutor] Supported formats: input.x.includes("y"), input.x > 5, input.x === "value"');
+    console.warn('[BranchNodeExecutor] Supported formats: nodeName.x.includes("y"), nodeName.x > 5, nodeName.x === "value"');
     return false;
 }
 
@@ -120,16 +167,16 @@ function getNestedValue(obj: unknown, path: string): unknown {
  */
 function parseCompareValue(raw: string): string | number | boolean {
     const trimmed = raw.trim();
-    
+
     // 布尔值
     if (trimmed === 'true') return true;
     if (trimmed === 'false') return false;
-    
+
     // 数字
     if (/^-?\d+\.?\d*$/.test(trimmed)) {
         return parseFloat(trimmed);
     }
-    
+
     // 字符串 (去除引号)
     return trimmed.replace(/^['"]|['"]$/g, '');
 }
@@ -163,14 +210,14 @@ export class BranchNodeExecutor extends BaseNodeExecutor {
                 };
             }
 
-            // 使用安全表达式求值器
-            const conditionResult = safeEvaluateCondition(condition, upstreamData);
+            // 使用安全表达式求值器（传入完整 context 以支持节点名称解析）
+            const conditionResult = safeEvaluateCondition(condition, context);
 
             // FIX P2: 透传上游节点的数据时，过滤敏感字段（如 _meta）
             const filteredData = typeof upstreamData === 'object' && upstreamData !== null
                 ? Object.fromEntries(
                     Object.entries(upstreamData).filter(([key]) => !key.startsWith('_'))
-                  )
+                )
                 : { value: upstreamData };
 
             // 透传过滤后的上游节点数据，并附加 conditionResult

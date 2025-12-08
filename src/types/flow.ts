@@ -15,6 +15,8 @@ export interface BaseNodeData {
   status?: ExecutionStatus;
   executionTime?: number;
   output?: Record<string, unknown>;
+  // 用户自定义的输出变量
+  customOutputs?: { name: string; value: string }[];
   [key: string]: unknown;
 }
 
@@ -106,8 +108,31 @@ export interface InputNodeData extends BaseNodeData {
   formData?: Record<string, unknown>;
 }
 
+// ============ Output Node Types ============
+
+export type OutputMode = 'direct' | 'select' | 'merge' | 'template';
+
+export interface ContentSource {
+  type: 'variable' | 'static';
+  value: string;
+  label?: string;
+}
+
+export interface AttachmentSource {
+  type: 'variable' | 'static';
+  value: string;
+}
+
+export interface OutputInputMappings {
+  mode: OutputMode;
+  sources?: ContentSource[];
+  template?: string;
+  attachments?: AttachmentSource[];
+}
+
 export interface OutputNodeData extends BaseNodeData {
   text?: string;
+  inputMappings?: OutputInputMappings;
 }
 
 export interface ToolNodeData extends BaseNodeData {
@@ -194,6 +219,9 @@ export type FlowState = {
   streamingText: string;
   isStreaming: boolean;
 
+  // Internal execution lock
+  _executionLock?: boolean;
+
   // LLM Debug Dialog 状态
   llmDebugDialogOpen: boolean;
   llmDebugNodeId: string | null;
@@ -232,7 +260,6 @@ export type FlowState = {
 
   // Copilot Actions
   startCopilot: (prompt: string) => Promise<void>;
-  generateFlowFromPrompt: (prompt: string) => Promise<void>;
   optimizeLayout: () => void;
   setCopilotBackdrop: (b: "blank" | "overlay") => void;
   setCopilotStatus: (status: "idle" | "thinking" | "completed") => void;

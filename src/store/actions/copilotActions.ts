@@ -1,4 +1,5 @@
-import { normalizePlan, type Plan } from "../utils/planNormalizer";
+import { normalizePlan } from "../utils/planNormalizer";
+import type { Plan } from "@/types/plan";
 import { calculateOptimalLayout } from "../utils/layoutAlgorithm";
 import { quotaService } from "@/services/quotaService";
 import { authService } from "@/services/authService";
@@ -85,7 +86,10 @@ export const createCopilotActions = (set: any, get: any) => ({
             // WHY: Prevents old node outputs from persisting if node IDs collide (e.g. input_1)
             get().resetExecution();
 
-            set({ nodes, edges, flowTitle: title });
+            // CRITICAL FIX: Reset currentFlowId to null to ensure a NEW flow is created
+            // WHY: If user had previously opened a flow, not resetting this would cause
+            // the new generated content to OVERWRITE the existing flow instead of creating new one
+            set({ nodes, edges, flowTitle: title, currentFlowId: null });
 
             // Optimize layout
             const optimizedNodes = calculateOptimalLayout(nodes, edges);
@@ -105,11 +109,9 @@ export const createCopilotActions = (set: any, get: any) => ({
                     if (!updated) {
                         console.warn("[copilot] Failed to increment quota - quota service returned null");
                     } else {
-                        // 🧹 CODE CLEANUP: Automatically refresh quota in UI
-                        // WHY: User needs to see updated quota immediately
+                        // Automatically refresh quota in UI
                         const { refreshQuota } = useQuotaStore.getState();
                         await refreshQuota(user.id);
-                        console.log("[copilot] Quota incremented and refreshed successfully");
                     }
                 }
             } catch (e) {
@@ -128,14 +130,6 @@ export const createCopilotActions = (set: any, get: any) => ({
                 sessionStorage.removeItem('flash-flow:copilot-operation');
             }
         }
-    },
-
-    /**
-     * 根据prompt生成Flow（简化版，用于示例）
-     */
-    generateFlowFromPrompt: async (prompt: string) => {
-        // 此方法已弃用，使用 startCopilot 代替
-        await get().startCopilot(prompt);
     },
 
     /**

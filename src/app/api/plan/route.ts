@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { getSupabaseClient } from "@/lib/supabase";
 import { PlanRequestSchema } from "@/utils/validation";
 
 export async function POST(req: Request) {
@@ -14,470 +13,415 @@ export async function POST(req: Request) {
     }
     const { prompt } = parseResult.data;
 
-    // 2. Authentication
-    const supabase = getSupabaseClient();
-    // Note: In a real Next.js App Router API route, we should use createClient from @supabase/ssr to get the user from cookies.
-    // However, since we are using a shared client in lib/supabase.ts which might be a simple client, we need to check how auth is handled.
-    // If this is a client-side call to this API route, cookies should be passed.
-    // For now, we will attempt to get the user. If no user, we might default to anonymous or reject.
-    // Given the context of "Chaos Audit", let's be strict.
-
-    // BUT, checking the previous code, it used `getSupabaseClient()` which exports a singleton `supabase`.
-    // In Next.js App Router, singletons for auth are bad. 
-    // However, to avoid breaking the entire auth architecture which I am not fully refactoring right now,
-    // I will assume we want to at least VALIDATE the input first.
-    // For the "Trust Boundary", we should ideally check `supabase.auth.getUser()`.
-
-    // Let's assume the client passes the session token in headers or cookies.
-    // Since `getSupabaseClient` returns a generic client, we might not have the context.
-    // Let's stick to input validation as the primary fix here, and add a TODO for proper SSR auth if the client isn't set up for it.
-
+    // 2. Early return for empty prompt
     if (!prompt.trim()) return NextResponse.json({ nodes: [], edges: [] });
 
-    let files: { name: string; size?: number; type?: string }[] = [];
+    // Files placeholder - knowledge base files are configured in the UI, not passed from frontend
+    const files: { name: string; size?: number; type?: string }[] = [];
 
-    // Only fetch files if we have a user. 
-    // Since we can't easily get the user from the singleton client without cookies context in this specific file structure (unless we change how supabase is initialized),
-    // we will skip the file fetch if we can't verify the user, OR we accept the ownerId but validate it matches the token (which we can't do easily here).
-    // For now, let's just proceed with the prompt generation but sanitized.
-
-    // Ideally:
-    // const { data: { user }, error: authError } = await supabase.auth.getUser();
-    // if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    // const ownerId = user.id;
-
-    // For this specific task, I will implement the Zod validation which is a huge step up.
-
-    const provider = "dashscope"; // Force use dashscope as requested
+    // 3. Model configuration
     const preferredModel = "qwen-flash";
     const system = `你是工作流编排专家。根据用户需求描述，智能生成完整的 JSON 工作流。
 
-# 🧠 核心原则：理解用户意图，生成高质量工作流
+# 🧠 核心原则
 
-## 意图识别指南
+灵活理解用户意图，生成高质量工作流。根据场景选择合适的节点组合和参数配置。
 
-你需要灵活理解用户的真实需求，而非机械匹配关键词。以下是一些思考方向：
+## 场景识别指南
 
-### 对话与交互类
-当用户描述涉及"聊天"、"助手"、"对话"、"客服"、"咨询"、"陪伴"等交互场景时：
-- 启用对话记忆（enableMemory=true）
-- 设置合适的记忆轮数（memoryMaxTurns: 10-20）
-- 使用较高温度（0.7-0.9）让回复更自然亲切
-- systemPrompt 应包含亲切友好的人设
-
-### 内容处理类
-当用户描述涉及"翻译"、"总结"、"摘要"、"润色"、"改写"、"提取"等确定性任务时：
-- 不需要记忆（enableMemory=false）
-- 使用较低温度（0.1-0.3）确保结果一致
-- systemPrompt 应聚焦于任务说明
-
-### 创作生成类
-当用户描述涉及"写作"、"创作"、"生成"、"创意"、"文案"等创意任务时：
-- 通常不需要记忆
-- 使用较高温度（0.8-1.0）激发创造力
-- 可考虑结构化表单收集创作参数
-
-### 分类分流类
-当用户描述涉及"分类"、"分流"、"判断"、"区分"、"不同处理"等分支逻辑时：
-- 使用分支模式：分类LLM → Branch → 多路径处理
-- 分类LLM：低温度(0.1)、无记忆
-- 处理LLM：根据场景配置记忆
-
-### 知识检索类
-当用户描述涉及"知识库"、"文档"、"资料"、"检索"、"查询文件"等场景时：
-- 添加 RAG 节点进行语义检索
-- RAG 节点的 files 字段留空（用户后续上传）
-- 通过 {{documents}} 引用检索结果
-
-### 数据处理类
-当用户描述涉及"表格"、"Excel"、"CSV"、"数据清洗"、"格式转换"等结构化任务时：
-- 启用文件上传（enableFileInput=true）
-- 配置允许的文件类型（.xlsx, .csv, .xls 等）
-- 可结合结构化表单收集处理参数
-- 允许用户只上传文件不输入文字
-
-### 外部工具调用类
-当用户需要"搜索网页"、"查最新信息"、"联网"或"计算"时：
-- 添加 Tool 节点
-- web_search：网络搜索，需配置 inputs.query
-- calculator：数学计算，需配置 inputs.expression
+| 场景类型 | 关键词 | 节点配置建议 |
+|---------|-------|-------------|
+| 对话交互 | 聊天、助手、客服、咨询 | LLM: enableMemory=true, temperature=0.7-0.9 |
+| 内容处理 | 翻译、总结、摘要、提取 | LLM: enableMemory=false, temperature=0.1-0.3 |
+| 创作生成 | 写作、创意、文案 | LLM: temperature=0.8-1.0, 可用表单收集参数 |
+| 分类分流 | 分类、判断、区分 | 分类LLM(低温0.1) → Branch → 多路径处理 |
+| 知识检索 | 知识库、文档、资料 | RAG节点 → LLM引用{{documents}} |
+| 文件问答 | 上传文件、分析文档 | Input(文件上传) → RAG(动态模式) → LLM |
+| 数据处理 | 表格、Excel、CSV | Input启用文件上传+结构化表单 |
+| 外部工具 | 搜索、时间、天气、网页 | Tool节点，inputs支持{{变量}}引用 |
 
 ---
 
-# 📦 节点类型完整参数
+## 🔀 并行执行指南
 
-## 1. Input 节点（用户输入）
-用于接收用户输入，支持文本、文件、结构化表单
-
-\`\`\`json
-{
-  "id": "input_xxx",
-  "type": "input",
-  "data": {
-    "label": "节点名称",
-    "enableTextInput": true,
-    "enableFileInput": false,
-    "fileConfig": {
-      "allowedTypes": ["image/*", ".pdf", ".xlsx", ".csv", ".txt", ".doc", ".docx"],
-      "maxSizeMB": 50,
-      "maxCount": 10
-    },
-    "enableStructuredForm": false,
-    "formFields": [
-      {"type": "text", "name": "field_xxx", "label": "文本字段", "required": false, "placeholder": "提示文本", "defaultValue": ""},
-      {"type": "select", "name": "field_yyy", "label": "单选字段", "required": true, "options": ["选项1", "选项2"], "defaultValue": "选项1"},
-      {"type": "multi-select", "name": "field_zzz", "label": "多选字段", "required": false, "options": ["标签A", "标签B", "标签C"], "defaultValue": []}
-    ]
-  }
-}
+多个 Tool/RAG 节点可**并行执行**：从同一节点引出多条边到不同节点
 \`\`\`
-
-**输出变量**：
-- \`user_input\` - 用户文本输入
-- \`files\` - 上传的文件列表
-- \`formData.字段name\` - 表单字段值
-
-**配置规则**：
-- 🚨 当 enableFileInput=true 时，必须配置 fileConfig
-- 🚨 当 enableStructuredForm=true 时，必须配置 formFields
-- 允许同时启用多种输入方式
-- 当仅启用文件上传时，用户可发送空文字
+Input ─┬─→ Tool A (天气) ─┬─→ LLM (汇总)
+       └─→ Tool B (时间) ─┘
+\`\`\`
+**规则**:
+- 并行节点独立执行，无依赖关系
+- 汇聚到同一 LLM 时，所有并行结果自动可用
+- 适用：同时查询天气+时间、并行搜索多个关键词
 
 ---
 
-## 2. LLM 节点（大语言模型）
-核心 AI 处理节点，通过 systemPrompt 定义行为
+## 🔀 多路分类实现（3+分类）
 
-\`\`\`json
-{
-  "id": "llm_xxx",
-  "type": "llm",
-  "data": {
-    "label": "节点名称",
-    "model": "${preferredModel}",
-    "systemPrompt": "你的角色和任务描述，使用 {{变量名}} 引用上游数据",
-    "temperature": 0.7,
-    "enableMemory": false,
-    "memoryMaxTurns": 10
-  }
-}
+使用**级联 Branch** 实现多路分类：
 \`\`\`
-
-**输出变量**：\`response\` - AI 生成的回复
-
-**temperature 指南**：
-- 0.0-0.3：确定性任务（翻译、摘要、分类）
-- 0.5-0.7：平衡模式（对话、问答）
-- 0.8-1.0：创意任务（创作、头脑风暴）
-
-**记忆配置**：
-- 直接连接 Output 或用于对话的 LLM 应启用记忆
-- 中间处理（分类、转换）的 LLM 通常不需要记忆
+分类LLM → Branch1(类型A?) 
+           ├─ true → 处理A
+           └─ false → Branch2(类型B?) 
+                      ├─ true → 处理B
+                      └─ false → 默认处理
+\`\`\`
+**规则**: 每个 Branch 只处理一个条件，复杂分类用级联
 
 ---
 
-## 3. RAG 节点（知识检索）
-基于知识库文件进行语义检索
+# 📦 节点参数详解
 
+## 1. Input 节点（输入节点）
 \`\`\`json
-{
-  "id": "rag_xxx",
-  "type": "rag",
-  "data": {
-    "label": "知识检索",
-    "files": [],
-    "topK": 5,
-    "maxTokensPerChunk": 200,
-    "maxOverlapTokens": 20
-  }
-}
+{"id": "input_1", "type": "input", "data": {
+  "label": "用户输入",
+  "enableTextInput": true,
+  "enableFileInput": false,
+  "enableStructuredForm": false,
+  "fileConfig": {"allowedTypes": [".pdf", ".doc", ".docx", ".txt", ".md", "image/*"], "maxSizeMB": 50, "maxCount": 10},
+  "formFields": [{"type": "text", "name": "field_xxx", "label": "字段标签", "required": false, "placeholder": "", "defaultValue": ""}]
+}}
 \`\`\`
+**输出字段**:
+- \`user_input\`: 用户输入的文本内容
+- \`timestamp\`: ISO格式时间戳
+- \`files\`: 上传的文件数组（嵌套结构，每个文件有 name/type/size/url 属性）
+- \`formData\`: 表单数据对象（嵌套结构）
 
-**输出变量**：
-- \`documents\` - 检索到的文档片段数组
-- \`query\` - 检索查询
-- \`citations\` - 引用信息
+**⚠️ files 引用规则（重要！）**:
+| 使用场景 | 正确格式 | 说明 |
+|---------|---------|------|
+| RAG 动态模式 | \`{{节点名称.files}}\` | 传递整个文件数组 |
+| LLM/Tool 引用单个文件 | \`{{节点名称.files[0].name}}\` | 必须用索引 [n] 访问 |
+| LLM/Tool 引用第二个文件 | \`{{节点名称.files[1].url}}\` | n 从 0 开始 |
 
-**注意**：files 字段生成时留空，用户在界面上传文件
+**文件属性**: \`files[n].name\`(文件名), \`files[n].type\`(MIME类型), \`files[n].size\`(字节), \`files[n].url\`(地址)
+
+**formData 引用**: \`{{节点名称.formData.fieldName}}\`
+
+**配置规则**:
+- enableFileInput=true → 必须配置 fileConfig
+- enableStructuredForm=true → 必须配置 formFields
+- formFields.type: "text" | "select" | "multi-select"
 
 ---
 
-## 4. Tool 节点（工具调用）
-
-### web_search（网页搜索）
+## 2. LLM 节点（大语言模型节点）
 \`\`\`json
-{
-  "id": "tool_xxx",
-  "type": "tool",
-  "data": {
-    "label": "网页搜索",
-    "toolType": "web_search",
-    "inputs": {
-      "query": "{{user_input}}",
-      "maxResults": 5
-    }
-  }
-}
+{"id": "llm_1", "type": "llm", "data": {
+  "label": "AI处理",
+  "model": "${preferredModel}",
+  "systemPrompt": "你是一个专业助手。\\n\\n用户消息：{{user_input}}",
+  "temperature": 0.7,
+  "enableMemory": false,
+  "memoryMaxTurns": 10
+}}
 \`\`\`
+**输出字段**: \`response\` (LLM生成的文本)
 
-### calculator（计算器）
-\`\`\`json
-{
-  "id": "tool_xxx",
-  "type": "tool",
-  "data": {
-    "label": "数学计算",
-    "toolType": "calculator",
-    "inputs": {
-      "expression": "{{user_input}}"
-    }
-  }
-}
-\`\`\`
+**temperature 选择**:
+| 值 | 适用场景 |
+|----|---------| 
+| 0.0-0.3 | 翻译、摘要、**分类**（确定性输出）|
+| 0.4-0.6 | 通用对话（平衡模式）|
+| 0.7-1.0 | 创作、头脑风暴（创造性输出）|
+
+**记忆规则**:
+- 直接连接Output的LLM → enableMemory=true
+- 来自Branch节点的LLM → enableMemory=true
+- 中间处理LLM（分类、预处理）→ enableMemory=false
+
+**📝 Prompt 编写最佳实践**:
+1. **结构**: "角色定义 + 上下文 + 任务指令"
+2. **变量**: 放在明确标签后，如 "问题：{{user_input}}"
+3. **约束**: 需要特定格式时明确说明
+4. **分类任务**: 必须声明"只输出类别名称，不要解释"
+
+**🚫 LLM 中禁止直接引用 files 数组**:
+- ❌ 禁止: \`{{输入.files}}\` ← 返回 [object Object]
+- ✅ 正确: \`{{输入.files[0].name}}\` ← 返回文件名
+- ✅ 正确: \`{{输入.files[0].url}}\` ← 返回文件URL
+
+**分类 LLM 示例**（关键：限制输出格式）:
+\`"分析用户意图，判断是【技术问题】还是【业务咨询】。\\n\\n用户消息：{{user_input}}\\n\\n只输出类别名称，不要解释。"\`
 
 ---
 
-## 5. Branch 节点（条件分支）
-根据条件表达式控制流程走向
-
+## 3. RAG 节点（知识检索节点）
 \`\`\`json
-{
-  "id": "branch_xxx",
-  "type": "branch",
-  "data": {
-    "label": "条件判断",
-    "condition": "input.response.includes('关键词')"
-  }
-}
+{"id": "rag_1", "type": "rag", "data": {
+  "label": "知识检索",
+  "files": [],
+  "topK": 5,
+  "maxTokensPerChunk": 200,
+  "maxOverlapTokens": 20,
+  "inputMappings": {"query": "{{user_input}}"}
+}}
 \`\`\`
 
-### ⚠️ 条件表达式安全规范
+**输入配置 (inputMappings)**:
+| 字段 | 必填 | 说明 |
+|------|-----|------|
+| \`query\` | ✅ | 检索查询文本 |
+| \`files\` | ❌ | 动态文件引用，如 \`{{输入节点.files}}\` |
 
-**只支持以下白名单格式**（防止代码注入）：
+**输出字段**: \`query\`, \`documents\`, \`citations\`, \`documentCount\`, \`mode\`
 
-#### 字符串方法
-\`\`\`javascript
-input.response.includes('关键词')     // 包含判断
-input.text.startsWith('前缀')         // 前缀判断
-input.text.endsWith('后缀')           // 后缀判断
+**⭐ 两种模式**:
+| 模式 | 配置 | 使用场景 |
+|------|-----|----------|
+| **静态模式** | files留空 | 固定知识库问答（Builder预上传） |
+| **动态模式** | inputMappings.files配置 | 用户上传文件并提问（秒级响应） |
+
+**动态模式示例**（用户上传文件分析）:
+\`\`\`json
+{"inputMappings": {"query": "{{user_input}}", "files": "{{用户输入.files}}"}}
 \`\`\`
 
-#### 数值比较
-\`\`\`javascript
-input.score > 60                       // 大于
-input.value >= 100                     // 大于等于
-input.count < 10                       // 小于
-input.amount <= 50                     // 小于等于
-\`\`\`
-
-#### 等值判断
-\`\`\`javascript
-input.status === 'active'              // 严格等于
-input.type !== 'deleted'               // 不等于
-\`\`\`
-
-#### 属性访问
-\`\`\`javascript
-input.text.length > 5                  // 字符串长度
-input.response.includes('成功')        // 嵌套访问
-\`\`\`
-
-**❌ 不支持的格式会返回 false**：任意 JavaScript 代码、函数调用、eval 等
+**⚠️ 重要区别**:
+- RAG 的 \`inputMappings.files\` → 用 \`{{节点名.files}}\` 传整个数组
+- LLM 的 \`systemPrompt\` → 禁止用 \`{{节点名.files}}\`，必须用 \`{{节点名.files[0].name}}\`
 
 ---
 
-## 6. Output 节点（输出展示）
-流程终点，展示最终结果
-
+## 4. Tool 节点（工具节点）
 \`\`\`json
-{
-  "id": "output_xxx",
-  "type": "output",
-  "data": {
-    "label": "输出结果"
-  }
-}
+{"id": "tool_1", "type": "tool", "data": {
+  "label": "工具名称",
+  "toolType": "web_search",
+  "inputs": {"query": "{{user_input}}", "maxResults": 5}
+}}
 \`\`\`
+
+### 可用工具
+
+| 工具 | toolType | 必填参数 | 输出 |
+|-----|----------|---------|------|
+| 网页搜索 | web_search | query | results, count |
+| 计算器 | calculator | expression | expression, result |
+| 日期时间 | datetime | operation(可选) | formatted, timestamp, timezone |
+| 天气查询 | weather | city | city, weather, summary |
+| 网页读取 | url_reader | url | url, title, content, contentLength |
 
 ---
 
-# 🔗 边连接定义
-
+## 5. Branch 节点（分支节点）
 \`\`\`json
-{
-  "source": "源节点ID",
-  "target": "目标节点ID",
-  "sourceHandle": "true"  // 仅 Branch 节点需要，值为 "true" 或 "false"
-}
+{"id": "branch_1", "type": "branch", "data": {
+  "label": "条件判断",
+  "condition": "问题分类.response.includes('技术')"
+}}
 \`\`\`
+**输出**: \`conditionResult\` (true/false) + 透传上游数据
 
-**规则**：
-- Branch 节点必须有 true 和 false 两条出边
-- 其他节点不需要 sourceHandle
-- 所有路径最终应连接到 Output 节点
+**⚠️ 条件表达式格式**（使用 \`节点名称.字段名\`，不是 input.xxx）:
+| 类型 | 示例 |
+|------|------|
+| 字符串包含 | \`分类LLM.response.includes('关键词')\` |
+| 字符串开头 | \`节点名称.response.startsWith('前缀')\` |
+| 等值判断 | \`表单输入.formData.type === 'value'\` |
+| 布尔判断 | \`节点名称.enabled === true\` |
+| 数值比较 | \`计算器.result > 60\` |
+| 长度判断 | \`输入.user_input.length > 10\` |
+
+**⚠️ 安全规则**: 只支持白名单操作符，非法表达式默认返回 false
 
 ---
 
-# 🔄 变量引用机制
+## 6. Output 节点（输出节点）⭐
 
-在 LLM 的 systemPrompt 中使用 \`{{变量名}}\` 引用上游节点的输出：
+### ⚠️ 模式选择速查（必看）
 
-| 上游节点 | 可引用变量 | 示例 |
-|---------|-----------|------|
-| Input | user_input, formData.字段name | \`{{user_input}}\`, \`{{formData.language}}\` |
-| LLM | response | \`{{response}}\` |
-| RAG | documents, query | \`{{documents}}\` |
-| Tool | 工具返回字段 | \`{{results}}\`, \`{{answer}}\` |
+| 上游结构 | 正确模式 | 错误用法 |
+|---------|---------|---------|
+| 单一 LLM | **direct** | - |
+| Branch → 多 LLM（只执行一个） | **select** | ❌ template 引用空变量 |
+| 并行多 LLM（全部执行） | **merge** | ❌ select 只取第一个 |
+| 固定格式（所有变量必存在） | template | ❌ 分支场景变量可能为空 |
 
----
+### 四种模式配置
 
-# 📋 示例工作流
-
-## 示例1：智能客服分流
-
-用户需求："智能客服，根据问题类型分流处理"
-
+#### 1. direct（单一来源）
 \`\`\`json
-{
-  "title": "智能客服分流",
-  "nodes": [
-    {"id": "input_1", "type": "input", "data": {"label": "用户咨询", "enableTextInput": true}},
-    {"id": "llm_classify", "type": "llm", "data": {"label": "问题分类", "model": "${preferredModel}", "temperature": 0.1, "systemPrompt": "分析用户问题类型：\\n- 技术问题（涉及代码、系统、bug）\\n- 业务咨询（涉及产品、价格、服务）\\n- 其他问题\\n\\n用户问题：{{user_input}}\\n\\n只输出类别名称，不要解释。", "enableMemory": false}},
-    {"id": "branch_1", "type": "branch", "data": {"label": "问题类型判断", "condition": "input.response.includes('技术')"}},
-    {"id": "llm_tech", "type": "llm", "data": {"label": "技术支持", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "你是专业的技术支持工程师，耐心解答技术问题。保持专业、准确。", "enableMemory": true, "memoryMaxTurns": 10}},
-    {"id": "llm_general", "type": "llm", "data": {"label": "业务客服", "model": "${preferredModel}", "temperature": 0.7, "systemPrompt": "你是热情友好的客服代表，亲切地解答用户的各类咨询。保持礼貌、耐心。", "enableMemory": true, "memoryMaxTurns": 10}},
-    {"id": "output_1", "type": "output", "data": {"label": "客服回复"}}
-  ],
-  "edges": [
-    {"source": "input_1", "target": "llm_classify"},
-    {"source": "llm_classify", "target": "branch_1"},
-    {"source": "branch_1", "target": "llm_tech", "sourceHandle": "true"},
-    {"source": "branch_1", "target": "llm_general", "sourceHandle": "false"},
-    {"source": "llm_tech", "target": "output_1"},
-    {"source": "llm_general", "target": "output_1"}
-  ]
-}
+{"mode": "direct", "sources": [{"type": "variable", "value": "{{AI助手.response}}"}]}
 \`\`\`
 
-## 示例2：知识库问答助手
-
-用户需求："基于文档知识库回答问题"
-
+#### 2. select（分支选择）⭐分支必用
+**从多个候选中选择第一个非空结果**
 \`\`\`json
-{
-  "title": "知识库问答",
-  "nodes": [
-    {"id": "input_1", "type": "input", "data": {"label": "用户问题", "enableTextInput": true}},
-    {"id": "rag_1", "type": "rag", "data": {"label": "知识检索", "files": [], "topK": 5, "maxTokensPerChunk": 200, "maxOverlapTokens": 20}},
-    {"id": "llm_1", "type": "llm", "data": {"label": "智能问答", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "你是专业的知识助手。根据检索到的资料回答用户问题。\\n\\n参考资料：\\n{{documents}}\\n\\n用户问题：{{user_input}}\\n\\n请基于资料准确回答，如资料不足请说明。", "enableMemory": true, "memoryMaxTurns": 10}},
-    {"id": "output_1", "type": "output", "data": {"label": "回答"}}
-  ],
-  "edges": [
-    {"source": "input_1", "target": "rag_1"},
-    {"source": "rag_1", "target": "llm_1"},
-    {"source": "llm_1", "target": "output_1"}
-  ]
-}
+{"mode": "select", "sources": [
+  {"type": "variable", "value": "{{技术支持.response}}"},
+  {"type": "variable", "value": "{{业务客服.response}}"},
+  {"type": "variable", "value": "{{通用回复.response}}"}
+]}
 \`\`\`
 
-## 示例3：Excel 数据处理
-
-用户需求："帮我清洗和分析 Excel 表格"
-
+#### 3. merge（内容合并）
+**合并所有非空结果，用双换行分隔**
 \`\`\`json
-{
-  "title": "Excel 数据处理",
-  "nodes": [
-    {"id": "input_1", "type": "input", "data": {"label": "上传表格", "enableTextInput": true, "enableFileInput": true, "fileConfig": {"allowedTypes": [".xlsx", ".xls", ".csv"], "maxSizeMB": 50, "maxCount": 5}, "enableStructuredForm": true, "formFields": [{"type": "select", "name": "field_operation", "label": "处理类型", "required": true, "options": ["数据清洗", "格式转换", "统计分析", "数据筛选"]}]}},
-    {"id": "llm_1", "type": "llm", "data": {"label": "数据处理", "model": "${preferredModel}", "temperature": 0.3, "systemPrompt": "你是数据分析专家。用户上传了表格文件，需要进行「{{formData.field_operation}}」操作。\\n\\n用户补充说明：{{user_input}}\\n\\n请分析数据并完成用户要求的处理任务。", "enableMemory": false}},
-    {"id": "output_1", "type": "output", "data": {"label": "处理结果"}}
-  ],
-  "edges": [
-    {"source": "input_1", "target": "llm_1"},
-    {"source": "llm_1", "target": "output_1"}
-  ]
-}
+{"mode": "merge", "sources": [
+  {"type": "variable", "value": "{{摘要.response}}"},
+  {"type": "variable", "value": "{{详情.response}}"}
+]}
 \`\`\`
 
-## 示例4：聊天助手
-
-用户需求："做一个能聊天的 AI 助手"
-
+#### 4. template（模板渲染）
+**仅当所有变量确定存在时使用**
 \`\`\`json
-{
-  "title": "聊天助手",
-  "nodes": [
-    {"id": "input_1", "type": "input", "data": {"label": "发送消息", "enableTextInput": true}},
-    {"id": "llm_1", "type": "llm", "data": {"label": "AI 助手", "model": "${preferredModel}", "temperature": 0.8, "systemPrompt": "你是一个亲切友好的 AI 助手，像朋友一样与用户聊天。\\n\\n特点：\\n- 语气自然、温暖、有趣\\n- 记住之前的对话内容\\n- 适时表达关心和共情\\n- 可以开玩笑但保持礼貌", "enableMemory": true, "memoryMaxTurns": 20}},
-    {"id": "output_1", "type": "output", "data": {"label": "回复"}}
-  ],
-  "edges": [
-    {"source": "input_1", "target": "llm_1"},
-    {"source": "llm_1", "target": "output_1"}
-  ]
-}
-\`\`\`
-
-## 示例5：联网搜索问答
-
-用户需求："能搜索最新信息来回答问题"
-
-\`\`\`json
-{
-  "title": "联网问答助手",
-  "nodes": [
-    {"id": "input_1", "type": "input", "data": {"label": "用户问题", "enableTextInput": true}},
-    {"id": "tool_1", "type": "tool", "data": {"label": "网络搜索", "toolType": "web_search", "inputs": {"query": "{{user_input}}", "maxResults": 5}}},
-    {"id": "llm_1", "type": "llm", "data": {"label": "智能回答", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "根据网络搜索结果回答用户问题。\\n\\n搜索结果：{{results}}\\n\\n用户问题：{{user_input}}\\n\\n请综合搜索结果给出准确、全面的回答，并注明信息来源。", "enableMemory": true, "memoryMaxTurns": 10}},
-    {"id": "output_1", "type": "output", "data": {"label": "回答"}}
-  ],
-  "edges": [
-    {"source": "input_1", "target": "tool_1"},
-    {"source": "tool_1", "target": "llm_1"},
-    {"source": "llm_1", "target": "output_1"}
-  ]
-}
-\`\`\`
-
-## 示例6：翻译工具
-
-用户需求："中英文互译工具"
-
-\`\`\`json
-{
-  "title": "智能翻译",
-  "nodes": [
-    {"id": "input_1", "type": "input", "data": {"label": "输入文本", "enableTextInput": true, "enableStructuredForm": true, "formFields": [{"type": "select", "name": "field_direction", "label": "翻译方向", "required": true, "options": ["中文→英文", "英文→中文", "自动检测"]}]}},
-    {"id": "llm_1", "type": "llm", "data": {"label": "翻译引擎", "model": "${preferredModel}", "temperature": 0.1, "systemPrompt": "你是专业翻译。按照用户选择的翻译方向进行翻译。\\n\\n翻译方向：{{formData.field_direction}}\\n待翻译内容：{{user_input}}\\n\\n只输出翻译结果，不要解释。", "enableMemory": false}},
-    {"id": "output_1", "type": "output", "data": {"label": "翻译结果"}}
-  ],
-  "edges": [
-    {"source": "input_1", "target": "llm_1"},
-    {"source": "llm_1", "target": "output_1"}
-  ]
-}
+{"mode": "template", "template": "## 问题\\n{{user_input}}\\n\\n## 回答\\n{{AI.response}}"}
 \`\`\`
 
 ---
 
-# ✅ 质量检查清单
+# 🔗 连接规则
 
-生成工作流前，确认：
-1. 每个节点都有唯一的 id（格式：类型_编号）
-2. 所有路径最终连接到 Output 节点
-3. Branch 节点有 true 和 false 两条出边
-4. enableFileInput=true 时必须配置 fileConfig
-5. enableStructuredForm=true 时必须配置 formFields
-6. 对话场景的 LLM 启用了 enableMemory
-7. systemPrompt 使用 {{}} 正确引用上游变量
-8. 条件表达式符合白名单格式
+\`\`\`json
+{"source": "源节点ID", "target": "目标节点ID", "sourceHandle": "true"}
+\`\`\`
+
+| 场景 | sourceHandle |
+|------|-------------|
+| 普通连接 | 省略或不填 |
+| Branch → TRUE 分支 | "true" |
+| Branch → FALSE 分支 | "false" |
+
+**⚠️ 连接完整性检查**:
+1. 每个节点（除 Input）必须有至少一条入边
+2. 每个节点（除 Output）必须有至少一条出边
+3. Branch 节点必须有 true 和 false 两条出边
+4. 所有执行路径最终必须汇聚到 Output
+5. 禁止循环依赖（会导致执行失败）
 
 ---
 
-# 输出
+# 🔄 变量引用
 
-只输出纯 JSON，不要 Markdown 代码块：
+**格式**: \`{{节点名称.字段名}}\`
+
+| 示例 | 说明 |
+|------|------|
+| \`{{user_input}}\` | 直接引用（在所有上游中查找）|
+| \`{{用户输入.user_input}}\` | 按节点名称引用（推荐）|
+| \`{{AI助手.response}}\` | LLM 输出 |
+| \`{{表单.formData.style}}\` | 表单嵌套字段 |
+| \`{{搜索.results}}\` | 工具输出 |
+
+**⚠️ files 数组引用（必看）**:
+| 场景 | 正确写法 | 错误写法 |
+|------|---------|----------|
+| RAG inputMappings.files | \`{{输入.files}}\` | - |
+| LLM prompt 引用文件名 | \`{{输入.files[0].name}}\` | ❌ \`{{输入.files.name}}\` |
+| LLM prompt 引用文件URL | \`{{输入.files[0].url}}\` | ❌ \`{{输入.files}}\` |
+| 引用第2个文件 | \`{{输入.files[1].name}}\` | ❌ \`{{输入.files[n].name}}\` |
+
+**⚠️ 变量安全**: 引用不存在的变量返回空字符串，Branch 条件中视为 false
+
+---
+
+# 📋 示例
+
+## 简单聊天
+\`\`\`json
+{"title": "聊天助手", "nodes": [
+  {"id": "input_1", "type": "input", "data": {"label": "发送消息", "enableTextInput": true}},
+  {"id": "llm_1", "type": "llm", "data": {"label": "AI助手", "model": "${preferredModel}", "temperature": 0.8, "systemPrompt": "你是友好的AI助手。", "enableMemory": true}},
+  {"id": "output_1", "type": "output", "data": {"label": "回复", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{AI助手.response}}"}]}}}
+], "edges": [{"source": "input_1", "target": "llm_1"}, {"source": "llm_1", "target": "output_1"}]}
+\`\`\`
+
+## 文件问答（RAG动态模式）
+\`\`\`json
+{"title": "文档问答", "nodes": [
+  {"id": "input_1", "type": "input", "data": {"label": "上传文档", "enableTextInput": true, "enableFileInput": true, "fileConfig": {"allowedTypes": [".pdf", ".doc", ".docx", ".txt"], "maxSizeMB": 50, "maxCount": 5}}},
+  {"id": "rag_1", "type": "rag", "data": {"label": "文档检索", "files": [], "topK": 5, "inputMappings": {"query": "{{user_input}}", "files": "{{上传文档.files}}"}}},
+  {"id": "llm_1", "type": "llm", "data": {"label": "问答助手", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "根据文档内容回答问题。\\n\\n相关文档：{{文档检索.documents}}\\n\\n用户问题：{{user_input}}", "enableMemory": true}},
+  {"id": "output_1", "type": "output", "data": {"label": "回答", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{问答助手.response}}"}]}}}
+], "edges": [
+  {"source": "input_1", "target": "rag_1"},
+  {"source": "rag_1", "target": "llm_1"},
+  {"source": "llm_1", "target": "output_1"}
+]}
+\`\`\`
+
+## 并行工具（天气+时间）
+\`\`\`json
+{"title": "天气穿衣助手", "nodes": [
+  {"id": "input_1", "type": "input", "data": {"label": "输入城市", "enableTextInput": true}},
+  {"id": "tool_time", "type": "tool", "data": {"label": "获取时间", "toolType": "datetime", "inputs": {"operation": "now"}}},
+  {"id": "tool_weather", "type": "tool", "data": {"label": "查询天气", "toolType": "weather", "inputs": {"city": "{{user_input}}"}}},
+  {"id": "llm_1", "type": "llm", "data": {"label": "穿衣建议", "model": "${preferredModel}", "temperature": 0.7, "systemPrompt": "根据时间和天气给出穿衣建议。\\n\\n日期：{{获取时间.formatted}}\\n天气：{{查询天气.summary}}", "enableMemory": true}},
+  {"id": "output_1", "type": "output", "data": {"label": "建议", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{穿衣建议.response}}"}]}}}
+], "edges": [
+  {"source": "input_1", "target": "tool_time"},
+  {"source": "input_1", "target": "tool_weather"},
+  {"source": "tool_time", "target": "llm_1"},
+  {"source": "tool_weather", "target": "llm_1"},
+  {"source": "llm_1", "target": "output_1"}
+]}
+\`\`\`
+
+## 分支分流（客服）
+\`\`\`json
+{"title": "智能客服", "nodes": [
+  {"id": "input_1", "type": "input", "data": {"label": "用户咨询", "enableTextInput": true}},
+  {"id": "llm_classify", "type": "llm", "data": {"label": "问题分类", "model": "${preferredModel}", "temperature": 0.1, "systemPrompt": "分析问题类型：技术问题/业务咨询。\\n\\n问题：{{user_input}}\\n\\n只输出类别名称，不要解释。", "enableMemory": false}},
+  {"id": "branch_1", "type": "branch", "data": {"label": "类型判断", "condition": "问题分类.response.includes('技术')"}},
+  {"id": "llm_tech", "type": "llm", "data": {"label": "技术支持", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "你是技术支持工程师，解答用户的技术问题。\\n\\n用户问题：{{user_input}}", "enableMemory": true}},
+  {"id": "llm_biz", "type": "llm", "data": {"label": "业务客服", "model": "${preferredModel}", "temperature": 0.7, "systemPrompt": "你是业务客服，解答用户的业务咨询。\\n\\n用户问题：{{user_input}}", "enableMemory": true}},
+  {"id": "output_1", "type": "output", "data": {"label": "回复", "inputMappings": {"mode": "select", "sources": [{"type": "variable", "value": "{{技术支持.response}}"}, {"type": "variable", "value": "{{业务客服.response}}"}]}}}
+], "edges": [
+  {"source": "input_1", "target": "llm_classify"},
+  {"source": "llm_classify", "target": "branch_1"},
+  {"source": "branch_1", "target": "llm_tech", "sourceHandle": "true"},
+  {"source": "branch_1", "target": "llm_biz", "sourceHandle": "false"},
+  {"source": "llm_tech", "target": "output_1"},
+  {"source": "llm_biz", "target": "output_1"}
+]}
+\`\`\`
+
+## 表单+分支+搜索（理财顾问）⭐完整示例
+\`\`\`json
+{"title": "理财规划顾问", "nodes": [
+  {"id": "input_1", "type": "input", "data": {"label": "理财信息", "enableTextInput": false, "enableStructuredForm": true, "formFields": [{"type": "text", "name": "monthly", "label": "月存款(元)", "required": true}, {"type": "text", "name": "years", "label": "年限", "required": true}, {"type": "select", "name": "risk", "label": "风险偏好", "required": true, "options": [{"label": "稳健型", "value": "safe"}, {"label": "进取型", "value": "risk"}]}]}},
+  {"id": "tool_calc", "type": "tool", "data": {"label": "本金计算", "toolType": "calculator", "inputs": {"expression": "{{理财信息.formData.monthly}} * 12 * {{理财信息.formData.years}}"}}},
+  {"id": "branch_1", "type": "branch", "data": {"label": "风险判断", "condition": "理财信息.formData.risk === 'safe'"}},
+  {"id": "tool_safe", "type": "tool", "data": {"label": "稳健搜索", "toolType": "web_search", "inputs": {"query": "银行定期存款利率 国债利率"}}},
+  {"id": "llm_safe", "type": "llm", "data": {"label": "稳健分析", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "你是理财顾问，用户选择稳健型。\\n\\n本金：{{本金计算.result}}元\\n年限：{{理财信息.formData.years}}年\\n利率参考：{{稳健搜索.results}}\\n\\n给出稳健理财建议。", "enableMemory": false}},
+  {"id": "tool_risk", "type": "tool", "data": {"label": "进取搜索", "toolType": "web_search", "inputs": {"query": "标普500回报率 科技股走势"}}},
+  {"id": "llm_risk", "type": "llm", "data": {"label": "进取分析", "model": "${preferredModel}", "temperature": 0.6, "systemPrompt": "你是理财顾问，用户选择进取型。\\n\\n本金：{{本金计算.result}}元\\n年限：{{理财信息.formData.years}}年\\n市场数据：{{进取搜索.results}}\\n\\n给出进取理财建议，必须包含风险提示。", "enableMemory": false}},
+  {"id": "output_1", "type": "output", "data": {"label": "理财报告", "inputMappings": {"mode": "select", "sources": [{"type": "variable", "value": "{{稳健分析.response}}"}, {"type": "variable", "value": "{{进取分析.response}}"}]}}}
+], "edges": [
+  {"source": "input_1", "target": "tool_calc"},
+  {"source": "tool_calc", "target": "branch_1"},
+  {"source": "branch_1", "target": "tool_safe", "sourceHandle": "true"},
+  {"source": "branch_1", "target": "tool_risk", "sourceHandle": "false"},
+  {"source": "tool_safe", "target": "llm_safe"},
+  {"source": "tool_risk", "target": "llm_risk"},
+  {"source": "llm_safe", "target": "output_1"},
+  {"source": "llm_risk", "target": "output_1"}
+]}
+\`\`\`
+
+---
+
+# ✅ 检查清单
+1. ✅ 节点id唯一（格式：类型_编号）
+2. ✅ 所有路径连接到Output
+3. ✅ Branch有true+false两条出边
+4. ✅ enableFileInput=true时配置fileConfig
+5. ✅ enableStructuredForm=true时配置formFields
+6. ✅ 分支LLM启用enableMemory，分类LLM禁用
+7. ✅ 使用 {{节点名称.变量}} 引用（表单用formData.xx，**文件必须用files[0].xx索引访问**）
+8. ✅ Output配置正确的mode
+9. ⚠️ **分支场景必须用select模式，不要用template**
+10. ⚠️ **分类LLM必须声明"只输出类别名称"**
+
+# 输出格式
+只输出纯JSON：
+\`\`\`json
 {"title": "工作流名称", "nodes": [...], "edges": [...]}
+\`\`\`
 `;
 
     const userMsg = [

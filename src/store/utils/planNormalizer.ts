@@ -1,102 +1,139 @@
 import { nanoid } from "nanoid";
 import type { AppNode, AppEdge, AppNodeData, NodeKind } from "@/types/flow";
+import type { Plan, PlanNode, PlanEdge, PlanNodeData } from "@/types/plan";
 
-// LLM 返回的计划数据类型
-export type PlanNodeData = Partial<AppNodeData> & {
-    label?: string;
-    text?: string;
-    model?: string;
-    temperature?: number;
-    systemPrompt?: string;
-    files?: Array<string | { name: string; size?: number; type?: string; url?: string }>;
-    method?: string;
-    url?: string;
-    // Input node configs
-    enableTextInput?: boolean;
-    enableFileInput?: boolean;
-    enableStructuredForm?: boolean;
-    fileConfig?: {
-        allowedTypes?: string[];
-        maxFileSize?: number;
-        maxFileCount?: number;
+// Helper to extract property from data or node root
+function getProp<T>(node: PlanNode, data: PlanNodeData, key: keyof PlanNodeData): T | undefined {
+    return (data?.[key] ?? (node as any)?.[key]) as T | undefined;
+}
+
+function normalizeInputNode(node: PlanNode, data: PlanNodeData, label: string): AppNodeData {
+    const enableFileInput = getProp<boolean>(node, data, 'enableFileInput') ?? false;
+    const enableStructuredForm = getProp<boolean>(node, data, 'enableStructuredForm') ?? false;
+
+    // Handle file config
+    let fileConfig = getProp<PlanNodeData['fileConfig']>(node, data, 'fileConfig');
+    if (enableFileInput && (!fileConfig?.allowedTypes || fileConfig.allowedTypes.length === 0)) {
+        const labelLower = label.toLowerCase();
+        let defaultTypes: string[] = ['image/*', '.pdf', '.doc', '.docx', '.txt', '.md'];
+
+        if (labelLower.includes('图片') || labelLower.includes('截图') || labelLower.includes('image')) {
+            defaultTypes = ['image/*'];
+        } else if (labelLower.includes('文档') || labelLower.includes('文件') || labelLower.includes('doc')) {
+            defaultTypes = ['.pdf', '.doc', '.docx', '.txt', '.md'];
+        }
+
+        fileConfig = {
+            allowedTypes: defaultTypes,
+            maxFileSize: fileConfig?.maxFileSize ?? 10,
+            maxFileCount: fileConfig?.maxFileCount ?? 5,
+        };
+    }
+
+    // Handle form fields
+    let formFields = getProp<PlanNodeData['formFields']>(node, data, 'formFields') || [];
+    if (enableStructuredForm && formFields.length === 0) {
+        formFields = [{
+            id: `field_${Date.now()}`,
+            type: 'text',
+            label: '参数',
+            required: false,
+        }];
+    }
+
+    return {
+        label,
+        status: "idle",
+        text: String(getProp<string>(node, data, 'text') || ""),
+        enableTextInput: getProp<boolean>(node, data, 'enableTextInput') ?? true,
+        enableFileInput,
+        enableStructuredForm,
+        fileConfig,
+        formFields,
+    } as AppNodeData;
+}
+
+function normalizeLLMNode(node: PlanNode, data: PlanNodeData, label: string): AppNodeData {
+    // 获取 inputMappings，如果没有则使用默认值
+    const inputMappings = getProp<Record<string, string>>(node, data, 'inputMappings') || {
+        user_input: '{{user_input}}'  // 默认引用上游的 user_input
     };
-    formFields?: Array<{ id: string; type: string; label: string; required?: boolean; defaultValue?: string; options?: string[] }>;
-    // LLM node configs
-    enableMemory?: boolean;
-    memoryMaxTurns?: number;
-    // Branch node configs
-    condition?: string;
-    // Tool node configs
-    toolType?: string;
-    inputs?: Record<string, unknown>;
-    // RAG node configs
-    topK?: number;
-    maxTokensPerChunk?: number;
-    maxOverlapTokens?: number;
-};
 
-export type PlanNode = {
-    id?: string;
-    type?: NodeKind | string;
-    position?: { x: number; y: number };
-    data?: PlanNodeData;
-    label?: string;
-    // 支持直接属性（如果 AI 返回的结构没有用 data 包裹）
-    text?: string;
-    model?: string;
-    temperature?: number;
-    systemPrompt?: string;
-    files?: Array<string | { name: string; size?: number; type?: string; url?: string }>;
-    method?: string;
-    url?: string;
-    // Direct properties for input node
-    enableTextInput?: boolean;
-    enableFileInput?: boolean;
-    enableStructuredForm?: boolean;
-    fileConfig?: PlanNodeData['fileConfig'];
-    formFields?: PlanNodeData['formFields'];
-    // Direct properties for LLM node
-    enableMemory?: boolean;
-    memoryMaxTurns?: number;
-    // Direct properties for Branch node
-    condition?: string;
-    // Direct properties for Tool node
-    toolType?: string;
-    inputs?: Record<string, unknown>;
-    // Direct properties for RAG node
-    topK?: number;
-    maxTokensPerChunk?: number;
-    maxOverlapTokens?: number;
-};
+    return {
+        label,
+        status: "idle",
+        model: String(getProp<string>(node, data, 'model') || "qwen-flash"),
+        temperature: typeof getProp<number>(node, data, 'temperature') === "number" ? getProp<number>(node, data, 'temperature') : 0.7,
+        systemPrompt: String(getProp<string>(node, data, 'systemPrompt') || ""),
+        enableMemory: getProp<boolean>(node, data, 'enableMemory') ?? false,
+        memoryMaxTurns: getProp<number>(node, data, 'memoryMaxTurns') ?? 10,
+        inputMappings,
+    } as AppNodeData;
+}
 
-export type PlanEdge = {
-    id?: string;
-    source?: string;
-    target?: string;
-    sourceId?: string;
-    targetId?: string;
-    sourceLabel?: string;
-    targetLabel?: string;
-    label?: string;
-    sourceHandle?: string; // For branch nodes: "true" or "false"
-};
+function normalizeRAGNode(node: PlanNode, data: PlanNodeData, label: string): AppNodeData {
+    const filesRaw = getProp<PlanNodeData['files']>(node, data, 'files') || [];
+    const processedFiles = (Array.isArray(filesRaw) ? filesRaw : []).map((f) =>
+        typeof f === "string"
+            ? { name: f }
+            : { name: String(f.name || "文件"), size: f.size, type: f.type, url: f.url }
+    );
+    return {
+        label,
+        status: "idle",
+        files: processedFiles,
+        topK: getProp<number>(node, data, 'topK') ?? 5,
+        maxTokensPerChunk: getProp<number>(node, data, 'maxTokensPerChunk') ?? 200,
+        maxOverlapTokens: getProp<number>(node, data, 'maxOverlapTokens') ?? 50,
+        inputMappings: getProp<Record<string, string>>(node, data, 'inputMappings') || {},
+    } as AppNodeData;
+}
 
-export type Plan = {
-    title?: string;
-    nodes?: PlanNode[];
-    edges?: PlanEdge[]
-};
+function normalizeToolNode(node: PlanNode, data: PlanNodeData, label: string): AppNodeData {
+    return {
+        label,
+        status: "idle",
+        toolType: String(getProp<string>(node, data, 'toolType') || "web_search"),
+        inputs: getProp<Record<string, unknown>>(node, data, 'inputs') || {},
+    } as AppNodeData;
+}
+
+function createDefaultEdges(nodes: AppNode[]): AppEdge[] {
+    const edges: AppEdge[] = [];
+    const ins = nodes.filter((n) => n.type === "input");
+    const rags = nodes.filter((n) => n.type === "rag");
+    const https = nodes.filter((n) => n.type === "http" as any); // cast for dynamic type check
+    const llms = nodes.filter((n) => n.type === "llm");
+    const branches = nodes.filter((n) => n.type === "branch");
+    const tools = nodes.filter((n) => n.type === "tool");
+    const outs = nodes.filter((n) => n.type === "output");
+
+    const chain: AppNode[] = [
+        ...ins.length ? [ins[0]] : [],
+        ...rags,
+        ...https,
+        ...tools,
+        ...llms,
+        ...branches,
+        ...outs.length ? [outs[0]] : []
+    ];
+
+    for (let i = 0; i < chain.length - 1; i++) {
+        edges.push({ id: `e-${chain[i].id}-${chain[i + 1].id}-${nanoid(4)}`, source: chain[i].id, target: chain[i + 1].id });
+    }
+
+    // Connect extra LLMs to output if main chain doesn't cover them all sequentially
+    // The original logic seemed to connect all subsequent LLMs to the output, preserving that behavior:
+    for (let i = 1; i < llms.length; i++) {
+        if (outs[0]) edges.push({ id: `e-${llms[i].id}-${outs[0].id}-${nanoid(4)}`, source: llms[i].id, target: outs[0].id });
+    }
+
+    return edges;
+}
 
 /**
  * 规范化 LLM 返回的计划数据
  * 将 LLM 的 JSON 输出转换为标准的 AppNode 和 AppEdge 格式
- * 
- * CRITICAL: 保留所有节点配置，包括：
- * - Input: enableFileInput, enableTextInput, fileConfig 等
- * - LLM: enableMemory, memoryMaxTurns 等
- * - Branch: condition
- * - Tool: toolType, inputs
- * - RAG: topK, maxTokensPerChunk 等
  */
 export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; edges: AppEdge[] } {
     const rawNodes: PlanNode[] = Array.isArray(plan?.nodes) ? plan.nodes : [];
@@ -106,123 +143,55 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
         const type = String(rn?.type || "llm") as NodeKind;
         const id = String(rn?.id || `${type}-${nanoid(6)}`);
         const position = rn?.position || { x: 100 + i * 300, y: 200 };
-
-        // 支持两种格式：data 对象或直接属性
         const d = rn?.data || {};
         const label = String(d?.label || rn?.label || type.toUpperCase());
 
-        // 通用属性提取函数
-        const get = <T>(key: keyof PlanNodeData): T | undefined => {
-            return (d?.[key] ?? (rn as Record<string, unknown>)?.[key]) as T | undefined;
-        };
-
         let data: AppNodeData = { label, status: "idle" };
 
-        if (type === "input") {
-            // 保留所有 Input 节点配置
-            const enableFileInput = get<boolean>('enableFileInput') ?? false;
-            const enableStructuredForm = get<boolean>('enableStructuredForm') ?? false;
-
-            // 处理文件配置：如果启用了文件输入但没有配置，提供默认配置
-            let fileConfig = get<PlanNodeData['fileConfig']>('fileConfig');
-            if (enableFileInput && (!fileConfig || !fileConfig.allowedTypes || fileConfig.allowedTypes.length === 0)) {
-                // 根据标签推断文件类型，默认支持常见文件类型
-                const labelLower = label.toLowerCase();
-                let defaultTypes: string[] = [];
-                if (labelLower.includes('图片') || labelLower.includes('截图') || labelLower.includes('image') || labelLower.includes('photo')) {
-                    defaultTypes = ['image/*'];
-                } else if (labelLower.includes('文档') || labelLower.includes('文件') || labelLower.includes('doc')) {
-                    defaultTypes = ['.pdf', '.doc', '.docx', '.txt', '.md'];
-                } else {
-                    // 默认支持常见文件类型
-                    defaultTypes = ['image/*', '.pdf', '.doc', '.docx', '.txt', '.md'];
+        switch (type) {
+            case "input":
+                data = normalizeInputNode(rn, d, label);
+                break;
+            case "llm":
+                data = normalizeLLMNode(rn, d, label);
+                break;
+            case "rag":
+                data = normalizeRAGNode(rn, d, label);
+                break;
+            case "branch":
+                data = {
+                    label,
+                    status: "idle",
+                    condition: String(getProp<string>(rn, d, 'condition') || ""),
+                } as AppNodeData;
+                break;
+            case "tool":
+                data = normalizeToolNode(rn, d, label);
+                break;
+            case "output":
+                data = {
+                    label,
+                    status: "idle",
+                    text: String(getProp<string>(rn, d, 'text') || ""),
+                    inputMappings: getProp<Record<string, string>>(rn, d, 'inputMappings') || {},
+                } as AppNodeData;
+                break;
+            default:
+                // Handle basic types like http if checked dynamically or fallback
+                if ((type as string) === "http") {
+                    data = {
+                        label,
+                        status: "idle",
+                        method: String(getProp<string>(rn, d, 'method') || "GET"),
+                        url: String(getProp<string>(rn, d, 'url') || ""),
+                    } as any;
                 }
-                fileConfig = {
-                    allowedTypes: defaultTypes,
-                    maxFileSize: fileConfig?.maxFileSize ?? 10,
-                    maxFileCount: fileConfig?.maxFileCount ?? 5,
-                };
-            }
-
-            // 处理表单字段：如果启用了结构化表单但没有字段，提供默认字段
-            let formFields = get<PlanNodeData['formFields']>('formFields') || [];
-            if (enableStructuredForm && formFields.length === 0) {
-                // 根据标签推断表单字段
-                formFields = [{
-                    id: `field_${Date.now()}`,
-                    type: 'text',
-                    label: '参数',
-                    required: false,
-                }];
-            }
-
-            data = {
-                label,
-                status: "idle",
-                text: String(get<string>('text') || ""),
-                enableTextInput: get<boolean>('enableTextInput') ?? true,
-                enableFileInput,
-                enableStructuredForm,
-                fileConfig,
-                formFields,
-            } as AppNodeData;
-        } else if (type === "llm") {
-            // 保留所有 LLM 节点配置，包括 enableMemory
-            data = {
-                label,
-                status: "idle",
-                model: String(get<string>('model') || "qwen-flash"),
-                temperature: typeof get<number>('temperature') === "number" ? get<number>('temperature') : 0.7,
-                systemPrompt: String(get<string>('systemPrompt') || ""),
-                enableMemory: get<boolean>('enableMemory') ?? false,
-                memoryMaxTurns: get<number>('memoryMaxTurns') ?? 10,
-            } as AppNodeData;
-        } else if (type === "rag") {
-            // 保留所有 RAG 节点配置
-            const filesRaw = get<PlanNodeData['files']>('files') || [];
-            const processedFiles = (Array.isArray(filesRaw) ? filesRaw : []).map((f) =>
-                typeof f === "string"
-                    ? { name: f }
-                    : { name: String(f.name || "文件"), size: f.size, type: f.type, url: f.url }
-            );
-            data = {
-                label,
-                status: "idle",
-                files: processedFiles,
-                topK: get<number>('topK') ?? 5,
-                maxTokensPerChunk: get<number>('maxTokensPerChunk') ?? 200,
-                maxOverlapTokens: get<number>('maxOverlapTokens') ?? 50,
-            } as AppNodeData;
-        } else if (type === "branch") {
-            // 🚨 保留 Branch 节点的 condition
-            data = {
-                label,
-                status: "idle",
-                condition: String(get<string>('condition') || ""),
-            } as AppNodeData;
-        } else if (type === "tool") {
-            // 保留 Tool 节点配置
-            data = {
-                label,
-                status: "idle",
-                toolType: String(get<string>('toolType') || "web_search"),
-                inputs: get<Record<string, unknown>>('inputs') || {},
-            } as AppNodeData;
-        } else if ((type as string) === "http") {
-            data = {
-                label,
-                status: "idle",
-                method: String(get<string>('method') || "GET"),
-                url: String(get<string>('url') || ""),
-            } as AppNodeData;
-        } else if (type === "output") {
-            data = { label, status: "idle", text: String(get<string>('text') || "") } as AppNodeData;
+                break;
         }
 
         return { id, type, position, data } as AppNode;
     });
 
-    // 构建 ID 映射
     const idByLabel = new Map<string, string>();
     for (const n of nodes) idByLabel.set(String(n.data.label || "").toLowerCase(), n.id);
 
@@ -242,7 +211,6 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
                 source: sid,
                 target: tid,
             };
-            // 🚨 保留 sourceHandle（用于 Branch 节点的 true/false 路径）
             if (re?.sourceHandle) {
                 edge.sourceHandle = re.sourceHandle;
             }
@@ -250,32 +218,8 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
         }
     }
 
-    // 如果没有边，自动生成默认连接
     if (edges.length === 0 && nodes.length) {
-        const ins = nodes.filter((n) => n.type === "input");
-        const rags = nodes.filter((n) => n.type === "rag");
-        const https = nodes.filter((n) => (n.type as string) === "http");
-        const llms = nodes.filter((n) => n.type === "llm");
-        const branches = nodes.filter((n) => n.type === "branch");
-        const tools = nodes.filter((n) => n.type === "tool");
-        const outs = nodes.filter((n) => n.type === "output");
-
-        const chain: AppNode[] = [];
-        if (ins[0]) chain.push(ins[0]);
-        for (const n of rags) chain.push(n);
-        for (const n of https) chain.push(n);
-        for (const n of tools) chain.push(n);
-        for (const n of llms) chain.push(n);
-        for (const n of branches) chain.push(n);
-        if (outs[0]) chain.push(outs[0]);
-
-        for (let i = 0; i < chain.length - 1; i++) {
-            edges.push({ id: `e-${chain[i].id}-${chain[i + 1].id}-${nanoid(4)}`, source: chain[i].id, target: chain[i + 1].id });
-        }
-
-        for (let i = 1; i < llms.length; i++) {
-            if (outs[0]) edges.push({ id: `e-${llms[i].id}-${outs[0].id}-${nanoid(4)}`, source: llms[i].id, target: outs[0].id });
-        }
+        edges.push(...createDefaultEdges(nodes));
     }
 
     return { nodes, edges };
