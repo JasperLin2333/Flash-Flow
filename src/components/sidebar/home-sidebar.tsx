@@ -4,7 +4,6 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-    Zap,
     ChevronDown,
     ArrowUpRight,
     List,
@@ -94,7 +93,7 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
             {!isOpen && (
                 <Button
                     onClick={() => onToggle(true)}
-                    className="fixed top-8 left-8 z-50 rounded-full bg-black text-white hover:bg-black/90 active:bg-black/95 shadow-md font-semibold transition-all duration-150 h-10 w-10 flex items-center justify-center"
+                    className="fixed top-8 left-8 z-50 rounded-full bg-white text-[#60B4FF] hover:bg-gray-100 active:bg-gray-200 shadow-md font-semibold transition-all duration-150 h-10 w-10 flex items-center justify-center border border-gray-200"
                     aria-label="打开侧边栏"
                     title="打开侧边栏"
                 >

@@ -102,7 +102,7 @@ export function ChatArea({
             <div className={`${LAYOUT.maxWidth} mx-auto space-y-12`}>
                 {messages.length === 0 && <EmptyState inputNodeData={inputNodeData} />}
                 {messages.map((msg, idx) => (
-                    <MessageBubble key={idx} role={msg.role} content={msg.content} files={msg.files} flowIcon={flowIcon} />
+                    <MessageBubble key={idx} role={msg.role} content={msg.content} files={msg.files} flowIcon={flowIcon} timestamp={msg.timestamp} />
                 ))}
                 {isLoading && <LoadingIndicator flowIcon={flowIcon} />}
             </div>

@@ -46,6 +46,7 @@ export function AvatarDialog({
   const [tab, setTab] = React.useState<"image" | "emoji">("image");
   const [uploading, setUploading] = React.useState(false);
   const [selectedEmoji, setSelectedEmoji] = React.useState<string | null>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Reset state when dialog opens
@@ -59,7 +60,10 @@ export function AvatarDialog({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    await processFile(file);
+  };
 
+  const processFile = async (file: File) => {
     // 验证文件类型
     if (!isValidImageFile(file)) {
       alert(`不支持的文件格式。支持: ${SUPPORTED_IMAGE_FORMATS}`);
@@ -81,6 +85,29 @@ export function AvatarDialog({
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      await processFile(file);
     }
   };
 
@@ -135,8 +162,16 @@ export function AvatarDialog({
         {tab === "image" ? (
           <div>
             <div
-              className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center hover:bg-gray-50 hover:border-gray-300 transition-colors duration-150 cursor-pointer"
+              className={cn(
+                "border-2 border-dashed rounded-lg p-6 text-center transition-colors duration-150 cursor-pointer",
+                isDragging
+                  ? "border-blue-500 bg-blue-50"
+                  : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+              )}
               onClick={() => fileInputRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
               <input
                 ref={fileInputRef}
@@ -145,7 +180,9 @@ export function AvatarDialog({
                 onChange={handleFileChange}
                 className="hidden"
               />
-              <div className="text-sm text-gray-600">点击选择文件或拖拽文件到此处</div>
+              <div className={cn("text-sm", isDragging ? "text-blue-600" : "text-gray-600")}>
+                {isDragging ? "松开鼠标上传文件" : "点击选择文件或拖拽文件到此处"}
+              </div>
               <div className="text-xs text-gray-500 mt-2">支持 {SUPPORTED_IMAGE_FORMATS} 格式</div>
               {uploading && (
                 <div className="text-xs mt-2 text-gray-600 font-medium">上传中...</div>

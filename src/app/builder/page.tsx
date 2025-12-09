@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Eye, Pencil, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { flowAPI } from "@/services/flowAPI";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 function BuilderContent() {
     const searchParams = useSearchParams();
@@ -290,10 +291,12 @@ function BuilderContent() {
 
 export default function BuilderPage() {
     return (
-        <ReactFlowProvider>
-            <Suspense fallback={<div>Loading...</div>}>
-                <BuilderContent />
-            </Suspense>
-        </ReactFlowProvider>
+        <ProtectedRoute>
+            <ReactFlowProvider>
+                <Suspense fallback={<div>Loading...</div>}>
+                    <BuilderContent />
+                </Suspense>
+            </ReactFlowProvider>
+        </ProtectedRoute>
     );
 }

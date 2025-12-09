@@ -172,7 +172,6 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
     files: Array<{ name: string; url: string; type?: string }>
   ): Promise<Record<string, unknown>> {
     try {
-      console.log(`[RAGNodeExecutor] Using multimodal API with ${files.length} files`);
 
       const searchResult = await geminiFileSearchAPI.queryWithFiles(query, files);
 
@@ -215,7 +214,6 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
     }
 
     try {
-      console.log(`[RAGNodeExecutor] Using File Search Store: ${ragData.fileSearchStoreName}`);
 
       const searchResult = await geminiFileSearchAPI.searchInStore(
         query,

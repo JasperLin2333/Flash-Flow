@@ -1,4 +1,5 @@
 import type { NodeKind, AppNodeData } from "@/types/flow";
+import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
 
 /**
  * 获取指定节点类型的默认数据
@@ -6,7 +7,7 @@ import type { NodeKind, AppNodeData } from "@/types/flow";
 export function getDefaultNodeData(type: NodeKind): Partial<AppNodeData> {
     const defaults: Record<NodeKind, Partial<AppNodeData>> = {
         input: { label: "输入", text: "", status: "idle" },
-        llm: { label: "LLM", model: "doubao-seed-1-6-flash-250828", temperature: 0.7, systemPrompt: "", status: "idle" },
+        llm: { label: "LLM", model: LLM_EXECUTOR_CONFIG.DEFAULT_MODEL, temperature: LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE, systemPrompt: "", status: "idle" },
         rag: {
             label: "RAG",
             files: [],

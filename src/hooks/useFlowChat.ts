@@ -90,7 +90,7 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         try {
             const user = await authService.getCurrentUser();
             if (!user) {
-                setMessages(prev => [...prev, { role: "assistant", content: "请先登录以使用 APP 功能。" }]);
+                setMessages(prev => [...prev, { role: "assistant", content: "请先登录以使用 APP 功能。", timestamp: new Date() }]);
                 return;
             }
 
@@ -98,13 +98,14 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
             if (!quotaCheck.allowed) {
                 setMessages(prev => [...prev, {
                     role: "assistant",
-                    content: `您的 APP 使用次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额以继续使用。`
+                    content: `您的 APP 使用次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额以继续使用。`,
+                    timestamp: new Date()
                 }]);
                 return;
             }
         } catch (e) {
             console.error("[useFlowChat] Quota check failed:", e);
-            setMessages(prev => [...prev, { role: "assistant", content: "配额检查失败，请稍后重试。" }]);
+            setMessages(prev => [...prev, { role: "assistant", content: "配额检查失败，请稍后重试。", timestamp: new Date() }]);
             return;
         }
 
@@ -170,7 +171,7 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
 
             if (activeSessionIdRef.current !== activeSessionId) return;
 
-            const updatedMessages = [...newMessages, { role: "assistant" as const, content: responseText }];
+            const updatedMessages = [...newMessages, { role: "assistant" as const, content: responseText, timestamp: new Date() }];
             setMessages(updatedMessages);
             updateSessionCache(activeSessionId, updatedMessages, false);
 
@@ -196,7 +197,7 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
             if (activeSessionIdRef.current === activeSessionId) {
                 useFlowStore.getState().clearStreaming();
                 setIsLoading(false);
-                setMessages(prev => [...prev, { role: "assistant", content: MESSAGES.ERROR_EXECUTION }]);
+                setMessages(prev => [...prev, { role: "assistant", content: MESSAGES.ERROR_EXECUTION, timestamp: new Date() }]);
             }
         } finally {
             if (activeSessionIdRef.current === activeSessionId) {

@@ -57,6 +57,7 @@ export interface Message {
     role: "user" | "assistant";
     content: string;
     files?: File[];
+    timestamp?: Date;
 }
 
 export interface FlowAppInterfaceProps {

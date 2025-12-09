@@ -316,16 +316,22 @@ export function useNodeIO({
         }
 
         // Branch 节点：检测条件表达式中的变量引用
+        // 支持格式: nodeName.field (如 用户输入.user_input, LLM处理.response)
         if (nodeType === 'branch') {
             const condition = nodeData?.condition as string | undefined;
             if (condition) {
-                const inputVarRegex = /input\.(\w+)/g;
+                // 匹配 nodeName.field 格式 (nodeName 可以是中文或英文)
+                const nodeFieldRegex = /([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.(\w+)/g;
                 let match;
-                while ((match = inputVarRegex.exec(condition)) !== null) {
-                    const fieldName = match[1];
-                    const isSatisfied = upstreamFieldNames.has(fieldName);
+                while ((match = nodeFieldRegex.exec(condition)) !== null) {
+                    const nodeName = match[1];
+                    const fieldName = match[2];
+                    const fullRef = `${nodeName}.${fieldName}`;
+                    // 检查是否有匹配的上游变量
+                    const isSatisfied = upstreamFullNames.has(fullRef) ||
+                        upstreamVariables.some(v => v.nodeLabel === nodeName && v.field === fieldName);
                     refs.push({
-                        field: fieldName,
+                        field: fullRef,
                         description: "条件表达式中引用",
                         isSatisfied,
                     });

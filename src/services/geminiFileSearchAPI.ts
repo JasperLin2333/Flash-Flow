@@ -282,8 +282,6 @@ class GeminiFileSearchAPI {
                             data: base64Data
                         }
                     });
-
-                    console.log(`[GeminiFileSearchAPI] Added file: ${file.name} (${mimeType})`);
                 } catch (fetchError) {
                     console.warn(`[GeminiFileSearchAPI] Error fetching file ${file.name}:`, fetchError);
                 }

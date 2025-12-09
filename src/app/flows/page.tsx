@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus, Home, Search as SearchIcon, Loader2 } from "lucide-react";
@@ -7,8 +7,10 @@ import { flowAPI } from "@/services/flowAPI";
 import type { FlowRecord } from "@/types/flow";
 import FlowCard from "@/components/flows/FlowCard";
 import { Input } from "@/components/ui/input";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { useFlowStore } from "@/store/flowStore";
 
-export default function FlowsPage() {
+function FlowsPageContent() {
   const router = useRouter();
   const [flows, setFlows] = useState<FlowRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,12 +37,8 @@ export default function FlowsPage() {
 
   const handleCreateFlow = async () => {
     try {
-      // CRITICAL FIX: Clear canvas state first to prevent flash of old data
-      // Import useFlowStore to get direct access to store actions
-      const { setNodes, setEdges, setFlowTitle, setFlowIcon, setCurrentFlowId } =
-        await import("@/store/flowStore").then(m => m.useFlowStore.getState());
-
       // Reset all visual state immediately
+      const { setNodes, setEdges, setFlowTitle, setFlowIcon, setCurrentFlowId } = useFlowStore.getState();
       setNodes([]);
       setEdges([]);
       setFlowTitle("Untitled Flow");
@@ -127,18 +125,54 @@ export default function FlowsPage() {
         )}
 
         {!isLoading && !error && flows.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-x-8 gap-y-10">
-            {filtered.map((flow) => (
-              <FlowCard
-                key={flow.id}
-                flow={flow}
-                onUpdated={(updated) => setFlows((prev) => prev.map((f) => (f.id === updated.id ? updated : f)))}
-                onDeleted={(id) => setFlows((prev) => prev.filter((f) => f.id !== id))}
-              />
-            ))}
-          </div>
+          filtered.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-x-8 gap-y-10">
+              {filtered.map((flow) => (
+                <FlowCard
+                  key={flow.id}
+                  flow={flow}
+                  onUpdated={(updated) => setFlows((prev) => prev.map((f) => (f.id === updated.id ? updated : f)))}
+                  onDeleted={(id) => setFlows((prev) => prev.filter((f) => f.id !== id))}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-16">
+              <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <SearchIcon className="w-6 h-6 text-gray-400" />
+              </div>
+              <p className="text-gray-500 text-sm">未找到匹配 "{query}" 的结果</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setQuery("")}
+                className="mt-3 text-gray-600 hover:text-gray-900"
+              >
+                清除搜索
+              </Button>
+            </div>
+          )
         )}
       </div>
     </div>
+  );
+}
+
+// 统一的加载组件
+function LoadingScreen() {
+  return (
+    <div className="h-screen w-full bg-white flex items-center justify-center">
+      <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+    </div>
+  );
+}
+
+export default function FlowsPageWrapper() {
+  return (
+    <Suspense fallback={<LoadingScreen />}>
+      <ProtectedRoute>
+        <FlowsPageContent />
+      </ProtectedRoute>
+    </Suspense>
   );
 }

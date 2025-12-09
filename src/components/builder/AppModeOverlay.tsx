@@ -87,7 +87,7 @@ export default function AppModeOverlay() {
         if (executionStatus === "completed" && isLoading) {
             setIsLoading(false);
             const outputText = extractExecutionOutput(flowContext, nodes);
-            setMessages((prev) => [...prev, { role: "assistant", content: outputText }]);
+            setMessages((prev) => [...prev, { role: "assistant", content: outputText, timestamp: new Date() }]);
             // Clear streaming AFTER adding the message to prevent flash
             // Use setTimeout to ensure state updates are processed first
             setTimeout(() => {
@@ -95,7 +95,7 @@ export default function AppModeOverlay() {
             }, 0);
         } else if (executionStatus === "error" && isLoading) {
             setIsLoading(false);
-            setMessages((prev) => [...prev, { role: "assistant", content: ERROR_MSG }]);
+            setMessages((prev) => [...prev, { role: "assistant", content: ERROR_MSG, timestamp: new Date() }]);
             setTimeout(() => {
                 useFlowStore.getState().clearStreaming();
             }, 0);
@@ -168,7 +168,7 @@ export default function AppModeOverlay() {
     // Compute display messages: append streaming text as partial assistant message
     const displayMessages = useMemo(() => {
         if (isStreaming && streamingText && isLoading) {
-            return [...messages, { role: "assistant" as const, content: streamingText }];
+            return [...messages, { role: "assistant" as const, content: streamingText, timestamp: new Date() }];
         }
         return messages;
     }, [messages, isStreaming, streamingText, isLoading]);

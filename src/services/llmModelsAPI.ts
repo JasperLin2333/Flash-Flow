@@ -16,24 +16,22 @@ export interface LLMModel {
 }
 
 // ============ Default Fallback Models ============
-const DEFAULT_MODELS: LLMModel[] = [
-    {
-        id: "default-1",
-        model_id: "doubao-seed-1-6-flash-250828",
-        model_name: "豆包-1-6-flash",
-        provider: "doubao",
-        is_active: true,
-        display_order: 1,
-    },
-    {
-        id: "default-2",
-        model_id: "qwen-flash",
-        model_name: "Qwen-Flash",
-        provider: "dashscope",
-        is_active: true,
-        display_order: 2,
-    },
-];
+// Uses environment variable for easy configuration
+const getDefaultModels = (): LLMModel[] => {
+    const defaultModel = process.env.DEFAULT_LLM_MODEL || process.env.NEXT_PUBLIC_DEFAULT_LLM_MODEL || "deepseek-ai/DeepSeek-V3.2";
+    const modelName = defaultModel.split("/").pop() || "DeepSeek-V3.2";
+
+    return [
+        {
+            id: "default-1",
+            model_id: defaultModel,
+            model_name: modelName,
+            provider: "siliconflow",
+            is_active: true,
+            display_order: 1,
+        },
+    ];
+};
 
 // ============ API Functions ============
 export const llmModelsAPI = {
@@ -52,24 +50,23 @@ export const llmModelsAPI = {
             if (error) {
                 console.error("[llmModelsAPI] listModels error:", error);
                 // Fallback to default models on error
-                return DEFAULT_MODELS;
+                return getDefaultModels();
             }
 
             // If no models found, return defaults
             if (!data || data.length === 0) {
                 console.warn("[llmModelsAPI] No models found, using defaults");
-                return DEFAULT_MODELS;
+                return getDefaultModels();
             }
 
             const models = data as LLMModel[];
-
-
+            console.log("[llmModelsAPI] Loaded models from DB:", models.length, models.map(m => m.model_name));
 
             return models;
         } catch (e) {
             console.error("[llmModelsAPI] listModels exception:", e);
             // Fallback to default models on exception
-            return DEFAULT_MODELS;
+            return getDefaultModels();
         }
     },
 

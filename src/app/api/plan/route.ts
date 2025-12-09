@@ -19,8 +19,8 @@ export async function POST(req: Request) {
     // Files placeholder - knowledge base files are configured in the UI, not passed from frontend
     const files: { name: string; size?: number; type?: string }[] = [];
 
-    // 3. Model configuration
-    const preferredModel = "qwen-flash";
+    // 3. Model configuration (reads from environment variable for easy updates)
+    const preferredModel = process.env.DEFAULT_LLM_MODEL || "deepseek-ai/DeepSeek-V3.2";
     const system = `你是工作流编排专家。根据用户需求描述，智能生成完整的 JSON 工作流。
 
 # 🧠 核心原则
@@ -464,13 +464,13 @@ formFields 定义: \`{"name": "stock_code", "label": "股票代码"}\`
     ].join("\n");
 
     let content = "{}";
-    // Default to DashScope / Qwen-Flash as requested
+    // SiliconFlow API with DeepSeek-V3 model
     const client = new OpenAI({
-      apiKey: process.env.DASHSCOPE_API_KEY || process.env.OPENAI_API_KEY || "",
-      baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      apiKey: process.env.SILICONFLOW_API_KEY || "",
+      baseURL: "https://api.siliconflow.cn/v1"
     });
     const completion = await client.chat.completions.create({
-      model: "qwen-flash",
+      model: preferredModel,
       temperature: 0.2,
       messages: [
         { role: "system", content: system },

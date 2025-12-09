@@ -10,8 +10,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const provider = (process.env.LLM_PROVIDER || "openai").toLowerCase();
-
     // 构建当前工作流的完整 JSON 上下文
     const currentWorkflowJSON = JSON.stringify(
       {
@@ -370,38 +368,21 @@ formFields: \`{"name": "stock_code", "label": "股票代码"}\`
 
     let content = "{}";
 
-    if (provider === "doubao") {
-      const model = process.env.DOUBAO_MODEL || "doubao-pro-128k";
-      const apiKey = process.env.DOUBAO_API_KEY || "";
-      const resp = await fetch("https://ark.cn-beijing.volces.com/api/v3/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: finalSystemPrompt },
-            { role: "user", content: userMsg },
-          ],
-          temperature: 0.1,
-        }),
-      });
-      const data = (await resp.json()) as { choices?: { message?: { content?: string } }[] };
-      content = data?.choices?.[0]?.message?.content || "{}";
-    } else {
-      const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
-      const completion = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.1,
-        messages: [
-          { role: "system", content: finalSystemPrompt },
-          { role: "user", content: userMsg },
-        ],
-      });
-      content = completion.choices?.[0]?.message?.content || "{}";
-    }
+    // SiliconFlow API - model from environment variable
+    const defaultModel = process.env.DEFAULT_LLM_MODEL || "deepseek-ai/DeepSeek-V3.2";
+    const client = new OpenAI({
+      apiKey: process.env.SILICONFLOW_API_KEY || "",
+      baseURL: "https://api.siliconflow.cn/v1"
+    });
+    const completion = await client.chat.completions.create({
+      model: defaultModel,
+      temperature: 0.1,
+      messages: [
+        { role: "system", content: finalSystemPrompt },
+        { role: "user", content: userMsg },
+      ],
+    });
+    content = completion.choices?.[0]?.message?.content || "{}";
 
     // 提取JSON
     let jsonText = content;

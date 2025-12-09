@@ -1,8 +1,48 @@
 import OpenAI from "openai";
 
+// ============ Provider Configuration ============
+const PROVIDER_CONFIG = {
+    siliconflow: {
+        baseURL: "https://api.siliconflow.cn/v1",
+        getApiKey: () => process.env.SILICONFLOW_API_KEY || "",
+    },
+    dashscope: {
+        baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        getApiKey: () => process.env.DASHSCOPE_API_KEY || "",
+    },
+    openai: {
+        baseURL: "https://api.openai.com/v1",
+        getApiKey: () => process.env.OPENAI_API_KEY || "",
+    },
+} as const;
+
+/**
+ * Determine the provider based on model ID prefix
+ * - deepseek-ai/* → SiliconFlow
+ * - Qwen/* or qwen-* → DashScope
+ * - gpt-* → OpenAI
+ * - Default: SiliconFlow (for new models)
+ */
+function getProviderForModel(model: string): keyof typeof PROVIDER_CONFIG {
+    const modelLower = model.toLowerCase();
+
+    if (model.startsWith("deepseek-ai/") || modelLower.startsWith("deepseek")) {
+        return "siliconflow";
+    }
+    if (model.startsWith("Qwen/") || modelLower.startsWith("qwen")) {
+        return "dashscope";
+    }
+    if (modelLower.startsWith("gpt-")) {
+        return "openai";
+    }
+
+    // Default to SiliconFlow for unknown models
+    return "siliconflow";
+}
+
 /**
  * Streaming LLM API Endpoint
- * Returns Server-Sent Events for real-time token streaming
+ * Dynamically routes to the correct provider based on model ID
  */
 export async function POST(req: Request) {
     try {
@@ -15,8 +55,6 @@ export async function POST(req: Request) {
                 { status: 400, headers: { "Content-Type": "application/json" } }
             );
         }
-
-        const provider = (process.env.LLM_PROVIDER || "openai").toLowerCase();
 
         // Construct messages
         const messages: { role: string; content: string }[] = [];
@@ -41,98 +79,32 @@ export async function POST(req: Request) {
             messages.push({ role: "user", content: "Start" });
         }
 
+        // Determine provider based on model
+        const provider = getProviderForModel(model);
+        const config = PROVIDER_CONFIG[provider];
+
         // Create streaming response
         const encoder = new TextEncoder();
 
         const stream = new ReadableStream({
             async start(controller) {
                 try {
-                    if (model === "qwen-flash") {
-                        // Qwen with OpenAI-compatible API
-                        const client = new OpenAI({
-                            apiKey: process.env.DASHSCOPE_API_KEY || "",
-                            baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-                        });
+                    const client = new OpenAI({
+                        apiKey: config.getApiKey(),
+                        baseURL: config.baseURL,
+                    });
 
-                        const completion = await client.chat.completions.create({
-                            model: "qwen-flash",
-                            temperature: temperature || 0.7,
-                            messages: messages as any,
-                            stream: true,
-                        });
+                    const completion = await client.chat.completions.create({
+                        model: model,
+                        temperature: temperature || 0.7,
+                        messages: messages as any,
+                        stream: true,
+                    });
 
-                        for await (const chunk of completion) {
-                            const content = chunk.choices?.[0]?.delta?.content || "";
-                            if (content) {
-                                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
-                            }
-                        }
-                    } else if (provider === "doubao") {
-                        // Doubao API with streaming
-                        const apiKey = process.env.DOUBAO_API_KEY || "";
-                        const actualModel = model === "gpt-4" ? (process.env.DOUBAO_MODEL || "doubao-pro-128k") : model;
-
-                        const resp = await fetch("https://ark.cn-beijing.volces.com/api/v3/chat/completions", {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${apiKey}`,
-                            },
-                            body: JSON.stringify({
-                                model: actualModel,
-                                messages,
-                                temperature: temperature || 0.7,
-                                stream: true,
-                            }),
-                        });
-
-                        if (!resp.ok || !resp.body) {
-                            throw new Error(`Doubao API failed: ${resp.status}`);
-                        }
-
-                        const reader = resp.body.getReader();
-                        const decoder = new TextDecoder();
-                        let buffer = "";
-
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-
-                            buffer += decoder.decode(value, { stream: true });
-                            const lines = buffer.split("\n");
-                            buffer = lines.pop() || "";
-
-                            for (const line of lines) {
-                                if (line.startsWith("data: ")) {
-                                    const data = line.slice(6);
-                                    if (data === "[DONE]") continue;
-                                    try {
-                                        const parsed = JSON.parse(data);
-                                        const content = parsed.choices?.[0]?.delta?.content || "";
-                                        if (content) {
-                                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
-                                        }
-                                    } catch {
-                                        // Skip malformed JSON
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // OpenAI API
-                        const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
-                        const completion = await client.chat.completions.create({
-                            model: model || "gpt-4o-mini",
-                            temperature: temperature || 0.7,
-                            messages: messages as any,
-                            stream: true,
-                        });
-
-                        for await (const chunk of completion) {
-                            const content = chunk.choices?.[0]?.delta?.content || "";
-                            if (content) {
-                                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
-                            }
+                    for await (const chunk of completion) {
+                        const content = chunk.choices?.[0]?.delta?.content || "";
+                        if (content) {
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
                         }
                     }
 

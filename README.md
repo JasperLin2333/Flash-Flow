@@ -1,223 +1,310 @@
 <p align="center">
-  <img src="src/app/Logo.png" alt="Flash Flow Logo" width="120" height="120">
+  <img src="src/app/Logo.png" alt="Flash Flow Logo" width="160" height="160">
 </p>
 
-<h1 align="center">Flash Flow</h1>
+<h1 align="center">⚡ Flash Flow</h1>
 
 <p align="center">
-  <strong>🚀 可视化 AI 工作流编排平台</strong>
+  <strong>说出来，就做出来 —— AI 工作流，30秒搞定</strong>
 </p>
 
 <p align="center">
-  <a href="#功能特点">功能特点</a> •
-  <a href="#技术栈">技术栈</a> •
-  <a href="#快速开始">快速开始</a> •
-  <a href="#节点类型">节点类型</a> •
-  <a href="#项目结构">项目结构</a>
+  <a href="#-核心亮点">核心亮点</a> •
+  <a href="#-节点能力">节点能力</a> •
+  <a href="#-变量引用">变量引用</a> •
+  <a href="#-快速开始">快速开始</a>
+</p>
+
+<p align="center">
+  <a href="https://flash-flow-gray.vercel.app/">
+    <img src="https://img.shields.io/badge/🚀_立即体验-Flash_Flow-blue?style=for-the-badge" alt="Try Flash Flow">
+  </a>
 </p>
 
 ---
 
-## ✨ 项目简介
+## 💡 什么是 Flash Flow？
 
-Flash Flow 是一个现代化的 **可视化 AI 工作流编排平台**，让您无需编写代码即可构建复杂的 AI 应用。通过直观的拖拽式界面，您可以轻松连接 LLM、RAG 知识库、外部工具等组件，创建强大的自动化工作流。
+> **一句话描述你的需求，AI 帮你生成完整工作流。**
 
-**想要什么，就做什么** —— 这是 Flash Flow 的核心理念。
+无需拖拽、无需配置、无需编程 —— 只需 **30秒**，从想法到落地。
 
-## 🎯 功能特点
+```
+"帮我做一个文档问答工具，用户上传PDF后可以提问"
+```
 
-### 💡 智能工作流构建
-- **可视化编排**：基于 XYFlow 的拖拽式节点编辑器
-- **自然语言生成**：输入需求描述，AI 自动生成工作流
-- **实时预览**：边构建边测试，即时查看执行效果
+↓ ↓ ↓ **AI 自动生成** ↓ ↓ ↓
 
-### 🤖 强大的 AI 能力
-- **多模型支持**：接入 Qwen、OpenAI、Google Gemini 等主流 LLM
-- **对话记忆**：支持多轮对话上下文，智能记忆管理
-- **流式输出**：打字机效果的实时响应展示
+```
+📥 输入节点(文件上传) → 📖 RAG检索 → 🧠 LLM回答 → 📤 结果输出
+```
 
-### 📚 知识库集成
-- **RAG 检索增强**：基于 Gemini File Search API 的语义检索
-- **多格式支持**：PDF、Word、Markdown、TXT 等文档格式
-- **智能分块**：可配置的文档分块与重叠策略
+---
 
-### 🛠️ 丰富的工具生态
-- **网页搜索**：集成 Tavily API 实时搜索
-- **数学计算**：内置表达式计算器
-- **条件分支**：灵活的流程控制与路由
+## 🎯 核心亮点
 
-### 🔐 企业级特性
-- **用户认证**：基于 Supabase Auth 的安全认证
-- **配额管理**：细粒度的用户使用量控制
-- **数据隔离**：Row Level Security 保障数据安全
+<table>
+<tr>
+<td align="center" width="20%">
+
+### 🗣️
+**口喷工作流**
+
+用嘴说，用 AI 造
+一句话生成完整工作流
+
+</td>
+<td align="center" width="20%">
+
+### 🎯
+**精准生成**
+
+节点自动连接
+参数自动填充
+
+</td>
+<td align="center" width="20%">
+
+### 🔗
+**引用白痴化**
+
+`{{节点.字段}}`
+点击即插入
+
+</td>
+<td align="center" width="20%">
+
+### ⚡
+**30秒一个流**
+
+描述 → 生成
+预览 → 发布
+
+</td>
+<td align="center" width="20%">
+
+### 🧩
+**编排极简**
+
+拖拽连线
+所见即所得
+
+</td>
+</tr>
+</table>
+
+---
+
+## � 节点能力
+
+### 📥 输入节点 — 三模式自由组合
+
+| 模式 | 说明 | 输出变量 |
+|:---:|:---|:---|
+| **文本** | 用户自由输入 | `{{节点名.user_input}}` |
+| **文件** | 支持 PDF/Word/图片等 | `{{节点名.files[0].url}}` |
+| **表单** | 下拉单选/多选/文本框 | `{{节点名.formData.字段名}}` |
+
+---
+
+### 🧠 LLM 节点 — 多模型 + 记忆
+
+| 能力 | 说明 |
+|:---:|:---|
+| **多模型** | Qwen / GPT / Gemini / Doubao 一键切换 |
+| **变量注入** | Prompt 中 `{{变量}}` 自动替换 |
+| **对话记忆** | 可配置 1-20 轮记忆，支持多轮上下文 |
+| **流式输出** | 打字机效果，实时响应 |
+
+---
+
+### 📖 RAG 节点 — 双模式检索
+
+| 模式 | 场景 | 配置 |
+|:---:|:---|:---|
+| **静态** | 固定知识库问答 | Builder 预上传文档 |
+| **动态** | 用户上传即查询 | 引用 `{{输入节点.files}}` |
+
+> 📌 动态模式使用 Gemini 多模态 API，**秒级响应**
+
+---
+
+### 🔧 工具节点 — 5 种即插即用
+
+| 工具 | 功能 | 参数示例 |
+|:---:|:---|:---|
+| 🌐 **网页搜索** | Tavily 实时搜索 | `query: {{user_input}}` |
+| 🧮 **计算器** | 数学表达式计算 | `expression: "2+2*3"` |
+| � **日期时间** | 获取/格式化/计算 | `format: "YYYY-MM-DD"` |
+| ⛅ **天气查询** | 和风天气实时数据 | `city: "北京"` |
+| 🌐 **网页读取** | 提取网页正文 | `url: "https://..."` |
+
+---
+
+### 🔀 分支节点 — 安全表达式
+
+支持白名单表达式，**防注入攻击**：
+
+```javascript
+// 字符串判断
+用户输入.user_input.includes('咨询')
+
+// 数值比较
+计算结果.result > 60
+
+// 等值判断
+状态检查.type === 'VIP'
+```
+
+---
+
+### 📤 输出节点 — 四种模式
+
+| 模式 | 场景 | 配置示例 |
+|:---:|:---|:---|
+| `direct` | 单一来源 | `{{LLM.response}}` |
+| `select` | 分支择优 | 取第一个非空结果 |
+| `merge` | 多源合并 | 摘要 + 详情组合 |
+| `template` | 自定义模板 | `## 问题\n{{user_input}}` |
+
+---
+
+## 🔗 变量引用
+
+### 三种格式，随心选择
+
+| 格式 | 示例 | 说明 |
+|:---:|:---|:---|
+| **字段名** | `{{user_input}}` | 自动匹配上游 |
+| **节点.字段** | `{{用户输入.user_input}}` | 指定节点（推荐） |
+| **嵌套访问** | `{{输入.formData.stock}}` | 表单字段 |
+| **数组索引** | `{{输入.files[0].url}}` | 文件属性 |
+
+### 点击即插入
+
+参数面板显示所有可用变量，**一键复制**，告别手写。
+
+---
+
+## 🚀 典型场景
+
+| 场景 | 一句话需求 | 耗时 |
+|:---:|:---|:---:|
+| 📊 **智能报告** | "输入主题，搜索资料生成分析报告" | 30s |
+| 📝 **文档问答** | "上传文档，基于内容智能问答" | 20s |
+| 🔀 **智能分流** | "根据用户意图路由到不同处理" | 40s |
+| 📰 **资讯摘要** | "输入URL，提取正文并生成摘要" | 25s |
+| ⛅ **天气播报** | "输入城市，查询天气生成播报" | 15s |
+
+---
+
+### 🎬 案例展示：金融危机应对工作流
+
+> **一句话生成复杂工作流，看看 Flash Flow 的真实表现**
+
+<details>
+<summary><b>📝 生成提示词（点击展开）</b></summary>
+
+```
+请构建一个非常复杂的金融危机应对工作流。
+用户输入股票代码并上传财报，同时填写当前持仓金额。
+工作流同时进行联网搜索新闻和 RAG 分析上传的财报。
+用一个 LLM 汇总信息并输出 JSON 格式的风险评分（0-100）。
+使用 Branch 节点判断：如果分 >80，检索静态知识库中的危机 SOP 并生成公关稿；
+如果分 <=80，调用计算器工具计算加仓 20% 后的金额，并生成交易日报。
+最后输出一份包含时间戳、风险评估和最终策略（公关稿或交易建议）的综合报告，并附带原始财报文件。
+```
+
+</details>
+
+**🖼️ 生成效果**
+
+| ![首页](image.png) | ![首页-左侧栏](image-1.png) |
+|:---:|:---:|
+| 首页 | 首页-左侧栏 |
+
+| ![Flow Box](image-2.png) | ![工作流编排页面](image-3.png) |
+|:---:|:---:|
+| Flow Box | 工作流编排页面 |
+
+| ![预览&APP页面](image-4.png) | ![节点配置效果](image-5.png) |
+|:---:|:---:|
+| 预览&APP页面 | 节点配置效果 |
+
+---
 
 ## 🛠️ 技术栈
 
-| 类别 | 技术 |
-|------|------|
-| **前端框架** | Next.js 16, React 19 |
-| **状态管理** | Zustand |
-| **流程编辑器** | XYFlow (React Flow) |
-| **UI 组件** | Radix UI, Tailwind CSS |
-| **后端服务** | Supabase (PostgreSQL, Auth, Storage) |
-| **AI 集成** | OpenAI SDK, Google GenAI, LangChain |
-| **表单验证** | React Hook Form, Zod |
-| **动画效果** | Framer Motion |
+| 层级 | 技术选型 |
+|:---:|:---|
+| **前端** | Next.js 16 · React 19 · Zustand · XYFlow |
+| **UI** | Radix UI · Tailwind CSS · Framer Motion |
+| **后端** | Supabase (PostgreSQL · Auth · Storage) |
+| **AI** | OpenAI · Google GenAI · Qwen · Doubao |
+
+---
 
 ## 🚀 快速开始
 
-### 环境要求
+### 1️⃣ 克隆 & 安装
 
-- Node.js 18+
-- npm 或 pnpm
-- Supabase 账户
-
-### 安装步骤
-
-1. **克隆项目**
 ```bash
 git clone https://github.com/JasperLin2333/Flash-Flow.git
-cd flash-flow
+cd flash-flow && npm install
 ```
 
-2. **安装依赖**
-```bash
-npm install
-```
+### 2️⃣ 配置环境
 
-3. **配置环境变量**
-
-创建 `.env.local` 文件，填入以下配置：
 ```env
-# Supabase
+# .env.local
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-
-# LLM API Keys
 OPENAI_API_KEY=your_openai_api_key
 GOOGLE_GENAI_API_KEY=your_google_api_key
-
-# 工具 API
 TAVILY_API_KEY=your_tavily_api_key
+QWEATHER_API_KEY=your_qweather_api_key  # 可选，天气功能
 ```
 
-4. **初始化数据库**
+### 3️⃣ 启动服务
 
-在 Supabase 控制台执行 `supabase-schema.sql` 中的 SQL 语句
-
-5. **启动开发服务器**
 ```bash
 npm run dev
 ```
 
-访问 [http://localhost:3000](http://localhost:3000) 开始使用
+访问 **[localhost:3000](http://localhost:3000)** 开始使用
 
-## 📦 节点类型
+---
 
-Flash Flow 提供 6 种核心节点类型：
+## 🔒 安全保障
 
-### 🔤 Input 节点（输入节点）
-用户输入的入口，支持：
-- 文本输入
-- 文件上传（图片、文档、表格等）
-- 结构化表单（文本框、下拉单选/多选）
+| 机制 | 说明 |
+|:---:|:---|
+| ✅ **循环检测** | 执行前 DFS 校验，防无限循环 |
+| ✅ **并发控制** | 执行锁防重复，配额不多扣 |
+| ✅ **参数验证** | Zod Schema 强类型校验 |
+| ✅ **表达式白名单** | Branch 节点防代码注入 |
+| ✅ **数据隔离** | Row Level Security 保障 |
 
-### 🧠 LLM 节点（大语言模型节点）
-调用大语言模型生成内容：
-- 可选多种模型（Qwen、GPT、Gemini 等）
-- 支持变量引用 `{{variable_name}}`
-- 可配置温度、记忆轮数
-
-### 📖 RAG 节点（检索增强生成节点）
-基于知识库的智能检索：
-- 上传文档自动创建向量索引
-- 可配置分块大小与 Top-K
-
-### 🔧 Tool 节点（工具节点）
-调用外部工具执行任务：
-- `web_search`：网页搜索
-- `calculator`：数学表达式计算
-
-### 🔀 Branch 节点（分支节点）
-条件控制流程走向：
-- 支持字符串匹配、数值比较
-- TRUE/FALSE 双路径输出
-
-### 📤 Output 节点（输出节点）
-工作流的终点，展示最终结果
-
-## 📁 项目结构
-
-```
-flash-flow/
-├── src/
-│   ├── app/                    # Next.js App Router
-│   │   ├── api/               # API 路由
-│   │   ├── app/               # 应用运行页面
-│   │   ├── builder/           # 工作流构建器
-│   │   └── flows/             # 流程管理页面
-│   ├── components/
-│   │   ├── auth/              # 认证相关组件
-│   │   ├── builder/           # 构建器组件
-│   │   ├── flow/              # 流程编辑器组件
-│   │   ├── run/               # 运行时组件
-│   │   └── ui/                # 通用 UI 组件
-│   ├── services/              # API 服务层
-│   ├── store/                 # Zustand 状态管理
-│   │   ├── actions/           # 状态操作
-│   │   ├── executors/         # 节点执行器
-│   │   └── utils/             # 工具函数
-│   └── types/                 # TypeScript 类型定义
-├── supabase-schema.sql        # 数据库模式
-└── package.json
-```
-
-## 🗄️ 数据库结构
-
-| 表名 | 用途 |
-|------|------|
-| `flows` | 工作流定义存储 |
-| `chat_history` | 聊天历史记录 |
-| `flow_executions` | 执行日志 |
-| `llm_models` | LLM 模型配置 |
-| `llm_node_memory` | LLM 对话记忆 |
-| `users_quota` | 用户配额管理 |
-| `user_profiles` | 用户档案 |
-| `file_uploads` | 文件上传记录 |
-| `knowledge_files` | 知识库文件 |
-
-## 🔒 安全特性
-
-- **循环依赖检测**：执行前 DFS 检测，防止无限循环
-- **并发控制**：执行锁机制防止重复执行
-- **参数验证**：基于 Zod Schema 的类型安全验证
-- **表达式白名单**：Branch 节点仅支持安全表达式
-- **Row Level Security**：Supabase RLS 确保数据隔离
+---
 
 ## 📜 开源协议
 
-本项目采用 [MIT License](LICENSE) 开源协议
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 提交 Pull Request
+[MIT License](LICENSE) —— 自由使用，欢迎贡献
 
 ---
 
 <p align="center">
-  Made with ❤️ by Flash Flow Team
+  <strong>⚡ Flash Flow —— 让 AI 工作流回归简单</strong>
 </p>
 
-试用地址：https://flash-flow-gray.vercel.app/
+<p align="center">
+  <a href="https://flash-flow-gray.vercel.app/">
+    <img src="https://img.shields.io/badge/🚀_立即体验-Flash_Flow-blue?style=for-the-badge" alt="Try Flash Flow">
+  </a>
+</p>
 
-![alt text](image.png)
+---
 
-![alt text](image-1.png)
-
-![alt text](image-2.png)
+<p align="center">
+  <sub>Made with ❤️ by Flash Flow Team · <a href="https://flash-flow-gray.vercel.app/">🚀 立即体验</a></sub>
+</p>

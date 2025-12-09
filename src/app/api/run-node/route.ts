@@ -1,6 +1,50 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
+// ============ Provider Configuration ============
+const PROVIDER_CONFIG = {
+    siliconflow: {
+        baseURL: "https://api.siliconflow.cn/v1",
+        getApiKey: () => process.env.SILICONFLOW_API_KEY || "",
+    },
+    dashscope: {
+        baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        getApiKey: () => process.env.DASHSCOPE_API_KEY || "",
+    },
+    openai: {
+        baseURL: "https://api.openai.com/v1",
+        getApiKey: () => process.env.OPENAI_API_KEY || "",
+    },
+} as const;
+
+/**
+ * Determine the provider based on model ID prefix
+ * - deepseek-ai/* → SiliconFlow
+ * - Qwen/* or qwen-* → DashScope
+ * - gpt-* → OpenAI
+ * - Default: SiliconFlow (for new models)
+ */
+function getProviderForModel(model: string): keyof typeof PROVIDER_CONFIG {
+    const modelLower = model.toLowerCase();
+
+    if (model.startsWith("deepseek-ai/") || modelLower.startsWith("deepseek")) {
+        return "siliconflow";
+    }
+    if (model.startsWith("Qwen/") || modelLower.startsWith("qwen")) {
+        return "dashscope";
+    }
+    if (modelLower.startsWith("gpt-")) {
+        return "openai";
+    }
+
+    // Default to SiliconFlow for unknown models
+    return "siliconflow";
+}
+
+/**
+ * Non-streaming LLM API Endpoint
+ * Dynamically routes to the correct provider based on model ID
+ */
 export async function POST(req: Request) {
     try {
         const body = await req.json();
@@ -9,8 +53,6 @@ export async function POST(req: Request) {
         if (!model) {
             return NextResponse.json({ error: "Model is required" }, { status: 400 });
         }
-
-        const provider = (process.env.LLM_PROVIDER || "openai").toLowerCase();
 
         // Construct messages
         const messages: { role: string; content: string }[] = [];
@@ -35,52 +77,23 @@ export async function POST(req: Request) {
             messages.push({ role: "user", content: "Start" });
         }
 
-        let responseText = "";
+        // Determine provider based on model
+        const provider = getProviderForModel(model);
+        const config = PROVIDER_CONFIG[provider];
 
-        if (model === "qwen-flash") {
-            const client = new OpenAI({
-                apiKey: process.env.DASHSCOPE_API_KEY || "",
-                baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-            });
-            const completion = await client.chat.completions.create({
-                model: "qwen-flash",
-                temperature: temperature || 0.7,
-                messages: messages as any,
-            });
-            responseText = completion.choices?.[0]?.message?.content || "";
-        } else if (provider === "doubao") {
-            const apiKey = process.env.DOUBAO_API_KEY || "";
-            // Map common model names to Doubao specific endpoints if needed, or just pass through
-            // For now, assume the UI passes the correct model ID or we default
-            const actualModel = model === "gpt-4" ? (process.env.DOUBAO_MODEL || "doubao-pro-128k") : model;
+        // Create OpenAI client for the selected provider
+        const client = new OpenAI({
+            apiKey: config.getApiKey(),
+            baseURL: config.baseURL,
+        });
 
-            const resp = await fetch("https://ark.cn-beijing.volces.com/api/v3/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${apiKey}`,
-                },
-                body: JSON.stringify({
-                    model: actualModel,
-                    messages,
-                    temperature: temperature || 0.7,
-                }),
-            });
-            if (!resp.ok) {
-                const errorData = await resp.json();
-                return NextResponse.json({ error: "Doubao API error", details: errorData }, { status: resp.status });
-            }
-            const data = await resp.json();
-            responseText = data?.choices?.[0]?.message?.content || data?.output_text || "Error calling Doubao";
-        } else {
-            const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
-            const completion = await client.chat.completions.create({
-                model: model || "gpt-4o-mini",
-                temperature: temperature || 0.7,
-                messages: messages as any,
-            });
-            responseText = completion.choices?.[0]?.message?.content || "";
-        }
+        const completion = await client.chat.completions.create({
+            model: model,
+            temperature: temperature || 0.7,
+            messages: messages as any,
+        });
+
+        const responseText = completion.choices?.[0]?.message?.content || "";
 
         return NextResponse.json({ response: responseText });
     } catch (error) {
@@ -88,3 +101,4 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Execution failed", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }
+

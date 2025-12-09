@@ -1,10 +1,14 @@
 -- Flash Flow - Supabase Database Schema
--- Generated based on existing JSON structure
--- Date: 2025-12-03
+-- Synchronized with production database
+-- Date: 2025-12-09
+
+-- WARNING: This schema is for documentation and context only.
+-- Always verify against actual database before making changes.
 
 -- Enable necessary extensions for UUID generation
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 
 -- ==========================================
 -- 1. Flows Table
@@ -12,7 +16,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ==========================================
 CREATE TABLE IF NOT EXISTS flows (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    owner_id UUID NOT NULL, -- References auth.users(id)
+    owner_id UUID NOT NULL REFERENCES auth.users(id),
     name TEXT NOT NULL,
     description TEXT,
     data JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -30,6 +34,22 @@ ALTER TABLE flows ENABLE ROW LEVEL SECURITY;
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_flows_owner_id ON flows(owner_id);
 CREATE INDEX IF NOT EXISTS idx_flows_created_at ON flows(created_at DESC);
+-- Note: Duplicate indexes exist in production (flows_owner_id_idx, flows_created_at_idx)
+CREATE INDEX IF NOT EXISTS flows_owner_id_idx ON flows(owner_id);
+CREATE INDEX IF NOT EXISTS flows_created_at_idx ON flows(created_at DESC);
+
+-- RLS Policies
+CREATE POLICY "Users can view their own flows" ON flows
+    FOR SELECT USING (auth.uid() = owner_id);
+
+CREATE POLICY "Users can insert their own flows" ON flows
+    FOR INSERT WITH CHECK (auth.uid() = owner_id);
+
+CREATE POLICY "Users can update their own flows" ON flows
+    FOR UPDATE USING (auth.uid() = owner_id);
+
+CREATE POLICY "Users can delete their own flows" ON flows
+    FOR DELETE USING (auth.uid() = owner_id);
 
 
 -- ==========================================
@@ -38,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_flows_created_at ON flows(created_at DESC);
 -- ==========================================
 CREATE TABLE IF NOT EXISTS chat_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    flow_id UUID NOT NULL REFERENCES flows(id),
+    flow_id UUID NOT NULL, -- No foreign key constraint in production
     user_message TEXT NOT NULL,
     assistant_message TEXT,
     session_id TEXT,
@@ -54,7 +74,43 @@ ALTER TABLE chat_history ENABLE ROW LEVEL SECURITY;
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_chat_history_flow_id ON chat_history(flow_id);
 CREATE INDEX IF NOT EXISTS idx_chat_history_session_id ON chat_history(session_id);
-CREATE INDEX IF NOT EXISTS idx_chat_history_created_at ON chat_history(created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_chat_history_created_at ON chat_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_history_execution_status 
+    ON chat_history(session_id, execution_status) 
+    WHERE (execution_status = 'pending');
+
+-- RLS Policies (Multiple policies exist for backwards compatibility)
+CREATE POLICY "Enable read access for all users" ON chat_history
+    FOR SELECT USING (true);
+
+CREATE POLICY "Enable insert access for all users" ON chat_history
+    FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Enable update access for all users" ON chat_history
+    FOR UPDATE USING (true);
+
+CREATE POLICY "Enable delete access for all users" ON chat_history
+    FOR DELETE USING (true);
+
+CREATE POLICY "Users can view chat history of their flows" ON chat_history
+    FOR SELECT USING (EXISTS (
+        SELECT 1 FROM flows WHERE flows.id = chat_history.flow_id AND flows.owner_id = auth.uid()
+    ));
+
+CREATE POLICY "Users can insert chat history for their flows" ON chat_history
+    FOR INSERT WITH CHECK (EXISTS (
+        SELECT 1 FROM flows WHERE flows.id = chat_history.flow_id AND flows.owner_id = auth.uid()
+    ));
+
+CREATE POLICY "Users can update chat history of their flows" ON chat_history
+    FOR UPDATE USING (EXISTS (
+        SELECT 1 FROM flows WHERE flows.id = chat_history.flow_id AND flows.owner_id = auth.uid()
+    ));
+
+CREATE POLICY "Users can delete chat history of their flows" ON chat_history
+    FOR DELETE USING (EXISTS (
+        SELECT 1 FROM flows WHERE flows.id = chat_history.flow_id AND flows.owner_id = auth.uid()
+    ));
 
 
 -- ==========================================
@@ -64,7 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_history_created_at ON chat_history(created_a
 CREATE TABLE IF NOT EXISTS flow_executions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     flow_id UUID NOT NULL REFERENCES flows(id),
-    user_id TEXT NOT NULL, -- Can be UUID string or other identifier
+    user_id TEXT NOT NULL,
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'success', 'failed')),
     input_params JSONB DEFAULT '{}'::jsonb,
     output_result JSONB DEFAULT '{}'::jsonb,
@@ -79,6 +135,13 @@ ALTER TABLE flow_executions ENABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_flow_executions_flow_id ON flow_executions(flow_id);
 CREATE INDEX IF NOT EXISTS idx_flow_executions_user_id ON flow_executions(user_id);
 CREATE INDEX IF NOT EXISTS idx_flow_executions_created_at ON flow_executions(created_at DESC);
+
+-- RLS Policies
+CREATE POLICY "Users can view their own executions" ON flow_executions
+    FOR SELECT USING (auth.uid()::text = user_id);
+
+CREATE POLICY "Users can insert their own executions" ON flow_executions
+    FOR INSERT WITH CHECK (auth.uid()::text = user_id);
 
 
 -- ==========================================
@@ -102,6 +165,16 @@ ALTER TABLE knowledge_files ENABLE ROW LEVEL SECURITY;
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_knowledge_files_user_id ON knowledge_files(user_id);
 
+-- RLS Policies
+CREATE POLICY "Users can view own files" ON knowledge_files
+    FOR SELECT USING (auth.uid()::text = user_id);
+
+CREATE POLICY "Users can upload own files" ON knowledge_files
+    FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+CREATE POLICY "Users can delete own files" ON knowledge_files
+    FOR DELETE USING (auth.uid()::text = user_id);
+
 
 -- ==========================================
 -- 5. LLM Models Table
@@ -124,6 +197,11 @@ ALTER TABLE llm_models ENABLE ROW LEVEL SECURITY;
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_llm_models_provider ON llm_models(provider);
 CREATE INDEX IF NOT EXISTS idx_llm_models_is_active ON llm_models(is_active);
+CREATE INDEX IF NOT EXISTS idx_llm_models_active ON llm_models(is_active, display_order);
+
+-- RLS Policies
+CREATE POLICY "Anyone can read llm_models" ON llm_models
+    FOR SELECT USING (true);
 
 
 -- ==========================================
@@ -132,7 +210,7 @@ CREATE INDEX IF NOT EXISTS idx_llm_models_is_active ON llm_models(is_active);
 -- ==========================================
 CREATE TABLE IF NOT EXISTS users_quota (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id), -- References auth.users(id), unique constraint
+    user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id),
     llm_executions_used INTEGER DEFAULT 0,
     flow_generations_used INTEGER DEFAULT 0,
     app_usages_used INTEGER DEFAULT 0,
@@ -149,6 +227,13 @@ ALTER TABLE users_quota ENABLE ROW LEVEL SECURITY;
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_quota_user_id ON users_quota(user_id);
 
+-- RLS Policies
+CREATE POLICY "Users can view their own quota" ON users_quota
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own quota" ON users_quota
+    FOR UPDATE USING (auth.uid() = user_id);
+
 
 -- ==========================================
 -- 7. File Uploads Table
@@ -156,14 +241,14 @@ CREATE INDEX IF NOT EXISTS idx_users_quota_user_id ON users_quota(user_id);
 -- ==========================================
 CREATE TABLE IF NOT EXISTS file_uploads (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    node_id TEXT NOT NULL, -- Reference to Input node ID
-    flow_id UUID REFERENCES flows(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL,
+    flow_id UUID REFERENCES flows(id), -- No CASCADE in production
     file_name TEXT NOT NULL,
     file_type TEXT NOT NULL,
-    file_size INTEGER NOT NULL, -- in bytes
-    storage_path TEXT NOT NULL, -- Supabase Storage path
-    storage_url TEXT NOT NULL, -- Public or signed URL
-    uploaded_by UUID, -- References auth.users(id)
+    file_size INTEGER NOT NULL,
+    storage_path TEXT NOT NULL,
+    storage_url TEXT NOT NULL,
+    uploaded_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -188,23 +273,27 @@ CREATE INDEX IF NOT EXISTS idx_file_uploads_uploaded_by ON file_uploads(uploaded
 -- ==========================================
 CREATE TABLE IF NOT EXISTS llm_node_memory (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    flow_id UUID NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
-    node_id TEXT NOT NULL,              -- LLM node ID in the flow
-    session_id TEXT NOT NULL,           -- Execution session ID
-    role TEXT NOT NULL,                 -- 'user' | 'assistant'
-    content TEXT NOT NULL,              -- Message content
-    turn_index INTEGER NOT NULL,        -- Turn number in conversation (0-indexed)
+    flow_id UUID NOT NULL REFERENCES flows(id), -- No CASCADE in production
+    node_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    turn_index INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Enable RLS
 ALTER TABLE llm_node_memory ENABLE ROW LEVEL SECURITY;
 
--- Indexes for efficient lookups
+-- Indexes
 CREATE INDEX IF NOT EXISTS idx_llm_node_memory_lookup 
     ON llm_node_memory(flow_id, node_id, session_id, turn_index);
 CREATE INDEX IF NOT EXISTS idx_llm_node_memory_flow_id 
     ON llm_node_memory(flow_id);
+
+-- RLS Policies
+CREATE POLICY "Allow all operations on llm_node_memory" ON llm_node_memory
+    FOR ALL USING (true);
 
 
 -- ==========================================
@@ -213,7 +302,7 @@ CREATE INDEX IF NOT EXISTS idx_llm_node_memory_flow_id
 -- ==========================================
 CREATE TABLE IF NOT EXISTS user_profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL UNIQUE,  -- References auth.users(id), unique for upsert
+    user_id UUID NOT NULL UNIQUE,
     display_name TEXT,
     avatar_kind TEXT DEFAULT 'emoji' CHECK (avatar_kind IN ('emoji', 'image')),
     avatar_emoji TEXT DEFAULT '👤',
@@ -228,7 +317,7 @@ ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id);
 
--- RLS Policies for user_profiles (users can only read/write their own profile)
+-- RLS Policies
 CREATE POLICY "Users can view own profile" ON user_profiles
     FOR SELECT USING (auth.uid() = user_id);
 
@@ -314,5 +403,3 @@ USING (
   bucket_id = 'flow-icons' AND
   auth.role() = 'authenticated'
 );
-
-

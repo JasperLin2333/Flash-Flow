@@ -97,7 +97,7 @@ function AppContent() {
     const { displayMessages, shouldShowLoading } = useMemo(() => {
         if (isStreaming && streamingText) {
             return {
-                displayMessages: [...messages, { role: "assistant" as const, content: streamingText }],
+                displayMessages: [...messages, { role: "assistant" as const, content: streamingText, timestamp: new Date() }],
                 shouldShowLoading: false // 流式输出时不显示loading
             };
         }

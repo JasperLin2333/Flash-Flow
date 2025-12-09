@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { User } from "lucide-react";
 import { AppIcon } from "./AppIcon";
 import { STYLES, getFileIcon, type FlowIconConfig, type Message } from "./constants";
@@ -8,20 +9,55 @@ interface MessageBubbleProps {
     content: string;
     files?: File[];
     flowIcon?: FlowIconConfig;
+    timestamp?: Date;
+}
+
+/**
+ * 格式化时间为可读字符串
+ */
+function formatTimestamp(date: Date): string {
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+
+    const timeStr = date.toLocaleTimeString("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+
+    if (isToday) {
+        return `今天 ${timeStr}`;
+    }
+
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+        return `昨天 ${timeStr}`;
+    }
+
+    return date.toLocaleDateString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+    }) + " " + timeStr;
 }
 
 /**
  * MessageBubble - 消息气泡组件
  * 支持用户和助手两种角色
+ * AI回复支持鼠标悬停显示时间戳
  */
-export function MessageBubble({ role, content, files, flowIcon }: MessageBubbleProps) {
+export function MessageBubble({ role, content, files, flowIcon, timestamp }: MessageBubbleProps) {
     const isUser = role === "user";
+    const [isHovered, setIsHovered] = useState(false);
     const bubbleStyle = isUser
         ? "bg-blue-600 text-white border border-blue-600"
         : "bg-white text-gray-900 border border-gray-200";
 
     return (
-        <div className={`flex gap-3 items-start ${isUser ? "flex-row-reverse" : ""}`}>
+        <div
+            className={`flex gap-3 items-start ${isUser ? "flex-row-reverse" : ""}`}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
             <div className={`${STYLES.avatar} ${isUser ? "bg-gray-200" : ""}`}>
                 {isUser ? (
                     <User className="w-5 h-5 text-gray-600" />
@@ -30,6 +66,14 @@ export function MessageBubble({ role, content, files, flowIcon }: MessageBubbleP
                 )}
             </div>
             <div className={`flex flex-col gap-2 ${isUser ? "max-w-[80%]" : "max-w-[80%]"}`}>
+                {/* AI回复时间戳 - 鼠标悬停时显示 */}
+                {!isUser && timestamp && (
+                    <div
+                        className={`text-xs text-gray-400 transition-opacity duration-200 ${isHovered ? "opacity-100" : "opacity-0"}`}
+                    >
+                        {formatTimestamp(timestamp)}
+                    </div>
+                )}
                 <div className={`${STYLES.messageBubble} ${bubbleStyle} w-fit ${isUser ? "ml-auto" : ""}`}>
                     {isUser ? (
                         // 用户消息：保持纯文本
