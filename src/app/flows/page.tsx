@@ -43,13 +43,16 @@ function FlowsPageContent() {
       setEdges([]);
       setFlowTitle("Untitled Flow");
       setFlowIcon("emoji", "⚡", undefined);
-      setCurrentFlowId(null);
 
       // Then create the flow in the database
       const newFlow = await flowAPI.createFlow(
         "Untitled Flow",
         { nodes: [], edges: [] }
       );
+
+      // CRITICAL FIX: Set currentFlowId immediately after creation
+      // This prevents scheduleSave from creating a duplicate flow when user modifies title
+      setCurrentFlowId(newFlow.id);
 
       // Navigate to the builder with the new flow ID
       router.push(`/builder?flowId=${newFlow.id}`);
