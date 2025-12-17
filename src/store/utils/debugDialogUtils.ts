@@ -1,4 +1,4 @@
-import type { DebugInputs, ToolNodeData, AppNode } from "@/types/flow";
+import type { DebugInputs, ToolNodeData, AppNode, FlowState } from "@/types/flow";
 import { TOOL_REGISTRY, type ToolType } from "@/lib/tools/registry";
 import { z } from "zod";
 
@@ -48,44 +48,44 @@ export function createDebugDialogInitialState(): DebugDialogState {
  */
 export function isToolNodeParametersConfigured(node: AppNode): boolean {
     const data = node.data as ToolNodeData;
-    
+
     // 检查工具类型是否已选择
     const toolType = data?.toolType as ToolType | undefined;
     if (!toolType) return false;
-    
+
     // 获取工具配置
     const toolConfig = TOOL_REGISTRY[toolType];
     if (!toolConfig || !toolConfig.schema) return false;
-    
+
     // 解析 schema 获取所有字段及其是否为必填
-    const shape = (toolConfig.schema as z.ZodObject<any>)._def.shape;
+    const shape = (toolConfig.schema as z.ZodObject<z.ZodRawShape>)._def.shape;
     if (!shape) return true; // 如果无法解析 schema，默认认为配置完整
-    
+
     const configuredInputs = (data?.inputs as Record<string, unknown>) || {};
-    
+
     // 检查所有必填字段
     for (const [fieldName, fieldSchema] of Object.entries(shape)) {
         const zField = fieldSchema as z.ZodTypeAny;
         const isOptional = zField.isOptional();
-        
+
         // 跳过可选字段
         if (isOptional) continue;
-        
+
         // 必填字段必须有值
         const value = configuredInputs[fieldName];
         const valueStr = value !== undefined ? String(value).trim() : '';
-        
+
         // 参数值为空或仅空格，则视为未配置
         if (!valueStr) return false;
     }
-    
+
     return true;
 }
 
 export function createDebugDialogActions(
     nodeType: NodeType,
-    set: any,
-    get: any,
+    set: (state: Partial<FlowState>) => void,
+    get: () => FlowState,
     stateKeys: {
         nodeIdKey: string;
         dialogOpenKey: string;
@@ -128,11 +128,11 @@ export function createDebugDialogActions(
          */
         confirmRun: async () => {
             const state = get();
-            const nodeId = state[nodeIdKey];
+            const nodeId = state[nodeIdKey as keyof FlowState] as string | null;
             if (!nodeId) return;
 
             try {
-                const inputs = state[inputsKey];
+                const inputs = state[inputsKey as keyof FlowState] as DebugInputs | Record<string, unknown>;
                 let mockData: Record<string, unknown>;
 
                 // Tool 节点的 inputs 已经是简单的 key-value 格式

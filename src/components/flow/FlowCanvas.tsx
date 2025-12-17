@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo, memo } from "react";
+import { useCallback, useMemo, memo, useEffect } from "react";
 import { ReactFlow, Background, BackgroundVariant, useReactFlow, SelectionMode, PanOnScrollMode } from "@xyflow/react";
 import { useFlowStore } from "@/store/flowStore";
 import CustomNode from "./CustomNode";
@@ -40,7 +40,39 @@ function FlowCanvasComponent() {
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
   const addNode = useFlowStore((s) => s.addNode);
   const interactionMode = useFlowStore((s) => s.interactionMode);
+  const copyNode = useFlowStore((s) => s.copyNode);
+  const pasteNode = useFlowStore((s) => s.pasteNode);
   const { screenToFlowPosition } = useReactFlow();
+
+  // 键盘快捷键处理：Cmd/Ctrl+C 复制，Cmd/Ctrl+V 粘贴
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 如果焦点在输入框或文本域中，不处理快捷键
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Cmd/Ctrl + C: 复制节点
+      if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+        e.preventDefault();
+        copyNode();
+      }
+
+      // Cmd/Ctrl + V: 粘贴节点
+      if ((e.metaKey || e.ctrlKey) && e.key === "v") {
+        e.preventDefault();
+        pasteNode();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [copyNode, pasteNode]);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -85,11 +117,11 @@ function FlowCanvasComponent() {
         fitView
         panOnScroll={interactionMode === "pan"}
         panOnDrag={interactionMode === "pan"}
-        zoomOnScroll={interactionMode === "pan"}
+        zoomOnScroll={true}
         selectionMode={interactionMode === "select" ? SelectionMode.Partial : undefined}
         selectionOnDrag={interactionMode === "select"}
         zoomOnPinch={true}
-        panOnScrollMode={PanOnScrollMode.Free}
+        panOnScrollMode={PanOnScrollMode.Vertical}
         defaultEdgeOptions={defaultEdgeOptions}
         proOptions={{ hideAttribution: true }}
         minZoom={0.1}

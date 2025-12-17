@@ -2,6 +2,44 @@ import type { AppNode, FlowContext, BranchNodeData } from "@/types/flow";
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { getUpstreamData } from "./contextUtils";
 
+// ============ Pre-compiled Regex Patterns ============
+// Pre-compile at module level to avoid recreation on each call
+const NODE_PATH_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.([\w.]+)/;
+const INCLUDES_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.includes\(['"](.+)['"]\)$/;
+const STARTS_WITH_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.startsWith\(['"](.+)['"]\)$/;
+const ENDS_WITH_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.endsWith\(['"](.+)['"]\)$/;
+const STRICT_EQUAL_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*===\s*['"]?(.+?)['"]?$/;
+const NOT_EQUAL_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*!==\s*['"]?(.+?)['"]?$/;
+const COMPARISON_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*(>=|<=|>|<)\s*(-?\d+\.?\d*)$/;
+
+/**
+ * 构建节点查找 Map，用于 O(1) 查找
+ * Map key 可以是 nodeId 或 label（支持大小写不敏感）
+ */
+function buildNodeLookupMap(context: FlowContext): Map<string, unknown> {
+    const lookupMap = new Map<string, unknown>();
+    const meta = context._meta as Record<string, unknown> | undefined;
+    const nodeLabels = (meta?.nodeLabels as Record<string, string>) || {};
+
+    for (const [nodeId, nodeOutput] of Object.entries(context)) {
+        if (nodeId.startsWith('_')) continue;
+        if (typeof nodeOutput !== 'object' || nodeOutput === null) continue;
+
+        // Add by nodeId (exact and lowercase)
+        lookupMap.set(nodeId, nodeOutput);
+        lookupMap.set(nodeId.toLowerCase(), nodeOutput);
+
+        // Add by label if available
+        const label = nodeLabels[nodeId];
+        if (label) {
+            lookupMap.set(label, nodeOutput);
+            lookupMap.set(label.toLowerCase(), nodeOutput);
+        }
+    }
+
+    return lookupMap;
+}
+
 /**
  * 安全表达式求值器
  * 只允许特定的操作，防止代码注入攻击
@@ -23,49 +61,28 @@ function safeEvaluateCondition(condition: string, context: FlowContext): boolean
 
     const trimmed = condition.trim();
 
-    // 通用模式: 提取 nodeName.path 格式
-    // Pattern: nodeName.path.method('arg') or nodeName.path op value
+    // Build lookup map once per evaluation (O(n) build, then O(1) lookups)
+    const lookupMap = buildNodeLookupMap(context);
+
+    // 使用 lookup map 进行 O(1) 查找
     const extractNodeAndPath = (expr: string): { nodeData: unknown; path: string } | null => {
-        // 匹配 nodeName.path 格式 (nodeName 可以是中文或英文)
-        const match = expr.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.([\w.]+)/);
+        const match = expr.match(NODE_PATH_PATTERN);
         if (!match) return null;
 
         const nodeName = match[1];
         const path = match[2];
 
-        // 在 context 中查找匹配的节点（按 label 或 nodeId 匹配）
-        for (const [nodeId, nodeOutput] of Object.entries(context)) {
-            if (nodeId.startsWith('_')) continue; // 跳过 _meta 等内部字段
-
-            // 检查 nodeOutput 中是否有 label 字段与 nodeName 匹配
-            if (typeof nodeOutput === 'object' && nodeOutput !== null) {
-                const output = nodeOutput as Record<string, unknown>;
-                // 直接匹配 nodeId（如 input_1, llm_1）或节点 label
-                if (nodeId === nodeName || nodeId.toLowerCase() === nodeName.toLowerCase()) {
-                    return { nodeData: output, path };
-                }
-            }
-        }
-
-        // 如果没找到，尝试从 _meta 中按 label 查找
-        const meta = context._meta as Record<string, unknown> | undefined;
-        if (meta?.nodeLabels) {
-            const nodeLabels = meta.nodeLabels as Record<string, string>;
-            for (const [nodeId, label] of Object.entries(nodeLabels)) {
-                if (label === nodeName || label.toLowerCase() === nodeName.toLowerCase()) {
-                    const nodeOutput = context[nodeId];
-                    if (nodeOutput && typeof nodeOutput === 'object') {
-                        return { nodeData: nodeOutput, path };
-                    }
-                }
-            }
+        // O(1) lookup: try exact match first, then lowercase
+        const nodeData = lookupMap.get(nodeName) ?? lookupMap.get(nodeName.toLowerCase());
+        if (nodeData) {
+            return { nodeData, path };
         }
 
         return null;
     };
 
     // Pattern 1: nodeName.xxx.includes('yyy')
-    const includesMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.includes\(['"](.+)['"]\)$/);
+    const includesMatch = trimmed.match(INCLUDES_PATTERN);
     if (includesMatch) {
         const extracted = extractNodeAndPath(includesMatch[1]);
         if (!extracted) return false;
@@ -75,7 +92,7 @@ function safeEvaluateCondition(condition: string, context: FlowContext): boolean
     }
 
     // Pattern 2: nodeName.xxx.startsWith('yyy')
-    const startsWithMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.startsWith\(['"](.+)['"]\)$/);
+    const startsWithMatch = trimmed.match(STARTS_WITH_PATTERN);
     if (startsWithMatch) {
         const extracted = extractNodeAndPath(startsWithMatch[1]);
         if (!extracted) return false;
@@ -85,7 +102,7 @@ function safeEvaluateCondition(condition: string, context: FlowContext): boolean
     }
 
     // Pattern 3: nodeName.xxx.endsWith('yyy')
-    const endsWithMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.endsWith\(['"](.+)['"]\)$/);
+    const endsWithMatch = trimmed.match(ENDS_WITH_PATTERN);
     if (endsWithMatch) {
         const extracted = extractNodeAndPath(endsWithMatch[1]);
         if (!extracted) return false;
@@ -95,7 +112,7 @@ function safeEvaluateCondition(condition: string, context: FlowContext): boolean
     }
 
     // Pattern 4: nodeName.xxx === 'yyy' or nodeName.xxx === 123
-    const strictEqualMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*===\s*['"]?(.+?)['"]?$/);
+    const strictEqualMatch = trimmed.match(STRICT_EQUAL_PATTERN);
     if (strictEqualMatch) {
         const extracted = extractNodeAndPath(strictEqualMatch[1]);
         if (!extracted) return false;
@@ -106,7 +123,7 @@ function safeEvaluateCondition(condition: string, context: FlowContext): boolean
     }
 
     // Pattern 5: nodeName.xxx !== 'yyy'
-    const notEqualMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*!==\s*['"]?(.+?)['"]?$/);
+    const notEqualMatch = trimmed.match(NOT_EQUAL_PATTERN);
     if (notEqualMatch) {
         const extracted = extractNodeAndPath(notEqualMatch[1]);
         if (!extracted) return false;
@@ -117,7 +134,7 @@ function safeEvaluateCondition(condition: string, context: FlowContext): boolean
     }
 
     // Pattern 6: nodeName.xxx > 123 (or >=, <, <=)
-    const comparisonMatch = trimmed.match(/^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*(>=|<=|>|<)\s*(-?\d+\.?\d*)$/);
+    const comparisonMatch = trimmed.match(COMPARISON_PATTERN);
     if (comparisonMatch) {
         const extracted = extractNodeAndPath(comparisonMatch[1]);
         if (!extracted) return false;

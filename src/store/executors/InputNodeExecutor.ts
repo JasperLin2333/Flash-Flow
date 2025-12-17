@@ -15,7 +15,6 @@ export class InputNodeExecutor extends BaseNodeExecutor {
       const output: Record<string, unknown> = {
         // Always include user_input (main text)
         user_input: inputData.text || "",
-        timestamp: new Date().toISOString(),
       };
 
       // Add file metadata if files are present

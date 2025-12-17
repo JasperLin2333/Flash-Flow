@@ -47,18 +47,16 @@ export const UI_TEXT = {
 } as const;
 
 // ============ Types ============
+import { type ChatMessage, type ChatAttachment } from "@/types/chat";
+
 export interface FlowIconConfig {
     kind?: "emoji" | "lucide" | "image";
     name?: string;
     url?: string;
 }
 
-export interface Message {
-    role: "user" | "assistant";
-    content: string;
-    files?: File[];
-    timestamp?: Date;
-}
+export type Message = ChatMessage;
+export type Attachment = ChatAttachment;
 
 export interface FlowAppInterfaceProps {
     flowTitle: string;

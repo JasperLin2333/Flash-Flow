@@ -1,13 +1,14 @@
-import { useState } from "react";
-import { User } from "lucide-react";
+import { useState, useCallback } from "react";
+import { User, Copy, Check } from "lucide-react";
 import { AppIcon } from "./AppIcon";
-import { STYLES, getFileIcon, type FlowIconConfig, type Message } from "./constants";
+import { STYLES, getFileIcon, type FlowIconConfig, type Message, type Attachment } from "./constants";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 
 interface MessageBubbleProps {
     role: Message["role"];
     content: string;
     files?: File[];
+    attachments?: Attachment[];
     flowIcon?: FlowIconConfig;
     timestamp?: Date;
 }
@@ -43,14 +44,26 @@ function formatTimestamp(date: Date): string {
 /**
  * MessageBubble - 消息气泡组件
  * 支持用户和助手两种角色
- * AI回复支持鼠标悬停显示时间戳
+ * AI回复支持鼠标悬停显示时间戳和复制按钮
  */
-export function MessageBubble({ role, content, files, flowIcon, timestamp }: MessageBubbleProps) {
+export function MessageBubble({ role, content, files, attachments, flowIcon, timestamp }: MessageBubbleProps) {
     const isUser = role === "user";
     const [isHovered, setIsHovered] = useState(false);
+    const [copied, setCopied] = useState(false);
+
     const bubbleStyle = isUser
         ? "bg-blue-600 text-white border border-blue-600"
         : "bg-white text-gray-900 border border-gray-200";
+
+    const handleCopy = useCallback(async () => {
+        try {
+            await navigator.clipboard.writeText(content);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error("Failed to copy message:", err);
+        }
+    }, [content]);
 
     return (
         <div
@@ -66,12 +79,33 @@ export function MessageBubble({ role, content, files, flowIcon, timestamp }: Mes
                 )}
             </div>
             <div className={`flex flex-col gap-2 ${isUser ? "max-w-[80%]" : "max-w-[80%]"}`}>
-                {/* AI回复时间戳 - 鼠标悬停时显示 */}
-                {!isUser && timestamp && (
+                {/* AI回复时间戳和复制按钮 - 鼠标悬停时显示 */}
+                {!isUser && (
                     <div
-                        className={`text-xs text-gray-400 transition-opacity duration-200 ${isHovered ? "opacity-100" : "opacity-0"}`}
+                        className={`flex items-center gap-3 transition-opacity duration-200 ${isHovered ? "opacity-100" : "opacity-0"}`}
                     >
-                        {formatTimestamp(timestamp)}
+                        {timestamp && (
+                            <span className="text-xs text-gray-400">
+                                {formatTimestamp(timestamp)}
+                            </span>
+                        )}
+                        <button
+                            onClick={handleCopy}
+                            className="flex items-center gap-1 px-2 py-0.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                            title="复制消息"
+                        >
+                            {copied ? (
+                                <>
+                                    <Check className="w-3 h-3 text-green-500" />
+                                    <span className="text-green-500">已复制</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Copy className="w-3 h-3" />
+                                    <span>复制</span>
+                                </>
+                            )}
+                        </button>
                     </div>
                 )}
                 <div className={`${STYLES.messageBubble} ${bubbleStyle} w-fit ${isUser ? "ml-auto" : ""}`}>
@@ -97,6 +131,34 @@ export function MessageBubble({ role, content, files, flowIcon, timestamp }: Mes
                                         <p className="text-[10px] text-gray-400 truncate">{(file.size / 1024).toFixed(1)} KB</p>
                                     </div>
                                 </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {attachments && attachments.length > 0 && (
+                    <div className={`flex gap-2 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent pb-1 max-w-full ${isUser ? "justify-end" : "justify-start"}`}>
+                        {attachments.map((file, i) => {
+                            const Icon = getFileIcon(file.name);
+                            return (
+                                <a
+                                    key={i}
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 px-3 py-2 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-150 min-w-[160px] max-w-[200px] shrink-0 no-underline cursor-pointer"
+                                >
+                                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-blue-500 shrink-0">
+                                        <Icon className="w-5 h-5" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-gray-700 truncate" title={file.name}>{file.name}</p>
+                                        {file.size ? (
+                                            <p className="text-[10px] text-gray-400 truncate">{(file.size / 1024).toFixed(1)} KB</p>
+                                        ) : (
+                                            <p className="text-[10px] text-gray-400 truncate">点击下载</p>
+                                        )}
+                                    </div>
+                                </a>
                             );
                         })}
                     </div>

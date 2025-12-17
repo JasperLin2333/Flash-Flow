@@ -33,6 +33,11 @@ export interface UploadProgress {
     message?: string;
 }
 
+interface RetrievalMetadataItem {
+    source?: string;
+    text?: string;
+}
+
 // ============ Constants ============
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const DEFAULT_MAX_TOKENS_PER_CHUNK = 200;
@@ -219,7 +224,7 @@ class GeminiFileSearchAPI {
             // 提取引用信息
             const retrievalMetadata = groundingMetadata?.retrievalMetadata;
             const citations = Array.isArray(retrievalMetadata)
-                ? retrievalMetadata.map((metadata: any) => ({
+                ? (retrievalMetadata as RetrievalMetadataItem[]).map((metadata) => ({
                     source: metadata.source || 'Unknown',
                     chunk: metadata.text || ''
                 }))
@@ -227,7 +232,7 @@ class GeminiFileSearchAPI {
 
             // 从返回的文本中提取文档块
             // Gemini 会自动基于检索到的内容生成回答
-            const documents = citations.map((c: any) => c.chunk).filter(Boolean);
+            const documents = citations.map((c) => c.chunk).filter(Boolean);
 
             return {
                 documents: documents.length > 0 ? documents : [text],

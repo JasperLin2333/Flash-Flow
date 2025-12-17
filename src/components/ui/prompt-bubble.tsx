@@ -1,10 +1,11 @@
 "use client";
-import { Send, Paperclip, Settings, X, File as FileIcon, Image as ImageIcon, FileText } from "lucide-react";
+import { Send, Paperclip, BookOpen, X, File as FileIcon, Image as ImageIcon, FileText } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
@@ -40,7 +41,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
     value,
     onChange,
     onSubmit,
-    placeholder = "描述你的流程…（Enter 发送，Shift+Enter 换行）",
+    placeholder = "请告诉我们你想要什么...",
     disabled,
     className,
     inputNodeData,
@@ -61,7 +62,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
   const enableFileInput = inputNodeData?.enableFileInput === true;
   const enableStructuredForm = inputNodeData?.enableStructuredForm === true;
   const formFields = inputNodeData?.formFields || [];
-  const fileConfig = inputNodeData?.fileConfig || { allowedTypes: ["*/*"], maxSizeMB: 50, maxCount: 999 };
+  const fileConfig = inputNodeData?.fileConfig || { allowedTypes: ["*/*"], maxSizeMB: 100, maxCount: 10 };
 
   // 使用 ref 存储回调，避免作为 useEffect 依赖导致无限循环
   const onFormDataChangeRef = useRef(onFormDataChange);
@@ -88,17 +89,17 @@ export default function PromptBubble(props: PromptBubbleProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enableStructuredForm, formFieldsKey]);
 
-  const isFormFilled = formFields.length > 0 && Object.keys(formData).some(key => formData[key]);
+  const isFormFilled = enableStructuredForm && formFields.length > 0 && Object.keys(formData).some(key => formData[key]);
 
   // 必填字段验证逻辑
-  const hasRequiredFields = formFields.some(f => f.required);
-  const allRequiredFilled = formFields
+  const hasRequiredFields = enableStructuredForm && formFields.some(f => f.required);
+  const allRequiredFilled = enableStructuredForm ? formFields
     .filter(f => f.required)
     .every(f => {
       const val = formData[f.name];
       if (Array.isArray(val)) return val.length > 0;
       return val !== undefined && val !== null && String(val).trim() !== '';
-    });
+    }) : true;
 
   // 发送按钮是否可用
   const canSend = !hasRequiredFields || allRequiredFilled;
@@ -124,9 +125,10 @@ export default function PromptBubble(props: PromptBubbleProps) {
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
+    const currentCount = selectedFiles.length;
 
-    if (files.length > fileConfig.maxCount) {
-      alert(`最多只能上传 ${fileConfig.maxCount} 个文件`);
+    if (currentCount + files.length > fileConfig.maxCount) {
+      alert(`最多只能上传 ${fileConfig.maxCount} 个文件，当前已上传 ${currentCount} 个`);
       return;
     }
 
@@ -214,43 +216,83 @@ export default function PromptBubble(props: PromptBubbleProps) {
                 onChange={handleFileSelect}
                 className="hidden"
               />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => fileInputRef.current?.click()}
-                className="h-8 w-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-                title="上传文件"
-              >
-                <Paperclip className="w-4 h-4" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-8 w-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="w-fit p-3 space-y-1.5">
+                  <p className="font-semibold text-sm">上传附件</p>
+                  <div className="text-xs space-y-1 text-gray-200">
+                    {(() => {
+                      const validTypes = fileConfig.allowedTypes.filter(t => t !== "*/*" && t !== "*");
+                      return validTypes.length > 0 ? (
+                        <p className="flex flex-wrap gap-1 items-center">
+                          <span className="text-gray-400 shrink-0">支持格式：</span>
+                          {validTypes.map((t, i) => (
+                            <span key={i} className="inline-block bg-gray-700 rounded px-1.5 py-0.5">{t}</span>
+                          ))}
+                        </p>
+                      ) : null;
+                    })()}
+                    <p><span className="text-gray-400">单文件最大：</span>{fileConfig.maxSizeMB}MB</p>
+                    <p><span className="text-gray-400">最多上传：</span>{fileConfig.maxCount} 个</p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
             </>
           )}
 
           {/* Form Config */}
           {enableStructuredForm && formFields.length > 0 && (
             <Popover open={formPopoverOpen} onOpenChange={setFormPopoverOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "h-8 w-8 rounded-lg transition-all duration-200",
-                    needsFormAttention
-                      ? "text-blue-600 bg-blue-100 hover:bg-blue-200 ring-2 ring-blue-300 ring-offset-1 animate-pulse"
-                      : isFormFilled
-                        ? "text-blue-600 bg-blue-50 hover:bg-blue-100"
-                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-                  )}
-                  title={needsFormAttention ? "请先填写必填参数" : "配置参数"}
-                >
-                  <Settings className="w-4 h-4" />
-                </Button>
-              </PopoverTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-8 w-8 rounded-lg transition-all duration-200",
+                        needsFormAttention
+                          ? "text-blue-600 bg-blue-100 hover:bg-blue-200 ring-2 ring-blue-300 ring-offset-1 animate-pulse"
+                          : isFormFilled
+                            ? "text-blue-600 bg-blue-50 hover:bg-blue-100"
+                            : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                      )}
+                    >
+                      <BookOpen className="w-4 h-4" />
+                    </Button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="w-fit p-3 space-y-1.5">
+                  <p className="font-semibold text-sm">� 填写表单</p>
+                  <div className="text-xs text-gray-200">
+                    <p className="text-gray-400 mb-1">点击填写以下信息：</p>
+                    <div className="flex flex-wrap gap-1">
+                      {formFields.map((field, i) => (
+                        <span key={i} className={cn(
+                          "inline-block rounded px-1.5 py-0.5",
+                          field.required ? "bg-blue-600" : "bg-gray-700"
+                        )}>
+                          {field.label}{field.required && " *"}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
               <PopoverContent className="w-80 p-4 space-y-3" side="top" align="start">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">配置参数</h4>
+                  <h4 className="text-sm font-semibold">填写表单</h4>
                   <Button
                     type="button"
                     variant="ghost"
@@ -281,7 +323,6 @@ export default function PromptBubble(props: PromptBubbleProps) {
                           </SelectTrigger>
                           <SelectContent>
                             {(field as SelectFieldConfig).options.map((opt) => {
-                              // Handle both string and {label, value} object formats
                               const optValue = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
                               const optLabel = typeof opt === 'object' && opt !== null ? (opt as { label: string }).label : opt;
                               return (
@@ -295,7 +336,6 @@ export default function PromptBubble(props: PromptBubbleProps) {
                       ) : field.type === "multi-select" ? (
                         <div className={`border rounded-md p-2 space-y-2 max-h-40 overflow-y-auto ${hasError ? "border-red-500" : "border-gray-200"}`}>
                           {(field as MultiSelectFieldConfig).options.map((opt) => {
-                            // Handle both string and {label, value} object formats
                             const optValue = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
                             const optLabel = typeof opt === 'object' && opt !== null ? (opt as { label: string }).label : opt;
                             const currentVals = (formData[field.name] as string[]) || [];
@@ -340,7 +380,6 @@ export default function PromptBubble(props: PromptBubbleProps) {
                     </div>
                   );
                 })}
-
               </PopoverContent>
             </Popover>
           )}

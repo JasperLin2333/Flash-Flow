@@ -1,4 +1,4 @@
-import type { FlowContext } from "@/types/flow";
+import type { FlowContext, AppNode } from "@/types/flow";
 
 /**
  * 从 FlowContext 中提取上游节点数据
@@ -120,4 +120,62 @@ export function extractInputFromContext(context: FlowContext, defaultValue = "")
     const data = getUpstreamData(context);
     if (!data) return defaultValue;
     return extractTextFromUpstream(data) || defaultValue;
+}
+
+/**
+ * 从 FlowContext 中提取完整的输出结果（包含文本和附件）
+ * 专用于 Chat 界面展示
+ * 
+ * @param nodes - 节点列表，用于查找 Output 节点
+ * @param context - 流程执行上下文
+ * @returns { text: string, attachments: Array<{ name: string; url: string; ... }> }
+ */
+export function extractOutputFromContext(
+    nodes: AppNode[],
+    context: FlowContext
+): { text: string; attachments: { name: string; url: string; type?: string; size?: number }[] } {
+    const outputNode = nodes.find(n => n.type === "output");
+
+    // 如果没有 Output 节点，返回提示
+    if (!outputNode) {
+        return {
+            text: "请在工作流中添加 Output 节点以显示输出结果。",
+            attachments: []
+        };
+    }
+
+    const outData = context[outputNode.id];
+
+    // 如果没有输出数据，返回提示
+    if (!outData) {
+        return {
+            text: "工作流已完成，但未生成输出。",
+            attachments: []
+        };
+    }
+
+    // 尝试解析 OutputNodeExecutor 的标准输出结构
+    if (typeof outData === 'object' && outData !== null) {
+        const data = outData as Record<string, unknown>;
+
+        // 1. 提取附件
+        const attachments = Array.isArray(data.attachments)
+            ? (data.attachments as { name: string; url: string; type?: string }[])
+            : [];
+
+        // 2. 提取文本
+        // 如果是 OutputNodeExecutor 生成的，应该有 text 字段
+        if (typeof data.text === 'string') {
+            return {
+                text: data.text,
+                attachments
+            };
+        }
+    }
+
+    // 兜底：如果数据结构不符合预期，使用通用文本提取逻辑
+    return {
+        text: extractTextFromUpstream(outData, true) || "工作流已完成，但未生成输出。",
+        attachments: []
+    };
 }

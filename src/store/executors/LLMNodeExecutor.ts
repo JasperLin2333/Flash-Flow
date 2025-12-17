@@ -1,4 +1,4 @@
-import type { AppNode, AppEdge, LLMNodeData, FlowContext } from "@/types/flow";
+import type { AppNode, AppEdge, LLMNodeData, FlowContext, FlowContextMeta, OutputInputMappings } from "@/types/flow";
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { replaceVariables } from "@/lib/promptParser";
 import { quotaService } from "@/services/quotaService";
@@ -9,30 +9,117 @@ import { LLM_EXECUTOR_CONFIG } from "../constants/executorConfig";
 import { useFlowStore } from "@/store/flowStore";
 import { useQuotaStore } from "@/store/quotaStore";
 import { collectVariables } from "./utils/variableUtils";
+import type { StreamingMode } from "../actions/streamingActions";
+import { resolveSourceNodeId } from "../utils/sourceResolver";
 
 /**
- * 检查 LLM 节点是否为用户交互节点
+ * 流式输出配置
  */
-function checkIsUserFacingLLM(
+interface StreamingConfig {
+  shouldStream: boolean;
+  streamMode: StreamingMode;
+  outputNodeId: string | null;
+}
+
+/**
+ * 查找下游 Output 节点
+ */
+function findDownstreamOutputNode(
+  nodeId: string,
+  nodes: AppNode[],
+  edges: AppEdge[],
+  nodeMap?: Map<string, AppNode>
+): AppNode | null {
+  // 使用传入的 Map 或创建新的（避免重复创建）
+  const map = nodeMap ?? new Map(nodes.map(n => [n.id, n]));
+
+  // 检查直接连接
+  const outgoingEdges = edges.filter(e => e.source === nodeId);
+  for (const edge of outgoingEdges) {
+    const targetNode = map.get(edge.target);
+    if (targetNode?.type === 'output') return targetNode;
+  }
+
+  // 检查是否通过 branch 连接到 output
+  const incomingEdges = edges.filter(e => e.target === nodeId);
+  for (const inEdge of incomingEdges) {
+    const sourceNode = map.get(inEdge.source);
+    if (sourceNode?.type === 'branch') {
+      // 如果上游是 branch，检查 branch 下游的所有 output 节点
+      const branchOutgoing = edges.filter(e => e.source === sourceNode.id);
+      for (const bEdge of branchOutgoing) {
+        const bTarget = map.get(bEdge.target);
+        if (bTarget?.type === 'output') return bTarget;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 检查 LLM 节点是否为用户交互节点，并返回流式配置
+ */
+function getStreamingConfig(
   nodeId: string,
   nodes: AppNode[],
   edges: AppEdge[]
-): boolean {
-  // 检查是否直接连接到 output
-  const outgoingEdges = edges.filter(e => e.source === nodeId);
-  for (const edge of outgoingEdges) {
-    const targetNode = nodes.find(n => n.id === edge.target);
-    if (targetNode?.type === 'output') return true;
-  }
+): StreamingConfig {
+  const noStream: StreamingConfig = { shouldStream: false, streamMode: 'single', outputNodeId: null };
 
-  // 检查是否在 branch 之后（从 branch 接收输入）
-  const incomingEdges = edges.filter(e => e.target === nodeId);
-  for (const inEdge of incomingEdges) {
-    const sourceNode = nodes.find(n => n.id === inEdge.source);
-    if (sourceNode?.type === 'branch') return true;
-  }
+  // 检查是否存在 Output 节点
+  const hasOutputNode = nodes.some(n => n.type === 'output');
+  if (!hasOutputNode) return noStream;
 
-  return false;
+  // 构建节点 Map，避免重复创建
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+  // 查找下游 Output 节点
+  const outputNode = findDownstreamOutputNode(nodeId, nodes, edges, nodeMap);
+  if (!outputNode) return noStream;
+
+  // 获取 Output 节点的模式配置
+  const inputMappings = (outputNode.data as { inputMappings?: OutputInputMappings })?.inputMappings;
+  const mode = inputMappings?.mode || 'direct';
+  const sources = inputMappings?.sources || [];
+
+  // 获取配置的 source 节点 ID 列表
+  const configuredSourceIds = sources
+    .filter(s => s.type === 'variable')
+    .map(s => resolveSourceNodeId(s.value, nodes))
+    .filter((id): id is string => id !== null);
+
+  // 根据模式决定流式策略
+  switch (mode) {
+    case 'template':
+      // template 模式：禁用流式，等待所有数据就绪后一次性渲染
+      return { shouldStream: false, streamMode: 'single', outputNodeId: outputNode.id };
+
+    case 'merge':
+      // merge 模式：分段流式（需要是配置的 source 之一）
+      if (configuredSourceIds.length > 0 && !configuredSourceIds.includes(nodeId)) {
+        return noStream; // 不是配置的 source，不流式
+      }
+      return { shouldStream: true, streamMode: 'segmented', outputNodeId: outputNode.id };
+
+    case 'select':
+      // select 模式：首字锁定流式（需要是配置的 source 之一）
+      if (configuredSourceIds.length > 0 && !configuredSourceIds.includes(nodeId)) {
+        return noStream; // 不是配置的 source，不流式
+      }
+      return { shouldStream: true, streamMode: 'select', outputNodeId: outputNode.id };
+
+    case 'direct':
+    default:
+      // direct 模式：只允许第一个配置的 source 流式
+      if (configuredSourceIds.length > 0) {
+        // 只有配置的第一个 source 才流式
+        if (nodeId !== configuredSourceIds[0]) {
+          return noStream;
+        }
+      }
+      return { shouldStream: true, streamMode: 'single', outputNodeId: outputNode.id };
+  }
 }
 
 /**
@@ -64,7 +151,9 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       const storeState = useFlowStore.getState();
       const { nodes: allNodes, edges: allEdges, flowContext: globalFlowContext } = storeState;
 
-      const isUserFacingLLM = checkIsUserFacingLLM(node.id, allNodes, allEdges);
+      // 获取流式配置（基于 Output 节点模式）
+      const streamingConfig = getStreamingConfig(node.id, allNodes, allEdges);
+      const { shouldStream, streamMode } = streamingConfig;
 
       // 1. 变量收集与 Prompt 替换
       if (effectiveMockData && Object.keys(effectiveMockData).length > 0) {
@@ -85,17 +174,16 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       // 2. 输入内容解析
       const inputContent = this.resolveInputContent(
         context,
-        globalFlowContext,
-        isUserFacingLLM,
         effectiveMockData
       );
 
       // 3. 对话记忆处理
-      const flowId = (context._meta as Record<string, unknown>)?.flowId as string | undefined;
-      const sessionId = (context._meta as Record<string, unknown>)?.sessionId as string | undefined;
+      const meta = context._meta as FlowContextMeta | undefined;
+      const flowId = meta?.flowId;
+      const sessionId = meta?.sessionId;
       const memoryEnabled = llmData.enableMemory === true;
       const maxTurns = llmData.memoryMaxTurns ?? 10;
-      const memoryNodeId = isUserFacingLLM ? "__main__" : node.id;
+      const memoryNodeId = shouldStream ? "__main__" : node.id;
 
       let conversationHistory: ConversationMessage[] = [];
       if (memoryEnabled && flowId && sessionId) {
@@ -104,12 +192,27 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
 
       // 4. 执行 LLM 请求
       try {
-        const { appendStreamingText, clearStreaming, resetStreamingAbort } = storeState;
-        const enableStreaming = isUserFacingLLM;
+        const {
+          appendStreamingText,
+          clearStreaming,
+          resetStreamingAbort,
+          appendToSegment,
+          completeSegment,
+          tryLockSource
+        } = storeState;
 
-        if (enableStreaming) {
+        if (shouldStream) {
           resetStreamingAbort();
-          clearStreaming();
+
+          // 根据流式模式初始化
+          if (streamMode === 'single') {
+            // 单一流式模式（direct 模式）
+            const currentStreamingText = useFlowStore.getState().streamingText;
+            if (!currentStreamingText) {
+              clearStreaming();
+            }
+          }
+          // segmented 和 select 模式不需要在这里初始化，由 executionActions 在开始时初始化
         }
 
         const resp = await fetch("/api/run-node-stream", {
@@ -150,8 +253,29 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
                 const parsed = JSON.parse(data);
                 if (parsed.content) {
                   fullResponse += parsed.content;
-                  if (enableStreaming) {
-                    appendStreamingText(parsed.content);
+
+                  if (shouldStream) {
+                    // 根据流式模式选择不同的 action
+                    switch (streamMode) {
+                      case 'segmented':
+                        // merge 模式：追加到对应的分段
+                        appendToSegment(node.id, parsed.content);
+                        break;
+
+                      case 'select':
+                        // select 模式：尝试锁定，成功则追加
+                        if (tryLockSource(node.id)) {
+                          appendStreamingText(parsed.content);
+                        }
+                        // 如果锁定失败，忽略此 chunk
+                        break;
+
+                      case 'single':
+                      default:
+                        // direct 模式：正常追加
+                        appendStreamingText(parsed.content);
+                        break;
+                    }
                     await new Promise(resolve => setTimeout(resolve, 30));
                   }
                 }
@@ -162,6 +286,11 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
               }
             }
           }
+        }
+
+        // 流式完成后的处理
+        if (shouldStream && streamMode === 'segmented') {
+          completeSegment(node.id);
         }
 
         // 5. 保存记忆
@@ -179,8 +308,14 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
         console.error("LLM execution failed:", errorMessage);
-        if (isUserFacingLLM) {
-          storeState.clearStreaming();
+
+        if (shouldStream) {
+          if (streamMode === 'segmented') {
+            // merge 模式失败：标记所有段落为失败（全部失败策略）
+            storeState.failSegment(node.id, errorMessage);
+          } else {
+            storeState.clearStreaming();
+          }
         }
         return { error: errorMessage };
       }
@@ -231,8 +366,6 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
    */
   private resolveInputContent(
     context: FlowContext,
-    _globalFlowContext: FlowContext,
-    _isUserFacingLLM: boolean,
     effectiveMockData?: Record<string, unknown>
   ): string {
     // 调试模式：使用第一个 mock 值

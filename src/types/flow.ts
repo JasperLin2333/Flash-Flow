@@ -179,8 +179,16 @@ export interface FlowRecord {
   updated_at: string;
 }
 
+/** 流程执行元数据 */
+export interface FlowContextMeta {
+  flowId?: string | null;
+  sessionId?: string;
+  nodeLabels?: Record<string, string>;
+}
+
 export interface FlowContext {
-  [nodeId: string]: Record<string, unknown>;
+  [nodeId: string]: Record<string, unknown> | FlowContextMeta | undefined;
+  _meta?: FlowContextMeta;
 }
 
 // 扩展性调试输入数据类型（预留多模态支持）
@@ -219,6 +227,14 @@ export type FlowState = {
   streamingText: string;
   isStreaming: boolean;
 
+  // Segment streaming state (for merge mode)
+  streamingMode: 'single' | 'segmented' | 'select';
+  streamingSegments: { sourceId: string; content: string; status: 'waiting' | 'streaming' | 'completed' | 'error' }[];
+
+  // Select mode state (first-char-lock)
+  lockedSourceId: string | null;
+  selectSourceIds: string[];
+
   // Internal execution lock
   _executionLock?: boolean;
 
@@ -245,6 +261,11 @@ export type FlowState = {
   updateNodeData: (id: string, data: Partial<AppNodeData>) => void;
   resetNodeData: (id: string) => void;
   setSelectedNode: (id: string | null) => void;
+
+  // Clipboard Actions
+  clipboard: AppNode | null;
+  copyNode: () => void;
+  pasteNode: () => void;
 
   // Edge Actions
   onNodesChange: (changes: any[]) => void;
@@ -305,4 +326,14 @@ export type FlowState = {
   clearStreaming: () => void;
   abortStreaming: () => void;
   resetStreamingAbort: () => void;
+
+  // Segment Streaming Actions (merge mode)
+  initSegmentedStreaming: (sourceIds: string[]) => void;
+  appendToSegment: (sourceId: string, chunk: string) => void;
+  completeSegment: (sourceId: string) => void;
+  failSegment: (sourceId: string, error: string) => void;
+
+  // Select Streaming Actions (first-char-lock)
+  initSelectStreaming: (sourceIds: string[]) => void;
+  tryLockSource: (sourceId: string) => boolean;
 };

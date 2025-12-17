@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, X, ChevronDown } from "lucide-react";
 import type { OutputMode, ContentSource, AttachmentSource, OutputInputMappings } from "@/types/flow";
@@ -8,7 +8,7 @@ const MODE_OPTIONS: { value: OutputMode; label: string; description: string }[] 
     { value: 'direct', label: '直接引用', description: '从单一上游节点获取输出' },
     { value: 'select', label: '分支选择', description: '从多个来源中选择第一个非空结果' },
     { value: 'merge', label: '内容合并', description: '将多个来源的内容合并输出' },
-    { value: 'template', label: '模板渲染', description: '自定义输出格式模板' },
+    { value: 'template', label: '模板渲染', description: '自定义输出格式模板(非流式输出)' },
 ];
 
 interface OutputNodeConfigProps {
@@ -26,6 +26,24 @@ export function OutputNodeConfig({
     const attachments = inputMappings?.attachments || [];
 
     const [showModeDropdown, setShowModeDropdown] = React.useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // 点击外部关闭下拉菜单
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setShowModeDropdown(false);
+            }
+        };
+
+        if (showModeDropdown) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showModeDropdown]);
 
     const updateMappings = (updates: Partial<OutputInputMappings>) => {
         onUpdateInputMappings({
@@ -38,7 +56,17 @@ export function OutputNodeConfig({
     };
 
     const handleModeChange = (newMode: OutputMode) => {
-        updateMappings({ mode: newMode });
+        let newSources = sources;
+        
+        // 如果切换到直连模式，只能保留一个 source
+        if (newMode === 'direct') {
+            newSources = sources.slice(0, 1);
+        }
+        
+        updateMappings({ 
+            mode: newMode,
+            sources: newSources
+        });
         setShowModeDropdown(false);
     };
 
@@ -79,7 +107,7 @@ export function OutputNodeConfig({
     return (
         <div className="space-y-3">
             {/* 模式选择器 */}
-            <div className="relative">
+            <div className="relative" ref={dropdownRef}>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 block">
                     输出模式
                 </label>
@@ -215,7 +243,7 @@ export function OutputNodeConfig({
                     </Button>
                 </div>
                 <p className="text-[9px] text-gray-400 mt-1">
-                    引用上游文件变量（如 <code className="bg-gray-100 px-1 rounded">{"{{用户输入.files}}"}</code>）
+                    引用文件变量（如 <code className="bg-gray-100 px-1 rounded">{`{{用户输入.files}}`}</code> 或 <code className="bg-gray-100 px-1 rounded">{`{{代码执行.generatedFile}}`}</code>）
                 </p>
             </div>
 

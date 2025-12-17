@@ -18,7 +18,7 @@ import { IconDisplay } from "./IconDisplay";
 const CARD_STYLES = {
   container: "group relative flex flex-col h-[220px] w-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-300 hover:shadow-lg hover:border-gray-300",
   header: "mb-3 flex items-start justify-between",
-  titleSection: "flex items-center gap-3",
+  titleSection: "flex items-center gap-3 flex-1 min-w-0 mr-2",
   iconWrapper: "flex-shrink-0 w-12 h-12 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden",
   titleInfo: "flex flex-col min-w-0",
   title: "text-[15px] font-semibold text-gray-900 truncate",
@@ -89,6 +89,7 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isTruncated, setIsTruncated] = useState(false);
 
   // ========== 事件处理器 ==========
 
@@ -146,7 +147,22 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
           </div>
           {/* Title & Node Count */}
           <div className={CARD_STYLES.titleInfo}>
-            <div className={CARD_STYLES.title}>{flow.name}</div>
+            <Tooltip open={isTruncated ? undefined : false}>
+              <TooltipTrigger asChild>
+                <div
+                  className={CARD_STYLES.title}
+                  onMouseEnter={(e) => {
+                    const target = e.currentTarget;
+                    setIsTruncated(target.scrollWidth > target.clientWidth);
+                  }}
+                >
+                  {flow.name}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{flow.name}</p>
+              </TooltipContent>
+            </Tooltip>
             <div className={CARD_STYLES.nodeCount}>
               <Zap className="w-3 h-3" />
               <span>{nodeCount} 节点</span>
@@ -185,7 +201,7 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
               <Pencil className="w-4 h-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">编辑flow</TooltipContent>
+          <TooltipContent side="top">画布编辑</TooltipContent>
         </Tooltip>
       </div>
 

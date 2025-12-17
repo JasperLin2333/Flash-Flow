@@ -33,13 +33,26 @@ const getDefaultModels = (): LLMModel[] => {
     ];
 };
 
+// ============ Cache Configuration ============
+// Memory cache to avoid repeated API calls
+let modelsCache: LLMModel[] | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 // ============ API Functions ============
 export const llmModelsAPI = {
     /**
      * List all active LLM models
      * Returns models sorted by display_order
+     * Uses memory cache with 5-minute TTL
      */
     async listModels(): Promise<LLMModel[]> {
+        // Check cache first
+        const now = Date.now();
+        if (modelsCache && (now - cacheTimestamp) < CACHE_TTL) {
+            return modelsCache;
+        }
+
         try {
             const { data, error } = await supabase
                 .from("llm_models")
@@ -62,12 +75,25 @@ export const llmModelsAPI = {
             const models = data as LLMModel[];
             console.log("[llmModelsAPI] Loaded models from DB:", models.length, models.map(m => m.model_name));
 
+            // Update cache
+            modelsCache = models;
+            cacheTimestamp = now;
+
             return models;
         } catch (e) {
             console.error("[llmModelsAPI] listModels exception:", e);
             // Fallback to default models on exception
             return getDefaultModels();
         }
+    },
+
+    /**
+     * Invalidate the models cache
+     * Call this when models are updated (e.g., from admin panel)
+     */
+    invalidateCache() {
+        modelsCache = null;
+        cacheTimestamp = 0;
     },
 
     /**

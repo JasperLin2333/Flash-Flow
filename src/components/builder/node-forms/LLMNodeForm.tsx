@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useWatch } from "react-hook-form";
+import { useWatch, type UseFormReturn } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,11 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
+import type { LLMNodeData } from "@/types/flow";
+import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
 
 // ============ 配置常量 ============
 const LLM_CONFIG = {
-  DEFAULT_MODEL: "qwen-flash",
-  DEFAULT_TEMPERATURE: 0.7,
+  // 使用统一的默认值
+  DEFAULT_TEMPERATURE: LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE,
   TEMPERATURE_MIN: 0,
   TEMPERATURE_MAX: 1,
   TEMPERATURE_STEP: 0.1,
@@ -30,7 +32,10 @@ const STYLES = {
 } as const;
 
 interface LLMNodeFormProps {
-  form: any;
+  // 父组件使用多态表单 schema，包含多种节点类型的字段，
+  // 因此此处使用 any 类型而非严格类型
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  form: UseFormReturn<any>;
 }
 
 /**
@@ -85,7 +90,11 @@ export function LLMNodeForm({ form }: LLMNodeFormProps) {
         render={({ field }) => (
           <FormItem>
             <FormLabel className={STYLES.LABEL}>模型</FormLabel>
-            <Select onValueChange={field.onChange} defaultValue={field.value || LLM_CONFIG.DEFAULT_MODEL}>
+            <Select
+              key={field.value}
+              onValueChange={field.onChange}
+              value={field.value}
+            >
               <FormControl>
                 <SelectTrigger className={STYLES.INPUT} disabled={modelsLoading}>
                   <SelectValue placeholder={modelsLoading ? "加载中..." : "选择模型"} />
@@ -155,13 +164,13 @@ export function LLMNodeForm({ form }: LLMNodeFormProps) {
             <FormLabel className={STYLES.LABEL}>
               系统提示词
               <span className="ml-2 text-[9px] font-normal text-gray-400 normal-case">
-                支持变量：{`{{variable_name}}`}
+                提示词支持变量引用：{`{{变量名}}`}
               </span>
             </FormLabel>
             <FormControl>
               <Textarea
                 {...field}
-                placeholder="你是一名乐于助人的助手…"
+                placeholder="系统提示词用于设定 AI 的基本行为。例如：让它扮演什么角色、用什么语气回答、重点关注什么、需要避免什么。这些规则会一直影响后续回答。"
                 className={`min-h-[${LLM_CONFIG.SYSTEM_PROMPT_MIN_HEIGHT}px] font-mono text-xs ${STYLES.INPUT}`}
               />
             </FormControl>

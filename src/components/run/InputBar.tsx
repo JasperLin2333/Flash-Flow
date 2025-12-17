@@ -6,7 +6,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Send, Paperclip, Settings, X } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Send, Paperclip, BookOpen, X } from "lucide-react";
 import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
 
 interface InputBarProps {
@@ -30,7 +31,7 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
     const enableFileInput = inputNode.enableFileInput === true;
     const enableStructuredForm = inputNode.enableStructuredForm === true;
     const formFields = inputNode.formFields || [];
-    const fileConfig = inputNode.fileConfig || { allowedTypes: ["*/*"], maxSizeMB: 50, maxCount: 999 };
+    const fileConfig = inputNode.fileConfig || { allowedTypes: ["*/*"], maxSizeMB: 50, maxCount: 10 };
 
     // Initialize form data with default values
     useState(() => {
@@ -44,17 +45,17 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
     });
 
     // Check if form has any filled values (for visual feedback)
-    const isFormFilled = formFields.length > 0 && Object.keys(formData).some(key => formData[key]);
+    const isFormFilled = enableStructuredForm && formFields.length > 0 && Object.keys(formData).some(key => formData[key]);
 
     // 必填字段验证逻辑
-    const hasRequiredFields = formFields.some(f => f.required);
-    const allRequiredFilled = formFields
+    const hasRequiredFields = enableStructuredForm && formFields.some(f => f.required);
+    const allRequiredFilled = enableStructuredForm ? formFields
         .filter(f => f.required)
         .every(f => {
             const val = formData[f.name];
             if (Array.isArray(val)) return val.length > 0;
             return val !== undefined && val !== null && String(val).trim() !== '';
-        });
+        }) : true;
 
     // Validate required form fields
     const validateForm = (): boolean => {
@@ -71,21 +72,48 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
     // Handle file selection
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(event.target.files || []);
+        const currentCount = selectedFiles.length;
 
-        // Validate file count
-        if (files.length > fileConfig.maxCount) {
-            alert(`最多只能上传 ${fileConfig.maxCount} 个文件`);
+        // Validate cumulative file count
+        if (currentCount + files.length > fileConfig.maxCount) {
+            alert(`最多只能上传 ${fileConfig.maxCount} 个文件，当前已选择 ${currentCount} 个`);
             return;
         }
 
-        // Validate file size
+        // Validate file size for new files
+        // Validate file size for new files
         const oversizedFiles = files.filter(f => f.size > fileConfig.maxSizeMB * 1024 * 1024);
         if (oversizedFiles.length > 0) {
             alert(`文件 "${oversizedFiles[0].name}" 超过最大体积 ${fileConfig.maxSizeMB}MB`);
             return;
         }
 
-        setSelectedFiles(files);
+        // Validate file type
+        const allAllowed = fileConfig.allowedTypes.flatMap(t => t.split(',').map(s => s.trim().toLowerCase()));
+        // If * or */* is present, or if the array is empty (which technically might mean nothing allowed, but usually implies default behavior, though here we treat empty as strict if strict mode was intended? No, usually empty = nothing allowed. But let's assume * is the default in config if not set. Wait, default is defined as ["*/*"].
+        // If allowedTypes is explicitly empty, we should probably block everything? 
+        // Based on logic, if not * and not empty, we check.
+        const isAnyTypeAllowed = allAllowed.some(t => t === '*/*' || t === '*');
+
+        if (!isAnyTypeAllowed && allAllowed.length > 0) {
+            const invalidTypeFiles = files.filter(f => {
+                const fileName = f.name.toLowerCase();
+                return !allAllowed.some(allowed => fileName.endsWith(allowed));
+            });
+
+            if (invalidTypeFiles.length > 0) {
+                alert(`不支持的文件类型: ${invalidTypeFiles[0].name}\n仅支持: ${allAllowed.join(", ")}`);
+                return;
+            }
+        }
+
+        // Combine with existing files
+        setSelectedFiles(prevFiles => [...prevFiles, ...files]);
+
+        // Reset input so same file can be selected again if needed
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
     };
 
     // Handle sending
@@ -129,22 +157,39 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
             {/* Left: Form trigger button (if structured form enabled) */}
             {enableStructuredForm && (
                 <Popover open={formPopoverOpen} onOpenChange={setFormPopoverOpen}>
-                    <PopoverTrigger asChild>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            className={`h-10 w-10 rounded-xl transition-all ${isFormFilled
-                                ? "border-black bg-black text-white hover:bg-black/90"
-                                : "border-gray-300 hover:border-gray-400"
-                                }`}
-                        >
-                            <Settings className="w-4 h-4" />
-                            {isFormFilled && <div className="absolute top-1 right-1 w-2 h-2 bg-green-400 rounded-full" />}
-                        </Button>
-                    </PopoverTrigger>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className={`h-10 w-10 rounded-xl transition-all ${isFormFilled
+                                        ? "border-black bg-black text-white hover:bg-black/90"
+                                        : "border-gray-300 hover:border-gray-400"
+                                        }`}
+                                >
+                                    <BookOpen className="w-4 h-4" />
+                                    {isFormFilled && <div className="absolute top-1 right-1 w-2 h-2 bg-green-400 rounded-full" />}
+                                </Button>
+                            </PopoverTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="w-fit p-3 space-y-1.5">
+                            <p className="font-semibold text-sm">📋 填写表单</p>
+                            <div className="text-xs text-gray-200">
+                                <p className="text-gray-400 mb-1">点击填写以下信息：</p>
+                                <div className="flex flex-wrap gap-1">
+                                    {formFields.map((field, i) => (
+                                        <span key={i} className={`inline-block rounded px-1.5 py-0.5 ${field.required ? "bg-blue-600" : "bg-gray-700"}`}>
+                                            {field.label}{field.required && " *"}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </TooltipContent>
+                    </Tooltip>
                     <PopoverContent className="w-80 p-4 space-y-3" side="top" align="start">
                         <div className="flex items-center justify-between">
-                            <h4 className="text-sm font-semibold">配置参数</h4>
+                            <h4 className="text-sm font-semibold">填写表单</h4>
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -267,14 +312,36 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
                             onChange={handleFileSelect}
                             className="hidden"
                         />
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-2 top-2 h-8 w-8 hover:bg-gray-100"
-                            onClick={() => fileInputRef.current?.click()}
-                        >
-                            <Paperclip className="w-4 h-4 text-gray-500" />
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute right-2 top-2 h-8 w-8 hover:bg-gray-100"
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    <Paperclip className="w-4 h-4 text-gray-500" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="w-fit p-3 space-y-1.5">
+                                <p className="font-semibold text-sm">上传附件</p>
+                                <div className="text-xs space-y-1 text-gray-200">
+                                    {(() => {
+                                        const validTypes = fileConfig.allowedTypes.filter(t => t !== "*/*" && t !== "*");
+                                        return validTypes.length > 0 ? (
+                                            <p className="flex flex-wrap gap-1 items-center">
+                                                <span className="text-gray-400 shrink-0">支持格式：</span>
+                                                {validTypes.map((t, i) => (
+                                                    <span key={i} className="inline-block bg-gray-700 rounded px-1.5 py-0.5">{t}</span>
+                                                ))}
+                                            </p>
+                                        ) : null;
+                                    })()}
+                                    <p><span className="text-gray-400">单文件最大：</span>{fileConfig.maxSizeMB}MB</p>
+                                    <p><span className="text-gray-400">最多上传：</span>{fileConfig.maxCount} 个</p>
+                                </div>
+                            </TooltipContent>
+                        </Tooltip>
                     </>
                 )}
 

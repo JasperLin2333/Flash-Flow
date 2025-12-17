@@ -74,11 +74,11 @@ function FieldEditor({
 
             {/* Field Label */}
             <div className="space-y-1">
-                <label className="text-[10px] font-medium text-gray-500">显示标签</label>
+                <label className="text-[10px] font-medium text-gray-500">字段名</label>
                 <Input
                     value={field.label}
                     onChange={(e) => onUpdate(index, { label: e.target.value })}
-                    placeholder="字段标签"
+                    placeholder="字段名"
                     className={`${INPUT_CLASS} h-8`}
                 />
             </div>
@@ -137,7 +137,7 @@ export function StructuredFormSection({
                 <div className="pl-7 space-y-3 border-l-2 border-gray-200">
                     {formFields.map((field, index) => (
                         <FieldEditor
-                            key={index}
+                            key={field.name}
                             field={field}
                             index={index}
                             onUpdate={onFieldUpdate}

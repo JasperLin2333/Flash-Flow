@@ -1,37 +1,65 @@
 import { nanoid } from "nanoid";
-import type { AppNode, AppNodeData, NodeKind } from "@/types/flow";
+import type { AppNode, AppNodeData, NodeKind, FlowState } from "@/types/flow";
 import { getDefaultNodeData } from "../utils/nodeDefaults";
+import { toast } from "@/hooks/use-toast";
+import { NODE_LAYOUT } from "../constants/layout";
 
-export const createNodeActions = (set: any, get: any) => ({
+// Zustand store action creator types
+type SetState = (partial: ((state: FlowState) => Partial<FlowState>) | Partial<FlowState>) => void;
+type GetState = () => FlowState;
+
+export const createNodeActions = (set: SetState, get: GetState) => ({
     /**
      * 添加新节点到画布
      * 自动检测位置冲突并应用偏移量以防止节点重叠
      */
     addNode: (type: NodeKind, position: { x: number; y: number }, data?: Partial<AppNodeData>) => {
-        const OFFSET = 20; // 偏移量（像素）
-        const MAX_ITERATIONS = 20; // 最大迭代次数防止无限循环
-        const OVERLAP_THRESHOLD = 10; // 重叠阈值（像素）
+        // 检查 input 和 output 节点的单例限制
+        const existingNodes = get().nodes as AppNode[];
+        if (type === 'input') {
+            const hasInputNode = existingNodes.some((node: AppNode) => node.type === 'input');
+            if (hasInputNode) {
+                toast({
+                    variant: "warning",
+                    title: "无法添加节点",
+                    description: "每个画布只能有一个输入（Input）节点",
+                });
+                return;
+            }
+        }
+        if (type === 'output') {
+            const hasOutputNode = existingNodes.some((node: AppNode) => node.type === 'output');
+            if (hasOutputNode) {
+                toast({
+                    variant: "warning",
+                    title: "无法添加节点",
+                    description: "每个画布只能有一个输出（Output）节点",
+                });
+                return;
+            }
+        }
 
         // 检查位置是否被占用并应用偏移
         let finalPosition = { ...position };
         let iterations = 0;
 
-        while (iterations < MAX_ITERATIONS) {
+        while (iterations < NODE_LAYOUT.MAX_PLACEMENT_ITERATIONS) {
             // 检查是否与现有节点重叠
             const overlap = get().nodes.some((node: AppNode) =>
-                Math.abs(node.position.x - finalPosition.x) < OVERLAP_THRESHOLD &&
-                Math.abs(node.position.y - finalPosition.y) < OVERLAP_THRESHOLD
+                Math.abs(node.position.x - finalPosition.x) < NODE_LAYOUT.OVERLAP_THRESHOLD &&
+                Math.abs(node.position.y - finalPosition.y) < NODE_LAYOUT.OVERLAP_THRESHOLD
             );
 
             if (!overlap) break;
 
             // 应用对角线偏移以创建层叠效果
             finalPosition = {
-                x: finalPosition.x + OFFSET,
-                y: finalPosition.y + OFFSET
+                x: finalPosition.x + NODE_LAYOUT.AUTO_LAYOUT_OFFSET,
+                y: finalPosition.y + NODE_LAYOUT.AUTO_LAYOUT_OFFSET
             };
             iterations++;
         }
+
 
         // 创建节点并使用最终位置
         const id = `${type}-${nanoid(8)}`;

@@ -79,21 +79,21 @@ export default function Home() {
           <div className="mt-8 flex flex-wrap gap-3 justify-center">
             <button
               className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
-              onClick={() => setSuggestion("我想要一个AI小伙伴")}
+              onClick={() => setSuggestion("请创建一个内容转化工作流：支持输入一篇长文章的内容或链接。第一步，提取文章中的核心观点和干货信息；第二步，将内容改写为小红书笔记风格，要求标题具有“爆款感”和吸引力，正文口语化并适当添加 Emoji 表情；第三步，根据内容自动生成 5 个相关的热门 Hashtag 标签。")}
             >
-              我想要一个AI小伙伴
+              将长文章改写为小红书文案
             </button>
             <button
               className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
-              onClick={() => setSuggestion("我想要清洗表格的脏数据")}
+              onClick={() => setSuggestion("我需要一个竞品监控助手：当输入竞品名称或官网地址时，自动利用联网搜索功能抓取该品牌最近 7 天的新闻动态和社交媒体更新。请重点筛选出与“产品发布”和“营销活动”相关的信息，并汇总生成一份结构清晰的 Markdown 格式简报，包含“关键动态”、“策略分析”和“总结建议”三个部分。")}
             >
-              我想要清洗表格的脏数据
+              抓取竞品动态并生成分析报告
             </button>
             <button
               className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
-              onClick={() => setSuggestion("我想锻炼面试技巧")}
+              onClick={() => setSuggestion("设计一个文档结构化处理流程：接收用户上传的 PDF 文件，读取并理解全文内容。请智能识别文档的章节层级（如一级标题、二级要点），将其提炼并转化为层级分明的 Markdown 列表格式（或 OPML 格式）。输出结果要求逻辑清晰，能够直接用于生成思维导图。")}
             >
-              我想锻炼面试技巧
+              把 PDF 文档整理成思维导图
             </button>
           </div>
         </div>

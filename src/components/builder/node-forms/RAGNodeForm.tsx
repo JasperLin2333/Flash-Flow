@@ -4,11 +4,11 @@ import { useState, useEffect } from "react";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { RAGNodeData } from "@/types/flow";
+import type { RAGNodeData, AppNode, AppNodeData } from "@/types/flow";
 import { geminiFileSearchAPI } from "@/services/geminiFileSearchAPI";
 import { Upload, FileText, Trash2, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import type { UseFormReturn } from "react-hook-form";
 
 // ============ 样式常量 ============
 const STYLES = {
@@ -19,10 +19,10 @@ const STYLES = {
 } as const;
 
 interface RAGNodeFormProps {
-  form: any;
+  form: UseFormReturn<{ label: string }>;
   selectedNodeId: string | null;
-  updateNodeData: (id: string, data: any) => void;
-  selectedNode: any;
+  updateNodeData: (id: string, data: Partial<AppNodeData>) => void;
+  selectedNode: AppNode;
 }
 
 export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode }: RAGNodeFormProps) {
@@ -116,10 +116,9 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
   };
 
   // 删除文件
-  const handleDeleteFile = (index: number) => {
+  const handleDeleteFile = (fileName: string) => {
     if (!selectedNodeId) return;
-    const currentFiles = [...(ragData.files || [])];
-    currentFiles.splice(index, 1);
+    const currentFiles = (ragData.files || []).filter(f => f.name !== fileName);
     updateNodeData(selectedNodeId, { files: currentFiles });
   };
 
@@ -142,7 +141,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
           <FormItem>
             <FormLabel className={STYLES.LABEL}>节点名称</FormLabel>
             <FormControl>
-              <Input {...field} className={`font - medium ${STYLES.INPUT} `} />
+              <Input {...field} className={`font-medium ${STYLES.INPUT}`} />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -191,8 +190,8 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
           {ragData.files && ragData.files.length > 0 && (
             <div className="space-y-2">
               <div className="text-xs text-gray-500">已上传文件 ({ragData.files.length})</div>
-              {ragData.files.map((file, idx) => (
-                <div key={idx} className={STYLES.FILE_ITEM}>
+              {ragData.files.map((file) => (
+                <div key={file.name} className={STYLES.FILE_ITEM}>
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <FileText className="w-4 h-4 text-gray-400 shrink-0" />
                     <span className="truncate text-xs font-medium">{file.name}</span>
@@ -203,7 +202,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                     )}
                   </div>
                   <button
-                    onClick={() => handleDeleteFile(idx)}
+                    onClick={() => handleDeleteFile(file.name)}
                     className="text-red-500 hover:text-red-700 transition-colors p-1"
                     aria-label="删除文件"
                   >

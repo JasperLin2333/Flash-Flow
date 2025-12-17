@@ -1,6 +1,7 @@
 "use client";
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ArrowDownToLine, Copy, Check } from "lucide-react";
 import type { UpstreamVariable } from "../types";
 import { LABEL_CLASS } from "../constants";
@@ -43,13 +44,27 @@ export function AvailableVarsSection({
                                 className="group flex items-center justify-between bg-blue-50 rounded-lg px-2.5 py-1.5 border border-blue-100 hover:border-blue-200 transition-colors"
                             >
                                 <div className="flex-1 min-w-0">
-                                    <code className="text-[10px] font-mono text-blue-700 block truncate">
-                                        {`{{${varName}}}`}
-                                    </code>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <code className="text-[10px] font-mono text-blue-700 block truncate cursor-default">
+                                                {`{{${varName}}}`}
+                                            </code>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top">
+                                            {`{{${varName}}}`}
+                                        </TooltipContent>
+                                    </Tooltip>
                                     {v.value && (
-                                        <span className="text-[9px] text-gray-500 truncate block">
-                                            = {v.value}
-                                        </span>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <span className="text-[9px] text-gray-500 truncate block cursor-default">
+                                                    = {v.value}
+                                                </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top" className="max-w-xs">
+                                                = {v.value}
+                                            </TooltipContent>
+                                        </Tooltip>
                                     )}
                                 </div>
                                 <Button

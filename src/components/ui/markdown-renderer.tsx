@@ -2,7 +2,10 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { memo } from "react";
+import rehypeHighlight from "rehype-highlight";
+import { memo, useDeferredValue } from "react";
+import { CodeBlock } from "./code-block";
+import { ImageLightbox } from "./image-lightbox";
 
 interface MarkdownRendererProps {
     content: string;
@@ -16,20 +19,31 @@ interface MarkdownRendererProps {
  * - 标题 (h1-h6)
  * - 粗体、斜体、删除线
  * - 有序/无序列表
- * - 代码块和行内代码
- * - 链接和图片
+ * - 代码块和行内代码（带语法高亮）
+ * - 链接和图片（点击放大）
  * - 表格 (GFM)
  * - 任务列表 (GFM)
  * - 引用块
+ * 
+ * 优化特性：
+ * - 代码语法高亮 (rehype-highlight)
+ * - 一键复制代码
+ * - 长代码块折叠 (>15行)
+ * - 图片点击放大
+ * - 流式渲染优化 (useDeferredValue)
  */
 export const MarkdownRenderer = memo(function MarkdownRenderer({
     content,
     className = ""
 }: MarkdownRendererProps) {
+    // 流式渲染优化：使用 useDeferredValue 降低快速更新时的渲染优先级
+    const deferredContent = useDeferredValue(content);
+
     return (
         <div className={`markdown-content ${className}`}>
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
                 components={{
                     // 标题
                     h1: ({ children }) => (
@@ -72,9 +86,23 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
                         <li className="leading-relaxed">{children}</li>
                     ),
 
-                    // 代码
+                    // 代码块 - 使用 CodeBlock 组件
+                    pre: ({ children }) => {
+                        // 从 children 中提取 code 元素的 className 来获取语言
+                        const codeChild = children as React.ReactElement<{ className?: string; children?: React.ReactNode }>;
+                        const codeClassName = codeChild?.props?.className || "";
+                        const language = codeClassName.replace(/language-/, "").replace(/hljs/, "").trim();
+
+                        return (
+                            <CodeBlock language={language} className={codeClassName}>
+                                {children}
+                            </CodeBlock>
+                        );
+                    },
+
+                    // 行内代码
                     code: ({ className, children, ...props }) => {
-                        const isInline = !className;
+                        const isInline = !className || !className.includes("hljs");
                         if (isInline) {
                             return (
                                 <code
@@ -91,11 +119,6 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
                             </code>
                         );
                     },
-                    pre: ({ children }) => (
-                        <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 my-2 overflow-x-auto text-[13px] font-mono">
-                            {children}
-                        </pre>
-                    ),
 
                     // 引用
                     blockquote: ({ children }) => (
@@ -116,19 +139,14 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
                         </a>
                     ),
 
-                    // 图片
+                    // 图片 - 使用 ImageLightbox 组件
                     img: ({ src, alt }) => (
-                        <img
-                            src={src}
-                            alt={alt || ""}
-                            className="max-w-full h-auto rounded-lg my-2 border border-gray-200"
-                            loading="lazy"
-                        />
+                        <ImageLightbox src={typeof src === 'string' ? src : undefined} alt={alt} />
                     ),
 
-                    // 表格
+                    // 表格 - 添加 scroll-snap 优化移动端体验
                     table: ({ children }) => (
-                        <div className="overflow-x-auto my-2">
+                        <div className="overflow-x-auto my-2 scroll-snap-x scroll-snap-mandatory">
                             <table className="min-w-full border-collapse text-sm">
                                 {children}
                             </table>
@@ -171,7 +189,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
                     ),
                 }}
             >
-                {content}
+                {deferredContent}
             </ReactMarkdown>
         </div>
     );

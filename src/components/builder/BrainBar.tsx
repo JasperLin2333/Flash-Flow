@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Plus, Sparkles, Edit3 } from "lucide-react";
+import { useReactFlow } from "@xyflow/react";
 import { motion } from "framer-motion";
 import { useFlowStore } from "@/store/flowStore";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ const CONFIG = {
         generate: {
             label: "全量生成",
             icon: Sparkles,
-            placeholder: "描述你的流程（Enter 发送，Shift+Enter 换行）",
+            placeholder: "请告诉我们你想要什么…",
             loadingText: "正在生成流程…",
         },
         modify: {
@@ -85,7 +86,7 @@ function NodeLibraryDialog({
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onNodeAdd: (type: NodeKind, position: typeof CONFIG.ui.defaultNodePosition) => void;
+    onNodeAdd: (type: NodeKind) => void;
 }) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -102,7 +103,7 @@ function NodeLibraryDialog({
                             key={type}
                             label={label}
                             onSelect={() => {
-                                onNodeAdd(type, CONFIG.ui.defaultNodePosition);
+                                onNodeAdd(type);
                                 onOpenChange(false);
                             }}
                         />
@@ -198,6 +199,27 @@ export default function BrainBar() {
     const setEdges = useFlowStore((s) => s.setEdges);
     const updateNodeData = useFlowStore((s) => s.updateNodeData);
 
+    // 使用 ReactFlow hook 获取视口转换方法
+    const { screenToFlowPosition } = useReactFlow();
+
+    /**
+     * 获取用户屏幕中心对应的画布坐标
+     * 使用 window.innerWidth/innerHeight 获取屏幕尺寸，然后转换为画布坐标
+     */
+    const getViewportCenter = useCallback(() => {
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+        return screenToFlowPosition({ x: centerX, y: centerY });
+    }, [screenToFlowPosition]);
+
+    /**
+     * 添加节点到屏幕中心位置
+     */
+    const handleAddNodeToCenter = useCallback((type: NodeKind) => {
+        const centerPosition = getViewportCenter();
+        addNode(type, centerPosition);
+    }, [getViewportCenter, addNode]);
+
     const confirmGenerate = async () => {
         setConfirmOpen(false);
         setIsGenerating(true);
@@ -271,7 +293,7 @@ export default function BrainBar() {
                 </TooltipProvider>
             </div>
 
-            <NodeLibraryDialog open={libraryOpen} onOpenChange={setLibraryOpen} onNodeAdd={addNode} />
+            <NodeLibraryDialog open={libraryOpen} onOpenChange={setLibraryOpen} onNodeAdd={handleAddNodeToCenter} />
             <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} onConfirm={confirmGenerate} />
         </motion.div>
     );

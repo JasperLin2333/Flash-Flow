@@ -14,6 +14,12 @@ interface AuthStore {
     isLoading: boolean;
     error: string | null;
 
+    // OTP State
+    otpSentAt: number | null;   // Timestamp when OTP was sent (for countdown)
+    registrationEmail: string | null;  // Email being used for registration
+    resetEmail: string | null;  // Email being used for password reset
+    isNewUser: boolean;  // Whether the email is for a new user (needs password setup)
+
     // Actions
     initialize: () => Promise<void>;
     login: (credentials: LoginCredentials) => Promise<boolean>;
@@ -21,6 +27,15 @@ interface AuthStore {
     logout: () => Promise<void>;
     clearError: () => void;
     setUser: (user: User | null) => void;
+
+    // OTP Actions
+    sendSignUpOtp: (email: string) => Promise<boolean>;
+    verifyOtpLogin: (token: string) => Promise<boolean>;  // For existing users
+    verifySignUpOtp: (token: string, password: string) => Promise<boolean>;  // For new users
+    sendPasswordResetOtp: (email: string) => Promise<boolean>;
+    verifyResetOtp: (token: string, newPassword: string) => Promise<boolean>;
+    resendVerification: () => Promise<boolean>;
+    clearOtpState: () => void;
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -29,6 +44,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     isAuthenticated: false,
     isLoading: true,
     error: null,
+
+    // OTP State
+    otpSentAt: null,
+    registrationEmail: null,
+    resetEmail: null,
+    isNewUser: false,
 
     // Initialize auth state (call on app mount)
     initialize: async () => {
@@ -88,7 +109,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         }
     },
 
-    // Register new user
+    // Register new user (legacy - kept for backward compatibility)
     register: async (data: RegisterData) => {
         set({ isLoading: true, error: null });
 
@@ -125,7 +146,15 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
         try {
             await authService.signOut();
-            set({ user: null, isAuthenticated: false, isLoading: false, error: null });
+            set({
+                user: null,
+                isAuthenticated: false,
+                isLoading: false,
+                error: null,
+                otpSentAt: null,
+                registrationEmail: null,
+                resetEmail: null,
+            });
         } catch (e) {
             console.error("[authStore] logout error:", e);
             // Force logout even if API call fails
@@ -144,4 +173,217 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             set({ user: null, isAuthenticated: false });
         }
     },
+
+    // ============ OTP Actions ============
+
+    // Send OTP for sign up / login
+    sendSignUpOtp: async (email: string) => {
+        set({ isLoading: true, error: null });
+
+        try {
+            const { isNewUser, error } = await authService.sendSignUpOtp(email);
+
+            if (error) {
+                set({ error: error.message, isLoading: false });
+                return false;
+            }
+
+            set({
+                registrationEmail: email,
+                otpSentAt: Date.now(),
+                isNewUser,
+                isLoading: false,
+                error: null,
+            });
+            return true;
+        } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : "发送验证码失败";
+            set({ error: errorMsg, isLoading: false });
+            return false;
+        }
+    },
+
+    // Verify OTP and login directly (for existing users)
+    verifyOtpLogin: async (token: string) => {
+        const { registrationEmail } = get();
+        if (!registrationEmail) {
+            set({ error: "请先发送验证码" });
+            return false;
+        }
+
+        set({ isLoading: true, error: null });
+
+        try {
+            const { user, error } = await authService.verifyOtpOnly(
+                registrationEmail,
+                token
+            );
+
+            if (error) {
+                set({ error: error.message, isLoading: false });
+                return false;
+            }
+
+            if (user) {
+                set({
+                    user,
+                    isAuthenticated: true,
+                    isLoading: false,
+                    error: null,
+                    registrationEmail: null,
+                    otpSentAt: null,
+                    isNewUser: false,
+                });
+                return true;
+            }
+
+            set({ error: "登录失败", isLoading: false });
+            return false;
+        } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : "验证失败";
+            set({ error: errorMsg, isLoading: false });
+            return false;
+        }
+    },
+
+    // Verify OTP and complete sign up (for new users)
+    verifySignUpOtp: async (token: string, password: string) => {
+        const { registrationEmail } = get();
+        if (!registrationEmail) {
+            set({ error: "请先发送验证码" });
+            return false;
+        }
+
+        set({ isLoading: true, error: null });
+
+        try {
+            const { user, error } = await authService.verifyOtpAndSignUp(
+                registrationEmail,
+                token,
+                password
+            );
+
+            if (error) {
+                set({ error: error.message, isLoading: false });
+                return false;
+            }
+
+            if (user) {
+                set({
+                    user,
+                    isAuthenticated: true,
+                    isLoading: false,
+                    error: null,
+                    registrationEmail: null,
+                    otpSentAt: null,
+                    isNewUser: false,
+                });
+                return true;
+            }
+
+            set({ error: "注册失败", isLoading: false });
+            return false;
+        } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : "验证失败";
+            set({ error: errorMsg, isLoading: false });
+            return false;
+        }
+    },
+
+    // Send OTP for password reset
+    sendPasswordResetOtp: async (email: string) => {
+        set({ isLoading: true, error: null });
+
+        try {
+            const { error } = await authService.sendPasswordResetOtp(email);
+
+            if (error) {
+                set({ error: error.message, isLoading: false });
+                return false;
+            }
+
+            set({
+                resetEmail: email,
+                otpSentAt: Date.now(),
+                isLoading: false,
+                error: null,
+            });
+            return true;
+        } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : "发送验证码失败";
+            set({ error: errorMsg, isLoading: false });
+            return false;
+        }
+    },
+
+    // Verify OTP and reset password
+    verifyResetOtp: async (token: string, newPassword: string) => {
+        const { resetEmail } = get();
+        if (!resetEmail) {
+            set({ error: "请先发送验证码" });
+            return false;
+        }
+
+        set({ isLoading: true, error: null });
+
+        try {
+            const { error } = await authService.verifyOtpAndResetPassword(
+                resetEmail,
+                token,
+                newPassword
+            );
+
+            if (error) {
+                set({ error: error.message, isLoading: false });
+                return false;
+            }
+
+            set({
+                isLoading: false,
+                error: null,
+                resetEmail: null,
+                otpSentAt: null,
+            });
+            return true;
+        } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : "重置密码失败";
+            set({ error: errorMsg, isLoading: false });
+            return false;
+        }
+    },
+
+    // Resend verification email for unverified users
+    resendVerification: async () => {
+        const { user } = get();
+        if (!user?.email) {
+            set({ error: "未找到用户邮箱" });
+            return false;
+        }
+
+        set({ isLoading: true, error: null });
+
+        try {
+            const { error } = await authService.resendVerificationEmail(user.email);
+
+            if (error) {
+                set({ error: error.message, isLoading: false });
+                return false;
+            }
+
+            set({ isLoading: false, error: null });
+            return true;
+        } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : "发送验证邮件失败";
+            set({ error: errorMsg, isLoading: false });
+            return false;
+        }
+    },
+
+    // Clear OTP state (when user cancels or goes back)
+    clearOtpState: () => set({
+        otpSentAt: null,
+        registrationEmail: null,
+        resetEmail: null,
+        error: null,
+    }),
 }));

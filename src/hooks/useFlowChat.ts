@@ -5,7 +5,7 @@ import { useFlowStore } from '@/store/flowStore';
 import { chatHistoryAPI } from '@/services/chatHistoryAPI';
 import { quotaService } from '@/services/quotaService';
 import { authService } from '@/services/authService';
-import { extractTextFromUpstream } from '@/store/executors/contextUtils';
+import { extractOutputFromContext, extractTextFromUpstream } from '@/store/executors/contextUtils';
 import { useChatSession } from './useChatSession';
 import type { AppNode } from '@/types/flow';
 
@@ -52,24 +52,7 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
     const [input, setInput] = useState("");
 
     // ============ Helpers ============
-    const extractFlowOutput = (
-        currentNodes: AppNode[],
-        currentContext: Record<string, unknown>
-    ): string => {
-        const outputNode = currentNodes.find(n => n.type === "output");
 
-        if (!outputNode) {
-            return "请在工作流中添加 Output 节点以显示输出结果。";
-        }
-
-        const outData = currentContext[outputNode.id] as Record<string, unknown> | undefined;
-        if (!outData) {
-            return MESSAGES.EMPTY_OUTPUT;
-        }
-
-        // Use shared utility to filter Branch metadata
-        return extractTextFromUpstream(outData, true) || MESSAGES.EMPTY_OUTPUT;
-    };
 
     // ============ Actions ============
     const sendMessage = async () => {
@@ -158,9 +141,12 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
             // 7. Handle Result
             const freshState = useFlowStore.getState();
             let responseText = "";
+            let responseAttachments: import("@/components/apps/FlowAppInterface/constants").Attachment[] = [];
 
             if (freshState.executionStatus === "completed") {
-                responseText = extractFlowOutput(freshState.nodes, freshState.flowContext);
+                const output = extractOutputFromContext(freshState.nodes, freshState.flowContext);
+                responseText = output.text;
+                responseAttachments = output.attachments;
             } else {
                 responseText = MESSAGES.ERROR_EXECUTION;
             }
@@ -171,7 +157,15 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
 
             if (activeSessionIdRef.current !== activeSessionId) return;
 
-            const updatedMessages = [...newMessages, { role: "assistant" as const, content: responseText, timestamp: new Date() }];
+            const updatedMessages = [
+                ...newMessages,
+                {
+                    role: "assistant" as const,
+                    content: responseText,
+                    attachments: responseAttachments,
+                    timestamp: new Date()
+                }
+            ];
             setMessages(updatedMessages);
             updateSessionCache(activeSessionId, updatedMessages, false);
 

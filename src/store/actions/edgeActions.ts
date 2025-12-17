@@ -1,4 +1,4 @@
-import type { AppNode, AppEdge } from "@/types/flow";
+import type { AppNode, AppEdge, FlowState } from "@/types/flow";
 import {
     addEdge,
     applyNodeChanges,
@@ -9,7 +9,11 @@ import {
 } from "@xyflow/react";
 import { hasCycle } from "../utils/cycleDetection";
 
-export const createEdgeActions = (set: any, get: any) => ({
+// Zustand store action creator types
+type SetState = (partial: ((state: FlowState) => Partial<FlowState>) | Partial<FlowState>) => void;
+type GetState = () => FlowState;
+
+export const createEdgeActions = (set: SetState, get: GetState) => ({
     /**
      * 处理节点变更（位置、选中状态等）
      * 

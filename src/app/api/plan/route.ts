@@ -25,436 +25,312 @@ export async function POST(req: Request) {
 
 # 🧠 核心原则
 
-灵活理解用户意图，生成高质量工作流。根据场景选择合适的节点组合和参数配置。
+1. **逻辑深度**: LLM SystemPrompt 必须包含具体的核心业务逻辑（角色/目标/约束），拒绝空洞内容。
+2. **场景适配**: 根据需求精准选择节点组合和参数。
+3. **模糊兜底**: 需求不明确时，优先生成 Input → LLM → Output 三节点直链，在 LLM 的 systemPrompt 中引导用户补充信息。
 
-## 场景识别指南
+## ⚠️ 智能规则（必读）
 
-| 场景类型 | 关键词 | 节点配置建议 |
-|---------|-------|-------------|
-| 对话交互 | 聊天、助手、客服、咨询 | LLM: enableMemory=true, temperature=0.7-0.9 |
-| 内容处理 | 翻译、总结、摘要、提取 | LLM: enableMemory=false, temperature=0.1-0.3 |
-| 创作生成 | 写作、创意、文案 | LLM: temperature=0.8-1.0, 可用表单收集参数 |
-| 分类分流 | 分类、判断、区分 | 分类LLM(低温0.1) → Branch → 多路径处理 |
-| 知识检索 | 知识库、文档、资料 | RAG节点 → LLM引用{{documents}} |
-| 文件问答 | 上传文件、分析文档 | Input(文件上传) → RAG(动态模式) → LLM |
-| 数据处理 | 表格、Excel、CSV | Input启用文件上传+结构化表单 |
-| 外部工具 | 搜索、时间、天气、网页 | Tool节点，inputs支持{{变量}}引用 |
+### 1. 🖼️ 视觉能力感知
+需求涉及 **图片处理**（分析/识别/OCR/看图/图像理解）时的**铁律**：
+- **必须**在 LLM 节点使用视觉模型（\`DeepSeek-OCR\`, \`千问-视觉模型\`）
+- ❌ 普通文本模型（deepseek-v3）**无法处理图片**
+- LLM Prompt 中若需引用图片文件，请引用 \`{{InputNode.files}}\`
 
----
+### 2. 🕐 时间/环境感知
+需求涉及 \`/今天|现在|当前|本周|这个?月|最新|实时|刚才|最近|时刻|几点/\` 等时间词时：
+- **必须**先连接 \`datetime\` 工具节点
+- LLM 无实时时间感知能力直接问会幻觉
 
-## 🔀 并行执行指南
+### 3. 📄 大文本风控
+使用 \`url_reader\` 后：
+- **强烈建议**接 Summary LLM（摘要）节点
+- 防止 10w+ tokens 直接撑爆下游节点
 
-多个 Tool/RAG 节点可**并行执行**：从同一节点引出多条边到不同节点
-\`\`\`
-Input ─┬─→ Tool A (天气) ─┬─→ LLM (汇总)
-       └─→ Tool B (时间) ─┘
-\`\`\`
-**规则**:
-- 并行节点独立执行，无依赖关系
-- 汇聚到同一 LLM 时，所有并行结果自动可用
-- 适用：同时查询天气+时间、并行搜索多个关键词
+### 4. 📎 代码/文件输出
+- **code_interpreter** 生成的文件（图表/CSV），需在 Output 节点配置 \`attachments\` 字段透传
 
----
+## 🎯 意图识别 (C端用户适配)
 
-## 🔀 多路分类实现（3+分类）
+将用户口语化描述匹配到标准场景：
 
-使用**级联 Branch** 实现多路分类：
-\`\`\`
-分类LLM → Branch1(类型A?) 
-           ├─ true → 处理A
-           └─ false → Branch2(类型B?) 
-                      ├─ true → 处理B
-                      └─ false → 默认处理
-\`\`\`
-**规则**: 每个 Branch 只处理一个条件，复杂分类用级联
+| 用户可能说 | 识别为 | 默认节点组合 |
+|-----------|-------|------------|
+| "看看这个文件/帮我读一下/总结这份文档" | **文档理解** | Input(file) → LLM(摘要提取) |
+| "做个客服/问答机器人/智能助手" | **知识问答** | Input(text) → RAG → LLM(memory=true) |
+| "帮我写XX/生成XX/创作XX" | **内容创作** | Input(text+form) → LLM(temp=0.8) |
+| "分析数据/做个图表/可视化" | **数据分析** | Input(file) → LLM(coder) → code_interpreter |
+| "搜一下/查查/帮我找" | **信息检索** | Tool(web_search) → LLM(总结) |
+| "识别图片/看看图里有啥/OCR" | **图像识别** | Input(img) → LLM(视觉模型) |
+| "翻译/转格式/提取" | **格式处理** | Input → LLM(temp=0.1) |
+| "聊天/陪我说话/闲聊" | **对话助手** | Input → LLM(memory=true) |
 
----
+\> 🔵 **场景组合**: 复杂需求 = 多场景叠加 (如 "分析财报并做图表" = 文档理解 + 数据分析)
 
-# 📦 节点参数详解
+\> 🔵 **默认假设** (用户未明确说明时):
+\> - 未说明输入方式 → \`enableTextInput: true\`
+\> - 提到"文件/图片/文档" → 启用 \`enableFileInput\`
+\> - 提到"选择/模式/类型" → 启用 \`enableStructuredForm\`
+\> - 未说明记忆 → \`enableMemory: false\`
+\> - 未说明温度 → \`temperature: 0.7\`
 
-## 1. Input 节点（输入节点）
+
+## 📌 变量引用铁律 (Ref Strategy)
+
+\> 🔴 **变量引用格式铁律 - 必须包含节点名前缀！**
+\> - ✅ 正确格式: \`{{节点名.属性名}}\` (如 \`{{用户输入.user_input}}\`)
+\> - ❌ **严禁无前缀**: \`{{user_input}}\` / \`{{files}}\` / \`{{response}}\` 都是错误的！
+\> - ❌ **严禁用ID**: \`{{input_1.user_input}}\` 也是错误的！
+\> - ❌ **严禁表达式**: \`{{A.x ? B.y : C.z}}\` 三元表达式不支持！
+
+| 引用目标 | ✅ 正确写法 | ❌ 错误写法 |
+|---------|-----------|------------|
+| 用户文本 | \`{{上传股票数据.user_input}}\` | \`{{user_input}}\` / \`{{input_1.user_input}}\` |
+| 用户文件 | \`{{上传文档.files}}\` | \`{{files}}\` |
+| 表单字段 | \`{{配置参数.formData.mode}}\` | \`{{formData.mode}}\` |
+| LLM回复 | \`{{内容生成.response}}\` | \`{{response}}\` |
+| 工具结果 | \`{{网页搜索.results}}\` | \`{{results}}\` |
+| RAG文档 | \`{{知识检索.documents}}\` | \`{{documents}}\` |
+
+
+# 📦 节点参数详解 (Strict Code-Grounding)
+
+## 1. Input 节点
+
+### 1.0 参数表
+| 参数 | 类型 | 默认值 | 取值范围/说明 |
+|------|------|-------|-------------|
+| \`enableTextInput\` | boolean | \`true\` | 启用文本输入框 |
+| \`enableFileInput\` | boolean | \`false\` | 启用文件上传 |
+| \`enableStructuredForm\` | boolean | \`false\` | 启用结构化表单：预置配置参数（选项/数值），运行时自动弹窗采集，供下游分支判断或 LLM 引用 |
+| \`fileConfig.allowedTypes\` | string[] | \`["*/*"]\` | 允许的文件类型 |
+| \`fileConfig.maxSizeMB\` | number | \`100\` | 单文件最大体积 (MB) |
+| \`fileConfig.maxCount\` | number | \`10\` | 最大文件数量 |
+
+> 🔴 **输入配置铁律**
+> - 涉及 **文件/图片/文档** → \`enableFileInput: true\` + \`fileConfig.allowedTypes\`
+> - 涉及 **可选模式/风格/策略等预设选项** → \`enableStructuredForm: true\` + \`formFields\`
+>   - 典型场景：分析模式(基本面/技术面)、风险偏好(保守/激进)、输出风格(简洁/详细)、语言选择
+
+### 1.1 allowedTypes 常用值
+| 文件类型 | allowedTypes |
+|---------|-------------|
+| 图片 | \`[".jpg", ".jpeg", ".png", ".webp"]\` |
+| 文档 | \`[".pdf", ".docx", ".doc"]\` |
+| 表格 | \`[".csv", ".xlsx", ".xls"]\` |
+
+
+### 1.2 formFields 字段类型
+| type | 说明 | 必填属性 | 可选属性 |
+|------|------|---------|---------|
+| \`text\` | 文本输入框 | \`name\`, \`label\` | \`required\`, \`defaultValue\`, \`placeholder\` |
+| \`select\` | 下拉选择 | \`name\`, \`label\`, \`options\`[] | \`required\`, \`defaultValue\` |
+| \`number\` | 数字输入 | \`name\`, \`label\` | \`required\`, \`defaultValue\`, \`min\`, \`max\` |
+
+### 1.3 完整配置示例
 \`\`\`json
 {"id": "input_1", "type": "input", "data": {
-  "label": "危机应对输入",
+  "label": "用户输入",
   "enableTextInput": true,
-  "enableFileInput": false,
+  "enableFileInput": true,
+  "fileConfig": {"allowedTypes": [".pdf", ".docx"], "maxSizeMB": 10, "maxCount": 5},
   "enableStructuredForm": true,
   "formFields": [
-    {"type": "text", "name": "stock_code", "label": "股票代码", "required": true},
-    {"type": "select", "name": "crisis_type", "label": "危机类型", "required": true, "options": [{"label": "财务危机", "value": "financial"}, {"label": "舆情危机", "value": "public"}]}
+    {"type": "text", "name": "stock", "label": "股票代码", "required": true, "placeholder": "如：AAPL"},
+    {"type": "select", "name": "mode", "label": "分析模式", "options": ["基本面", "技术面", "综合"], "defaultValue": "综合"}
   ]
 }}
 \`\`\`
 
-### ⚠️⚠️⚠️ formData 引用规则（最重要！）
+## 2. LLM 节点
 
-**formFields 的两个关键属性：**
-| 属性 | 用途 | 示例 |
-|------|------|------|
-| \`name\` | **引用时使用的变量名** | \`stock_code\`、\`crisis_type\` |
-| \`label\` | 仅用于前端显示 | \`股票代码\`、\`危机类型\` |
+### 2.0 参数表
+| 参数 | 类型 | 默认值 | 取值范围/说明 |
+|------|------|-------|-------------|
+| \`model\` | string | \`deepseek-ai/DeepSeek-V3.2\` | 见下方可用模型列表 |
+| \`temperature\` | number | \`0.7\` | 0.0-1.0 (低=确定性, 高=创造性) |
+| \`systemPrompt\` | string | \`""\` | 系统提示词，支持 \`{{变量}}\` |
+| \`enableMemory\` | boolean | \`false\` | 是否启用多轮对话记忆 |
+| \`memoryMaxTurns\` | number | \`10\` | 1-20, 最大记忆轮数 |
+| \`inputMappings.user_prompt\` | string | 可选 | 用户消息来源，如 \`{{用户输入.user_input}}\` |
 
-**✅ 正确引用 vs ❌ 错误引用：**
-| 场景 | ✅ 正确格式 | ❌ 错误格式 |
-|------|-----------|-----------|
-| 引用股票代码 | \`{{危机应对输入.formData.stock_code}}\` | \`{{输入.股票代码}}\`、\`{{危机应对输入.stock_code}}\` |
-| 引用危机类型 | \`{{危机应对输入.formData.crisis_type}}\` | \`{{输入.危机类型}}\`、\`{{危机应对输入.crisis_type}}\` |
+\> � **user_prompt 配置说明**:
+\> - **问答/对话场景**: 必须配置，指向用户输入 \`{{输入节点.user_input}}\`
+\> - **图片识别/文件处理**: 可不配置，直接在 systemPrompt 中引用 \`{{xx.files}}\`
+\> - **工具链处理**: 可不配置，在 systemPrompt 中引用上游节点输出
 
-**规则总结：**
-1. 必须包含 \`formData.\` 前缀
-2. 必须使用 \`name\` 属性值，不要使用 \`label\` 中文显示名
-3. 格式：\`{{节点label.formData.字段name}}\`
+### 2.1 可用模型列表 (必须从此列表选择)
+| model 值 | 说明 | 类型 |
+|---------|------|------|
+| \`deepseek-ai/DeepSeek-V3.2\` | DeepSeek-V3.2 (默认) | 文本 |
+| \`qwen-flash\` | 千问模型-Flash | 文本 |
+| \`Qwen/Qwen3-Omni-30B-A3B-Instruct\` | 千问模型-3 | 文本 |
+| \`doubao-seed-1-6-flash-250828\` | 豆包模型-1.6 | 文本 |
+| \`Qwen/Qwen3-VL-32B-Instruct\` | 千问-视觉模型 | **视觉** ✅ |
+| \`deepseek-ai/DeepSeek-OCR\` | DeepSeek-OCR | **视觉** ✅ |
 
----
+> 🔴 **图片处理必须用视觉模型**: 涉及图片分析/OCR/看图 → 必须选 \`Qwen/Qwen3-VL-32B-Instruct\` 或 \`deepseek-ai/DeepSeek-OCR\`
 
-**输出字段**:
-- \`user_input\`: 用户输入的文本内容
-- \`timestamp\`: ISO格式时间戳
-- \`files\`: 上传的文件数组（嵌套结构，每个文件有 name/type/size/url 属性）
-- \`formData\`: 表单数据对象（嵌套结构，通过 \`formData.name\` 访问）
+### 2.2 记忆功能配置铁律 🧠
 
-**⚠️ files 引用规则**:
-| 使用场景 | 正确格式 | 说明 |
-|---------|---------|------|
-| RAG 动态模式 | \`{{节点名称.files}}\` | 传递整个文件数组 |
-| LLM/Tool 引用单个文件 | \`{{节点名称.files[0].name}}\` | 必须用索引 [n] 访问 |
-| LLM/Tool 引用第二个文件 | \`{{节点名称.files[1].url}}\` | n 从 0 开始 |
+> 🔴 **enableMemory 配置铁律**
+> - 客服/对话/聊天/咨询/问答/助手 → \`enableMemory: true\`
+> - 翻译/摘要/分类/提取/识别/分析 → \`enableMemory: false\`
 
-**文件属性**: \`files[n].name\`(文件名), \`files[n].type\`(MIME类型), \`files[n].size\`(字节), \`files[n].url\`(地址)
+### 2.3 SystemPrompt 最佳实践
+1. **必须包含业务逻辑**: 明确"你是谁"、"任务目标"、"输出格式"
+2. **禁止**仅写 "你是助手"，**禁止**使用数组下标 \`files[0].name\`
 
-**配置规则**:
-- enableFileInput=true → 必须配置 fileConfig
-- enableStructuredForm=true → 必须配置 formFields
-- formFields.type: "text" | "select" | "multi-select"
+## 3. RAG 节点 (Gemini 检索增强)
 
----
+> 🔴 **RAG 模式配置铁律 - 根据场景选择！**
+> - 用户**上传文件**需要分析 → 动态模式：配置 \`inputMappings.files\`
+> - 需要检索**预设知识库** → 静态模式：不配置 \`inputMappings.files\` (需在 UI 预上传)
+> - **query 必填**: 检索查询内容不能为空！
 
-## 2. LLM 节点（大语言模型节点）
+### 3.1 参数限制
+| 参数 | 类型 | 默认值 | 取值范围 | 说明 |
+|------|------|-------|---------|------|
+| \`topK\` | number | 5 | 1/3/5/7/10 | 检索结果数量 |
+| \`maxTokensPerChunk\` | number | 200 | 50-500 | 静态分块大小 (tokens) |
+| \`maxOverlapTokens\` | number | 20 | 0-100 | 静态分块重叠 (tokens) |
+
+### 3.2 模式配置
+| 模式 | 场景 | inputMappings |
+|------|------|---------------|
+| **动态** | 用户上传文件分析 | \`query\` + \`files: "{{xx.files}}"\` |
+| **静态** | 固定知识库检索 | 仅 \`query\` |
+
+### 3.3 输出变量
+- \`{{xx.documents}}\`: 检索到的文档片段列表
+- \`{{xx.citations}}\`: 引用来源信息
+
+## 4. Tool 节点
+根据 \`registry.ts\` 严格匹配参数：
+
+> ⚠️ **参数类型铁律**:
+> 1. **数值型参数** (如 \`maxResults\`, \`maxLength\`): 必须填入**静态数值** (Number)，**禁止**使用 \`{{变量}}\` (引擎不支持 String->Number 自动转换)。
+> 2. **复杂对象/数组**: 必须填入静态 JSON，**禁止**内部引用变量 (引擎不递归解析)。
+
+| 工具ID/Type | 说明 | 适用场景 | 必填 inputs | 选填 inputs | 输出变量 (示例) |
+|--------|------|---------|-------------|------------|---------|
+| \`web_search\` | 关键词搜索 | "搜索XX"、"查找XX信息" | \`query\`(搜索词) | \`maxResults\`(Integer, 1-10, 默认5) | \`{{节点.results}}\`(数组) |
+| \`url_reader\` | 读取网页 | "读取这个链接"、给了具体URL | \`url\`(完整URL) | \`maxLength\`(Integer, 100-50000, 默认5000) | \`{{节点.content}}\`(字符串) |
+| \`calculator\` | 数学计算 | 计算表达式 | \`expression\` | - | \`{{节点.result}}\` (数值) |
+| \`datetime\` | 时间操作 | 获取/计算日期时间 | - | \`operation\`("now"/"diff"/"add" 默认"now"), \`format\`, \`amount\`(Int), \`unit\`("day"/"hour"...) | \`{{节点.formatted}}\` (默认) / \`{{节点.humanReadable}}\` (diff) |
+| \`code_interpreter\` | Python执行 | 数据分析/生成图表 | \`code\` | \`outputFileName\`, \`inputFiles\` | \`{{节点.result}}\` |
+
+> **⚠️ Code Interpreter 最佳实践**:
+> 绝大多数情况下，\`code\` 参数不应硬编码。**必须**先连接一个 "Coder LLM"（负责写代码），然后在此节点引用 \`{{CoderNode.response}}\` 执行。
+
+## 5. Branch 节点
+
+### 5.1 参数表
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|-------|------|
+| \`condition\` | string | \`\"\"\` | 判断条件表达式 (空则默认返回 true) |
+
+### 5.2 规则
+基于 **Regex 白名单** 逐字匹配，**必须**遵循以下格式：
+
+1. **属性访问强制**: 必须引用节点属性 (如 \`Node.data\`), **禁止**直接引用节点名 (如 \`Branch.result > 5\` ❌ → \`Branch.result.value > 5\` ✅)。
+2. **逻辑限制**: 仅支持**单条**表达式，严禁 \`&&\`, \`||\`。
+
+- **Condition 语法白名单** (Regex 严格匹配):
+  1. 字符串包含: \`Node.field.includes('val')\`
+  2. 字符串前缀: \`Node.field.startsWith('val')\`
+  3. 字符串后缀: \`Node.field.endsWith('val')\`
+  4. 严格相等: \`Node.field === 'val'\` (或 \`=== true\`, \`=== 123\`)
+  5. 数值比较: \`Node.field > 10\` (\`<\`, \`>=\`, \`<=\`, \`!==\`)
+> ⚠️ **注意**: 必须严格保留 \`Node.field\` 的点号结构 (Regex \`^([a-zA-Z...])\\.([\w.]+)\`)\。
+
+## 6. Output 节点
+工作流的最终出口。
+
+### 6.0 配置概览
+| 模式 | sources 要求 | 适用场景 | 其他字段 |
+|------|-------------|---------|---------|
+| \`direct\` | 长度 = 1 | 单 LLM 直出 (最常用) | \`attachments\` 可选 |
+| \`select\` | 长度 > 1 | Branch 分支 (输出首个非空值) | \`attachments\` 可选 |
+| \`merge\` | 长度 > 1 | 多步骤内容拼接汇总 | \`attachments\` 可选 |
+| \`template\` | 不需要 | 格式化报告 | 需配置 \`template\` 字段 |
+
+### 6.1 配置示例
 \`\`\`json
-{"id": "llm_1", "type": "llm", "data": {
-  "label": "AI处理",
-  "model": "${preferredModel}",
-  "systemPrompt": "你是一个专业助手。\\n\\n用户消息：{{user_input}}",
-  "temperature": 0.7,
-  "enableMemory": false,
-  "memoryMaxTurns": 10
-}}
-\`\`\`
-**输出字段**: \`response\` (LLM生成的文本)
-
-**temperature 选择**:
-| 值 | 适用场景 |
-|----|---------| 
-| 0.0-0.3 | 翻译、摘要、**分类**（确定性输出）|
-| 0.4-0.6 | 通用对话（平衡模式）|
-| 0.7-1.0 | 创作、头脑风暴（创造性输出）|
-
-**记忆规则**:
-- 直接连接Output的LLM → enableMemory=true
-- 来自Branch节点的LLM → enableMemory=true
-- 中间处理LLM（分类、预处理）→ enableMemory=false
-
-**📝 Prompt 编写最佳实践**:
-1. **结构**: "角色定义 + 上下文 + 任务指令"
-2. **变量**: 放在明确标签后，如 "问题：{{user_input}}"
-3. **约束**: 需要特定格式时明确说明
-4. **分类任务**: 必须声明"只输出类别名称，不要解释"
-
-**🚫 LLM 中禁止直接引用 files 数组**:
-- ❌ 禁止: \`{{输入.files}}\` ← 返回 [object Object]
-- ✅ 正确: \`{{输入.files[0].name}}\` ← 返回文件名
-- ✅ 正确: \`{{输入.files[0].url}}\` ← 返回文件URL
-
-**分类 LLM 示例**（关键：限制输出格式）:
-\`"分析用户意图，判断是【技术问题】还是【业务咨询】。\\n\\n用户消息：{{user_input}}\\n\\n只输出类别名称，不要解释。"\`
-
----
-
-## 3. RAG 节点（知识检索节点）
-\`\`\`json
-{"id": "rag_1", "type": "rag", "data": {
-  "label": "知识检索",
-  "files": [],
-  "topK": 5,
-  "maxTokensPerChunk": 200,
-  "maxOverlapTokens": 20,
-  "inputMappings": {"query": "{{user_input}}"}
-}}
-\`\`\`
-
-**输入配置 (inputMappings)**:
-| 字段 | 必填 | 说明 |
-|------|-----|------|
-| \`query\` | ✅ | 检索查询文本 |
-| \`files\` | ❌ | 动态文件引用，如 \`{{输入节点.files}}\` |
-
-**输出字段**: \`query\`, \`documents\`, \`citations\`, \`documentCount\`, \`mode\`
-
-**⭐ 两种模式**:
-| 模式 | 配置 | 使用场景 |
-|------|-----|----------|
-| **静态模式** | files留空 | 固定知识库问答（Builder预上传） |
-| **动态模式** | inputMappings.files配置 | 用户上传文件并提问（秒级响应） |
-
-**动态模式示例**（用户上传文件分析）:
-\`\`\`json
-{"inputMappings": {"query": "{{user_input}}", "files": "{{用户输入.files}}"}}
-\`\`\`
-
-**⚠️ 重要区别**:
-- RAG 的 \`inputMappings.files\` → 用 \`{{节点名.files}}\` 传整个数组
-- LLM 的 \`systemPrompt\` → 禁止用 \`{{节点名.files}}\`，必须用 \`{{节点名.files[0].name}}\`
-
----
-
-## 4. Tool 节点（工具节点）
-\`\`\`json
-{"id": "tool_1", "type": "tool", "data": {
-  "label": "工具名称",
-  "toolType": "web_search",
-  "inputs": {"query": "{{user_input}}", "maxResults": 5}
-}}
+{"id": "out", "type": "output", "data": {"label": "最终回复", "inputMappings": {
+  "mode": "select",
+  "sources": [{"type": "variable", "value": "{{分支A.response}}"}, {"type": "variable", "value": "{{分支B.response}}"}]
+}}}
 \`\`\`
 
-### 可用工具
-
-| 工具 | toolType | 必填参数 | 输出 |
-|-----|----------|---------|------|
-| 网页搜索 | web_search | query | results, count |
-| 计算器 | calculator | expression | expression, result |
-| 日期时间 | datetime | operation(可选) | formatted, timestamp, timezone |
-| 天气查询 | weather | city | city, weather, summary |
-| 网页读取 | url_reader | url | url, title, content, contentLength |
-
----
-
-## 5. Branch 节点（分支节点）
-\`\`\`json
-{"id": "branch_1", "type": "branch", "data": {
-  "label": "条件判断",
-  "condition": "问题分类.response.includes('技术')"
-}}
-\`\`\`
-**输出**: \`conditionResult\` (true/false) + 透传上游数据
-
-**⚠️ 条件表达式格式**（使用 \`节点名称.字段名\`，不是 input.xxx）:
-| 类型 | 示例 |
-|------|------|
-| 字符串包含 | \`分类LLM.response.includes('关键词')\` |
-| 字符串开头 | \`节点名称.response.startsWith('前缀')\` |
-| 等值判断 | \`表单输入.formData.type === 'value'\` |
-| 布尔判断 | \`节点名称.enabled === true\` |
-| 数值比较 | \`计算器.result > 60\` |
-| 长度判断 | \`输入.user_input.length > 10\` |
-
-**⚠️ 安全规则**: 只支持白名单操作符，非法表达式默认返回 false
-
----
-
-## 6. Output 节点（输出节点）⭐
-
-### ⚠️ 模式选择速查（必看）
-
-| 上游结构 | 正确模式 | 错误用法 |
-|---------|---------|---------|
-| 单一 LLM | **direct** | - |
-| Branch → 多 LLM（只执行一个） | **select** | ❌ template 引用空变量 |
-| 并行多 LLM（全部执行） | **merge** | ❌ select 只取第一个 |
-| 固定格式（所有变量必存在） | template | ❌ 分支场景变量可能为空 |
-
-### 四种模式配置
-
-#### 1. direct（单一来源）
-\`\`\`json
-{"mode": "direct", "sources": [{"type": "variable", "value": "{{AI助手.response}}"}]}
-\`\`\`
-
-#### 2. select（分支选择）⭐分支必用
-**从多个候选中选择第一个非空结果**
-\`\`\`json
-{"mode": "select", "sources": [
-  {"type": "variable", "value": "{{技术支持.response}}"},
-  {"type": "variable", "value": "{{业务客服.response}}"},
-  {"type": "variable", "value": "{{通用回复.response}}"}
-]}
-\`\`\`
-
-#### 3. merge（内容合并）
-**合并所有非空结果，用双换行分隔**
-\`\`\`json
-{"mode": "merge", "sources": [
-  {"type": "variable", "value": "{{摘要.response}}"},
-  {"type": "variable", "value": "{{详情.response}}"}
-]}
-\`\`\`
-
-#### 4. template（模板渲染）
-**仅当所有变量确定存在时使用**
-\`\`\`json
-{"mode": "template", "template": "## 问题\\n{{user_input}}\\n\\n## 回答\\n{{AI.response}}"}
-\`\`\`
-
----
 
 # 🔗 连接规则
-
 \`\`\`json
-{"source": "源节点ID", "target": "目标节点ID", "sourceHandle": "true"}
+{"source": "src_id", "target": "tgt_id", "sourceHandle": "handle_id"}
+\`\`\`
+- Branch 节点 SourceHandle: \`"true"\` 或 \`"false"\`。
+- 其他节点: \`null\` 或不传。
+- **DAG 验证**: 禁止环路，Branch 必须接双路。
+
+# 📋 关键示例
+
+## 1. 🖼️ 图片分析 (Vision)
+\`\`\`json
+{"title": "工单OCR识别", "nodes": [
+  {"id": "in", "type": "input", "data": {"label": "上传工单", "enableFileInput": true, "fileConfig": {"allowedTypes": [".jpg",".png",".webp"], "maxCount": 1}}},
+  {"id": "llm", "type": "llm", "data": {"label": "智能识别", "model": "deepseek-ai/DeepSeek-OCR", "temperature": 0.1, "enableMemory": false, "systemPrompt": "# 角色\\n你是工单识别专家，精通维修工单、物流单据的结构化提取。\\n\\n# 任务\\n分析图片 {{上传工单.files}}，提取关键字段。\\n\\n# 输出格式 (JSON)\\n{\\\"单号\\\": \\\"..\\\", \\\"日期\\\": \\\"YYYY-MM-DD\\\", \\\"客户\\\": \\\"..\\\", \\\"故障描述\\\": \\\"..\\\", \\\"状态\\\": \\\"待处理|已完成\\\"}\\n\\n# 约束\\n- 模糊字段标注 [无法识别]\\n- 日期转 ISO 格式\"}},
+  {"id": "out", "type": "output", "data": {"label": "识别结果", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{智能识别.response}}"}]}}}
+], "edges": [{"source": "in", "target": "llm"}, {"source": "llm", "target": "out"}]}
 \`\`\`
 
-| 场景 | sourceHandle |
-|------|-------------|
-| 普通连接 | 省略或不填 |
-| Branch → TRUE 分支 | "true" |
-| Branch → FALSE 分支 | "false" |
-
-**⚠️ 连接完整性检查**:
-1. 每个节点（除 Input）必须有至少一条入边
-2. 每个节点（除 Output）必须有至少一条出边
-3. Branch 节点必须有 true 和 false 两条出边
-4. 所有执行路径最终必须汇聚到 Output
-5. 禁止循环依赖（会导致执行失败）
-
----
-
-# 🔄 变量引用
-
-**格式**: \`{{节点label.字段name}}\`
-
-| 示例 | 说明 |
-|------|------|
-| \`{{user_input}}\` | 直接引用（在所有上游中查找）|
-| \`{{用户输入.user_input}}\` | 按节点label引用（推荐）|
-| \`{{AI助手.response}}\` | LLM 输出 |
-| \`{{搜索.results}}\` | 工具输出 |
-
-**⚠️⚠️⚠️ formData 引用规则（必看，最常犯错）**:
-formFields 定义: \`{"name": "stock_code", "label": "股票代码"}\`
-| 场景 | ✅ 正确写法 | ❌ 错误写法 |
-|------|-----------|-----------|
-| 引用表单字段 | \`{{节点label.formData.stock_code}}\` | \`{{节点label.股票代码}}\` |
-| 带节点名引用 | \`{{危机分析.formData.risk_type}}\` | \`{{输入.风险类型}}\`、\`{{危机分析.risk_type}}\` |
-| Branch条件 | \`表单.formData.type === 'A'\` | \`输入.类型 === 'A'\` |
-
-**关键规则**:
-1. \`formData.\` 前缀**必须有**
-2. 使用 \`name\` 属性（如 \`stock_code\`），**不是** \`label\`（如 \`股票代码\`）
-
-**⚠️ files 数组引用**:
-| 场景 | 正确写法 | 错误写法 |
-|------|---------|----------|
-| RAG inputMappings.files | \`{{输入.files}}\` | - |
-| LLM prompt 引用文件名 | \`{{输入.files[0].name}}\` | ❌ \`{{输入.files.name}}\` |
-| LLM prompt 引用文件URL | \`{{输入.files[0].url}}\` | ❌ \`{{输入.files}}\` |
-| 引用第2个文件 | \`{{输入.files[1].name}}\` | ❌ \`{{输入.files[n].name}}\` |
-
-**⚠️ 变量安全**: 引用不存在的变量返回空字符串，Branch 条件中视为 false
-
----
-
-# 📋 示例
-
-## 简单聊天
+## 2. 💰 智能理财 (Branch + Tool + 结构化表单)
 \`\`\`json
-{"title": "聊天助手", "nodes": [
-  {"id": "input_1", "type": "input", "data": {"label": "发送消息", "enableTextInput": true}},
-  {"id": "llm_1", "type": "llm", "data": {"label": "AI助手", "model": "${preferredModel}", "temperature": 0.8, "systemPrompt": "你是友好的AI助手。", "enableMemory": true}},
-  {"id": "output_1", "type": "output", "data": {"label": "回复", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{AI助手.response}}"}]}}}
-], "edges": [{"source": "input_1", "target": "llm_1"}, {"source": "llm_1", "target": "output_1"}]}
-\`\`\`
-
-## 文件问答（RAG动态模式）
-\`\`\`json
-{"title": "文档问答", "nodes": [
-  {"id": "input_1", "type": "input", "data": {"label": "上传文档", "enableTextInput": true, "enableFileInput": true, "fileConfig": {"allowedTypes": [".pdf", ".doc", ".docx", ".txt"], "maxSizeMB": 50, "maxCount": 5}}},
-  {"id": "rag_1", "type": "rag", "data": {"label": "文档检索", "files": [], "topK": 5, "inputMappings": {"query": "{{user_input}}", "files": "{{上传文档.files}}"}}},
-  {"id": "llm_1", "type": "llm", "data": {"label": "问答助手", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "根据文档内容回答问题。\\n\\n相关文档：{{文档检索.documents}}\\n\\n用户问题：{{user_input}}", "enableMemory": true}},
-  {"id": "output_1", "type": "output", "data": {"label": "回答", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{问答助手.response}}"}]}}}
+{"title": "智能理财顾问", "nodes": [
+  {"id": "in", "type": "input", "data": {"label": "投资偏好", "enableStructuredForm": true, "formFields": [{"name": "risk", "label": "风险偏好", "type": "select", "options": ["保守型", "激进型"], "required": true}]}},
+  {"id": "br", "type": "branch", "data": {"label": "策略分流", "condition": "投资偏好.formData.risk === '保守型'"}},
+  {"id": "t_bond", "type": "tool", "data": {"label": "查询国债", "toolType": "web_search", "inputs": {"query": "2024年国债利率 最新收益率"}}},
+  {"id": "t_stock", "type": "tool", "data": {"label": "查询美股", "toolType": "web_search", "inputs": {"query": "纳斯达克 科技股 本周涨幅榜"}}},
+  {"id": "llm_safe", "type": "llm", "data": {"label": "稳健方案", "temperature": 0.3, "systemPrompt": "# 角色\\n你是 CFA 认证的保守型理财顾问，专注本金安全。\\n\\n# 任务\\n基于国债信息 {{查询国债.results}} 制定理财方案。\\n\\n# 输出要求\\n1. **推荐产品**: 2-3个低风险产品及预期年化\\n2. **配置建议**: 如 国债60%+货基40%\\n3. **风险提示**: 本金波动范围\\n\\n# 约束\\n- 年化不超5%\\n- 禁止推荐股票期货\"}},
+  {"id": "llm_risk", "type": "llm", "data": {"label": "激进方案", "temperature": 0.7, "systemPrompt": "# 角色\\n你是专注成长股的激进型投资顾问。\\n\\n# 任务\\n基于美股信息 {{查询美股.results}} 制定投资方案。\\n\\n# 输出要求\\n1. **推荐标的**: 3-5只高潜力股及理由\\n2. **仓位策略**: 分批建仓计划\\n3. **止损策略**: 明确止损点位(-15%)\\n\\n# 约束\\n- 必须包含风险警示\\n- 单只仓位≤20%\"}},
+  {"id": "out", "type": "output", "data": {"label": "投资方案", "inputMappings": {"mode": "select", "sources": [{"type": "variable", "value": "{{稳健方案.response}}"}, {"type": "variable", "value": "{{激进方案.response}}"}]}}}
 ], "edges": [
-  {"source": "input_1", "target": "rag_1"},
-  {"source": "rag_1", "target": "llm_1"},
-  {"source": "llm_1", "target": "output_1"}
+  {"source": "in", "target": "br"},
+  {"source": "br", "target": "t_bond", "sourceHandle": "true"}, {"source": "br", "target": "t_stock", "sourceHandle": "false"},
+  {"source": "t_bond", "target": "llm_safe"}, {"source": "t_stock", "target": "llm_risk"},
+  {"source": "llm_safe", "target": "out"}, {"source": "llm_risk", "target": "out"}
 ]}
 \`\`\`
 
-## 并行工具（天气+时间）
+## 3. 📈 智能研报生成 (全节点综合)
 \`\`\`json
-{"title": "天气穿衣助手", "nodes": [
-  {"id": "input_1", "type": "input", "data": {"label": "输入城市", "enableTextInput": true}},
-  {"id": "tool_time", "type": "tool", "data": {"label": "获取时间", "toolType": "datetime", "inputs": {"operation": "now"}}},
-  {"id": "tool_weather", "type": "tool", "data": {"label": "查询天气", "toolType": "weather", "inputs": {"city": "{{user_input}}"}}},
-  {"id": "llm_1", "type": "llm", "data": {"label": "穿衣建议", "model": "${preferredModel}", "temperature": 0.7, "systemPrompt": "根据时间和天气给出穿衣建议。\\n\\n日期：{{获取时间.formatted}}\\n天气：{{查询天气.summary}}", "enableMemory": true}},
-  {"id": "output_1", "type": "output", "data": {"label": "建议", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{穿衣建议.response}}"}]}}}
+{"title": "上市公司智能研报", "nodes": [
+  {"id": "in", "type": "input", "data": {"label": "研报配置", "enableTextInput": true, "enableFileInput": true, "enableStructuredForm": true, "fileConfig": {"allowedTypes": [".pdf",".xlsx"], "maxCount": 3}, "formFields": [{"name": "depth", "label": "分析深度", "type": "select", "options": ["快速摘要", "深度研报"], "required": true}]}},
+  {"id": "t_time", "type": "tool", "data": {"label": "获取日期", "toolType": "datetime", "inputs": {"operation": "now", "format": "YYYY年MM月DD日"}}},
+  {"id": "t_news", "type": "tool", "data": {"label": "搜索新闻", "toolType": "web_search", "inputs": {"query": "{{研报配置.user_input}} 最新财经新闻 业绩"}}},
+  {"id": "rag", "type": "rag", "data": {"label": "检索财报", "topK": 7, "inputMappings": {"query": "营收 利润 同比增长 主营业务", "files": "{{研报配置.files}}"}}},
+  {"id": "llm_analysis", "type": "llm", "data": {"label": "财务分析", "model": "deepseek-ai/DeepSeek-V3.2", "temperature": 0.2, "systemPrompt": "# 角色\\n你是顶级投行的首席分析师，CFA/CPA双证持有者。\\n\\n# 任务\\n基于财报数据 {{检索财报.documents}} 和市场新闻 {{搜索新闻.results}}，分析公司 {{研报配置.user_input}}。\\n\\n# 输出要求\\n1. **核心指标**: 营收/净利润/毛利率及同比变化\\n2. **业务拆解**: 各业务线贡献占比\\n3. **风险点**: 识别2-3个潜在风险\\n4. **估值建议**: 给出合理PE区间\\n\\n# 约束\\n- 数据必须标注来源\\n- 所有百分比保留1位小数"}},
+  {"id": "llm_coder", "type": "llm", "data": {"label": "生成代码", "model": "deepseek-ai/DeepSeek-V3.2", "temperature": 0.1, "systemPrompt": "# 角色\\n你是资深Python量化工程师。\\n\\n# 任务\\n根据财务分析 {{财务分析.response}}，编写Python代码生成可视化图表。\\n\\n# 输出要求\\n- 使用matplotlib绑定中文字体\\n- 绘制: 营收趋势折线图 + 利润率柱状图\\n- 保存为 report_chart.png\\n- 只输出纯Python代码，无解释"}},
+  {"id": "t_code", "type": "tool", "data": {"label": "执行绘图", "toolType": "code_interpreter", "inputs": {"code": "{{生成代码.response}}", "outputFileName": "report_chart.png"}}},
+  {"id": "out", "type": "output", "data": {"label": "研究报告", "inputMappings": {"mode": "template", "template": "# {{研报配置.user_input}} 研究报告\\n\\n**生成日期**: {{获取日期.formatted}}\\n\\n---\\n\\n{{财务分析.response}}\\n\\n---\\n\\n*本报告由AI自动生成，仅供参考*", "attachments": [{"type": "variable", "value": "{{执行绘图.generatedFile}}"}]}}}
 ], "edges": [
-  {"source": "input_1", "target": "tool_time"},
-  {"source": "input_1", "target": "tool_weather"},
-  {"source": "tool_time", "target": "llm_1"},
-  {"source": "tool_weather", "target": "llm_1"},
-  {"source": "llm_1", "target": "output_1"}
+  {"source": "in", "target": "t_time"}, {"source": "in", "target": "t_news"}, {"source": "in", "target": "rag"},
+  {"source": "t_news", "target": "llm_analysis"}, {"source": "rag", "target": "llm_analysis"},
+  {"source": "llm_analysis", "target": "llm_coder"}, {"source": "llm_coder", "target": "t_code"},
+  {"source": "t_time", "target": "out"}, {"source": "llm_analysis", "target": "out"}, {"source": "t_code", "target": "out"}
 ]}
 \`\`\`
 
-## 分支分流（客服）
-\`\`\`json
-{"title": "智能客服", "nodes": [
-  {"id": "input_1", "type": "input", "data": {"label": "用户咨询", "enableTextInput": true}},
-  {"id": "llm_classify", "type": "llm", "data": {"label": "问题分类", "model": "${preferredModel}", "temperature": 0.1, "systemPrompt": "分析问题类型：技术问题/业务咨询。\\n\\n问题：{{user_input}}\\n\\n只输出类别名称，不要解释。", "enableMemory": false}},
-  {"id": "branch_1", "type": "branch", "data": {"label": "类型判断", "condition": "问题分类.response.includes('技术')"}},
-  {"id": "llm_tech", "type": "llm", "data": {"label": "技术支持", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "你是技术支持工程师，解答用户的技术问题。\\n\\n用户问题：{{user_input}}", "enableMemory": true}},
-  {"id": "llm_biz", "type": "llm", "data": {"label": "业务客服", "model": "${preferredModel}", "temperature": 0.7, "systemPrompt": "你是业务客服，解答用户的业务咨询。\\n\\n用户问题：{{user_input}}", "enableMemory": true}},
-  {"id": "output_1", "type": "output", "data": {"label": "回复", "inputMappings": {"mode": "select", "sources": [{"type": "variable", "value": "{{技术支持.response}}"}, {"type": "variable", "value": "{{业务客服.response}}"}]}}}
-], "edges": [
-  {"source": "input_1", "target": "llm_classify"},
-  {"source": "llm_classify", "target": "branch_1"},
-  {"source": "branch_1", "target": "llm_tech", "sourceHandle": "true"},
-  {"source": "branch_1", "target": "llm_biz", "sourceHandle": "false"},
-  {"source": "llm_tech", "target": "output_1"},
-  {"source": "llm_biz", "target": "output_1"}
-]}
-\`\`\`
-
-## 表单+分支+搜索（理财顾问）⭐完整示例
-\`\`\`json
-{"title": "理财规划顾问", "nodes": [
-  {"id": "input_1", "type": "input", "data": {"label": "理财信息", "enableTextInput": false, "enableStructuredForm": true, "formFields": [{"type": "text", "name": "monthly", "label": "月存款(元)", "required": true}, {"type": "text", "name": "years", "label": "年限", "required": true}, {"type": "select", "name": "risk", "label": "风险偏好", "required": true, "options": [{"label": "稳健型", "value": "safe"}, {"label": "进取型", "value": "risk"}]}]}},
-  {"id": "tool_calc", "type": "tool", "data": {"label": "本金计算", "toolType": "calculator", "inputs": {"expression": "{{理财信息.formData.monthly}} * 12 * {{理财信息.formData.years}}"}}},
-  {"id": "branch_1", "type": "branch", "data": {"label": "风险判断", "condition": "理财信息.formData.risk === 'safe'"}},
-  {"id": "tool_safe", "type": "tool", "data": {"label": "稳健搜索", "toolType": "web_search", "inputs": {"query": "银行定期存款利率 国债利率"}}},
-  {"id": "llm_safe", "type": "llm", "data": {"label": "稳健分析", "model": "${preferredModel}", "temperature": 0.5, "systemPrompt": "你是理财顾问，用户选择稳健型。\\n\\n本金：{{本金计算.result}}元\\n年限：{{理财信息.formData.years}}年\\n利率参考：{{稳健搜索.results}}\\n\\n给出稳健理财建议。", "enableMemory": false}},
-  {"id": "tool_risk", "type": "tool", "data": {"label": "进取搜索", "toolType": "web_search", "inputs": {"query": "标普500回报率 科技股走势"}}},
-  {"id": "llm_risk", "type": "llm", "data": {"label": "进取分析", "model": "${preferredModel}", "temperature": 0.6, "systemPrompt": "你是理财顾问，用户选择进取型。\\n\\n本金：{{本金计算.result}}元\\n年限：{{理财信息.formData.years}}年\\n市场数据：{{进取搜索.results}}\\n\\n给出进取理财建议，必须包含风险提示。", "enableMemory": false}},
-  {"id": "output_1", "type": "output", "data": {"label": "理财报告", "inputMappings": {"mode": "select", "sources": [{"type": "variable", "value": "{{稳健分析.response}}"}, {"type": "variable", "value": "{{进取分析.response}}"}]}}}
-], "edges": [
-  {"source": "input_1", "target": "tool_calc"},
-  {"source": "tool_calc", "target": "branch_1"},
-  {"source": "branch_1", "target": "tool_safe", "sourceHandle": "true"},
-  {"source": "branch_1", "target": "tool_risk", "sourceHandle": "false"},
-  {"source": "tool_safe", "target": "llm_safe"},
-  {"source": "tool_risk", "target": "llm_risk"},
-  {"source": "llm_safe", "target": "output_1"},
-  {"source": "llm_risk", "target": "output_1"}
-]}
-\`\`\`
-
----
-
-# ✅ 检查清单
-1. ✅ 节点id唯一（格式：类型_编号）
-2. ✅ 所有路径连接到Output
-3. ✅ Branch有true+false两条出边
-4. ✅ enableFileInput=true时配置fileConfig
-5. ✅ enableStructuredForm=true时配置formFields
-6. ✅ 分支LLM启用enableMemory，分类LLM禁用
-7. ⚠️ **formData引用: \`{{节点label.formData.字段name}}\`，不是 \`{{节点.中文标签}}\`**
-8. ⚠️ **files引用: \`{{节点.files[0].name}}\`，必须用索引[0]访问**
-9. ✅ Output配置正确的mode
-10. ⚠️ **分支场景必须用select模式，不要用template**
-11. ⚠️ **分类LLM必须声明"只输出类别名称"**
+# ✅ 核心检查清单 (TOP 5)
+1. ⚠️ **FormData引用**: 必须是 \`{{节点.formData.name}}\`
+2. ⚠️ **LLM文件引用**: 必须引用 \`{{节点.files}}\` (勿用下标)
+3. 🖼️ **视觉场景**: 必须用视觉模型 (deepseek-ocr / 千问-视觉模型)
+4. 🕐 **时间场景**: 必须加 \`datetime\` 工具
+5. 🔀 **分支场景**: Branch 必须配双路径，Output 必须用 \`select\` 模式
 
 # 输出格式
-只输出纯JSON：
+纯 JSON：
 \`\`\`json
-{"title": "工作流名称", "nodes": [...], "edges": [...]}
+{"title": "...", "nodes": [...], "edges": [...]}
 \`\`\`
 `;
 

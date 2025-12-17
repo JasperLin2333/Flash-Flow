@@ -1,13 +1,13 @@
 import { z } from "zod";
 import type { LucideIcon } from "lucide-react";
-import { Search, Calculator as CalcIcon, Clock, CloudSun, Globe } from "lucide-react";
+import { Search, Calculator as CalcIcon, Clock, Globe, Terminal } from "lucide-react";
 
 // ============ Type Definitions ============
 
 /**
  * Available tool types in the registry
  */
-export type ToolType = "web_search" | "calculator" | "datetime" | "weather" | "url_reader";
+export type ToolType = "web_search" | "calculator" | "datetime" | "url_reader" | "code_interpreter";
 
 /**
  * Zod schema type helper - extracts input type from schema
@@ -109,6 +109,24 @@ const urlReaderSchema = z.object({
         .describe("返回内容的最大字符数（100-50000）"),
 });
 
+/**
+ * Code Interpreter Tool Schema
+ * Executes Python code in a secure E2B sandbox and can generate files
+ */
+const codeInterpreterSchema = z.object({
+    code: z.string()
+        .min(1, "代码不能为空")
+        .describe("要执行的 Python 代码"),
+    outputFileName: z.string()
+        .optional()
+        .describe("期望生成的输出文件名（如 output.csv、result.xlsx）"),
+    inputFiles: z.array(z.object({
+        name: z.string(),
+        url: z.string(),
+    })).optional()
+        .describe("需要上传到沙箱的输入文件列表"),
+});
+
 // ============ Tool Registry ============
 
 /**
@@ -150,14 +168,15 @@ export const TOOL_REGISTRY = {
         schema: datetimeSchema,
         category: "utility" as const,
     },
-    weather: {
-        id: "weather" as const,
-        name: "天气查询",
-        description: "实时查询指定城市的天气信息",
-        icon: CloudSun,
-        schema: weatherSchema,
-        category: "data" as const,
-    },
+    // NOTE: Weather tool is hidden from users but kept for reference
+    // weather: {
+    //     id: "weather" as const,
+    //     name: "天气查询",
+    //     description: "实时查询指定城市的天气信息",
+    //     icon: CloudSun,
+    //     schema: weatherSchema,
+    //     category: "data" as const,
+    // },
     url_reader: {
         id: "url_reader" as const,
         name: "网页读取",
@@ -165,6 +184,14 @@ export const TOOL_REGISTRY = {
         icon: Globe,
         schema: urlReaderSchema,
         category: "data" as const,
+    },
+    code_interpreter: {
+        id: "code_interpreter" as const,
+        name: "代码执行",
+        description: "在安全沙箱中执行 Python 代码，可生成并返回文件",
+        icon: Terminal,
+        schema: codeInterpreterSchema,
+        category: "utility" as const,
     },
 } as const satisfies Record<ToolType, ToolConfig>;
 

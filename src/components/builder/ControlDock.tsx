@@ -52,7 +52,7 @@ function InteractionModeGroup({
               <MousePointer2 className="w-4 h-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">触控板模式</TooltipContent>
+          <TooltipContent side="top">选择模式</TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
@@ -68,7 +68,7 @@ function InteractionModeGroup({
               <Hand className="w-4 h-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">鼠标模式</TooltipContent>
+          <TooltipContent side="top">平移模式</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </div>

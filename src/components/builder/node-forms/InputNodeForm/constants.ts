@@ -1,4 +1,4 @@
-import type { FormFieldConfig, SelectFieldConfig, TextFieldConfig, FileInputConfig, MultiSelectFieldConfig } from "@/types/flow";
+import type { FormFieldConfig, SelectFieldConfig, TextFieldConfig, FileInputConfig, MultiSelectFieldConfig, InputNodeData } from "@/types/flow";
 
 // ============ Style Constants ============
 export const LABEL_CLASS = "text-[10px] font-bold uppercase tracking-wider text-gray-500";
@@ -7,29 +7,28 @@ export const SECTION_TITLE_CLASS = "text-xs font-semibold text-gray-700 flex ite
 
 // ============ File Type Options ============
 export const FILE_TYPE_OPTIONS = [
-    { value: "image/*", label: "图片 (image/*)" },
-    { value: ".pdf", label: "PDF (.pdf)" },
-    { value: ".doc,.docx", label: "Word 文档 (.doc, .docx)" },
-    { value: ".xls,.xlsx", label: "Excel 表格 (.xls, .xlsx)" },
-    { value: ".ppt,.pptx", label: "PowerPoint (.ppt, .pptx)" },
-    { value: ".txt", label: "文本文件 (.txt)" },
-    { value: ".md", label: "Markdown (.md)" },
-    { value: ".json", label: "JSON (.json)" },
-    { value: ".csv", label: "CSV (.csv)" },
+    { value: ".png,.jpg,.jpeg", label: "图片 (png, jpg)" },
+    { value: ".pdf", label: "PDF (pdf)" },
+    { value: ".doc,.docx", label: "Word 文档 (doc, docx)" },
+    { value: ".xls,.xlsx", label: "Excel 表格 (xls, xlsx)" },
+    { value: ".txt", label: "文本文件 (txt)" },
+    { value: ".md", label: "Markdown (md)" },
+    { value: ".csv", label: "CSV (csv)" },
 ] as const;
 
 // ============ Default Values ============
 export const DEFAULT_FILE_CONFIG: FileInputConfig = {
     allowedTypes: ["*/*"], // All files by default
-    maxSizeMB: 50, // Customizable, default 50MB
-    maxCount: 999, // Effectively unlimited
+    maxSizeMB: 100, // Customizable, default 100MB
+    maxCount: 10, // Default to 10 files
 };
 
 // ============ Types ============
+// Note: form uses 'any' for consistency with other node forms that share a common form schema
 export interface InputNodeFormProps {
-    form: any;
+    form: any; // eslint-disable-line @typescript-eslint/no-explicit-any
     selectedNodeId?: string;
-    updateNodeData?: (id: string, data: any) => void;
+    updateNodeData?: (id: string, data: Partial<InputNodeData>) => void;
 }
 
 export interface FieldEditorProps {

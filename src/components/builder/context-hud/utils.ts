@@ -20,8 +20,17 @@ export function extractVariablesFromText(text: string): string[] {
 }
 
 /**
+ * 检查对象是否为"文件对象"（包含 name 和 url 字段）
+ * 文件对象不应被展开，而是作为单一变量显示
+ */
+function isFileObject(obj: Record<string, unknown>): boolean {
+    return typeof obj.name === 'string' && typeof obj.url === 'string';
+}
+
+/**
  * 递归展开嵌套对象为可引用的变量列表
- * 只显示叶子节点（非对象的值），不显示中间对象层级
+ * - 文件对象（包含 name 和 url）不展开，作为单一变量显示
+ * - 其他嵌套对象展开为叶子节点
  * 例如：{ formData: { destination: "巴黎", date: "2025-01-01" } } 
  * 会生成变量：formData.destination, formData.date（不包含 formData 本身）
  */
@@ -69,13 +78,25 @@ export function flattenObjectToVariables(
                 }
             });
         } else if (value !== null && typeof value === 'object') {
-            // 如果是嵌套对象，递归展开其子字段
-            vars.push(...flattenObjectToVariables(
-                value as Record<string, unknown>,
-                nodeLabel,
-                nodeId,
-                fieldPath
-            ));
+            const objValue = value as Record<string, unknown>;
+
+            // 检查是否为文件对象（包含 name 和 url），不展开
+            if (isFileObject(objValue)) {
+                vars.push({
+                    nodeLabel,
+                    nodeId,
+                    field: fieldPath,
+                    value: `📎 ${objValue.name}`,
+                });
+            } else {
+                // 其他嵌套对象，递归展开其子字段
+                vars.push(...flattenObjectToVariables(
+                    objValue,
+                    nodeLabel,
+                    nodeId,
+                    fieldPath
+                ));
+            }
         } else {
             // 只添加叶子节点（原始值）
             vars.push({

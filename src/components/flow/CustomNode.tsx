@@ -38,16 +38,37 @@ const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 tra
 // When one node updates, all other nodes won't re-render
 // FIX: Extract LLM metadata component to properly use Hooks
 function LLMMetadata({ llm }: { llm: LLMNodeData }) {
-  const [modelName, setModelName] = React.useState<string>(llm?.model || "");
+  // FIX: Initialize with empty string to avoid showing stale model_id
+  const [modelName, setModelName] = React.useState<string>("");
+  // Track the current model being fetched to handle race conditions
+  const currentModelRef = React.useRef<string | undefined>(undefined);
 
   React.useEffect(() => {
-    if (!llm?.model) return;
+    const modelId = llm?.model;
+
+    // Always reset when model changes to avoid showing old name
+    if (currentModelRef.current !== modelId) {
+      setModelName(""); // Clear while loading
+      currentModelRef.current = modelId;
+    }
+
+    if (!modelId) return;
 
     import("@/services/llmModelsAPI").then(({ llmModelsAPI }) => {
       llmModelsAPI.listModels().then(models => {
-        const found = models.find(m => m.model_id === llm.model);
+        // Only update if this is still the current model (avoid race conditions)
+        if (currentModelRef.current !== modelId) return;
+
+        const found = models.find(m => m.model_id === modelId);
         if (found) {
           setModelName(found.model_name);
+        } else {
+          // FIX: If model not found in DB, show a friendly display name
+          // Extract last segment of model_id (e.g., "qwen-flash" from "Qwen/qwen-flash")
+          const displayName = modelId.includes('/')
+            ? modelId.split('/').pop() || modelId
+            : modelId;
+          setModelName(displayName);
         }
       });
     });
@@ -60,7 +81,7 @@ function LLMMetadata({ llm }: { llm: LLMNodeData }) {
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
         <span className={METADATA_LABEL_STYLE}>模型</span>
-        <span className={METADATA_VALUE_STYLE}>{modelName}</span>
+        <span className={METADATA_VALUE_STYLE}>{modelName || "加载中..."}</span>
       </div>
       {typeof llm.temperature === "number" && (
         <div className="flex items-center gap-2">
@@ -86,14 +107,14 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   const executionTime = data.executionTime as number | undefined;
 
   // PERFORMANCE FIX: Use useShallow for batched store subscriptions
-  const { runNode, openLLMDebugDialog, openRAGDebugDialog, openToolDebugDialog, edges, nodes } = useFlowStore(
+  // NOTE: edges and nodes are NOT subscribed here to avoid re-renders on every node/edge change
+  // They are fetched on-demand in handleTestNode using getState()
+  const { runNode, openLLMDebugDialog, openRAGDebugDialog, openToolDebugDialog } = useFlowStore(
     useShallow((s) => ({
       runNode: s.runNode,
       openLLMDebugDialog: s.openLLMDebugDialog,
       openRAGDebugDialog: s.openRAGDebugDialog,
       openToolDebugDialog: s.openToolDebugDialog,
-      edges: s.edges,
-      nodes: s.nodes,
     }))
   );
 
@@ -207,6 +228,10 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   };
 
   const handleTestNode = () => {
+    // PERFORMANCE: Fetch nodes/edges on-demand instead of subscribing
+    // This prevents re-renders when any node/edge changes
+    const { nodes, edges } = useFlowStore.getState();
+
     // LLM 节点：检查 inputMappings.user_input 是否已配置
     if (type === 'llm') {
       const llmData = data as LLMNodeData;

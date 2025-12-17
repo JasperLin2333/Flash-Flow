@@ -19,12 +19,12 @@ const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 tra
 
 const ToolNode = ({ id, data, selected }: NodeProps) => {
     const nodeData = data as ToolNodeData;
-    // Simple selector - Zustand function references are stable
-    const { openToolDebugDialog, runNode, nodes } = useFlowStore(
+    // PERFORMANCE: Only subscribe to function references, not data
+    // nodes is fetched on-demand in handleTestNode to avoid re-renders
+    const { openToolDebugDialog, runNode } = useFlowStore(
         useShallow((s) => ({
             openToolDebugDialog: s.openToolDebugDialog,
             runNode: s.runNode,
-            nodes: s.nodes,
         }))
     );
     const toolType = (nodeData.toolType as ToolType) || "web_search";
@@ -33,7 +33,8 @@ const ToolNode = ({ id, data, selected }: NodeProps) => {
 
     // Memoize callback to prevent unnecessary re-renders
     const handleTestNode = useCallback(() => {
-        // 获取当前节点（从 store 中获取完整的节点对象）
+        // PERFORMANCE: Fetch nodes on-demand instead of subscribing
+        const { nodes } = useFlowStore.getState();
         const currentNode = nodes.find(n => n.id === id);
         if (currentNode && isToolNodeParametersConfigured(currentNode)) {
             // 如果参数充分配置，直接运行
@@ -42,7 +43,7 @@ const ToolNode = ({ id, data, selected }: NodeProps) => {
             // 否则打开调试弹窗
             openToolDebugDialog(id as string);
         }
-    }, [openToolDebugDialog, runNode, nodes, id]);
+    }, [openToolDebugDialog, runNode, id]);
 
     return (
         <Card

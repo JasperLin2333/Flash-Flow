@@ -1,4 +1,4 @@
-import type { AppNode, FlowContext } from "@/types/flow";
+import type { AppNode, FlowContext, BaseNodeData } from "@/types/flow";
 
 /**
  * 递归展开对象，将嵌套字段平铺为可引用的变量
@@ -77,7 +77,7 @@ export const collectVariables = (
 
         const node = allNodes.find(n => n.id === nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
-        const customOutputs = (node?.data as any)?.customOutputs as { name: string; value: string }[] | undefined;
+        const customOutputs = (node?.data as BaseNodeData)?.customOutputs;
 
         if (typeof nodeOutput === 'object' && nodeOutput !== null) {
             flattenObject(nodeOutput, allVariables);
@@ -107,7 +107,7 @@ export const collectVariables = (
         // 查找对应节点以获取 label 和 customOutputs
         const node = allNodes.find(n => n.id === nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
-        const customOutputs = (node?.data as any)?.customOutputs as { name: string; value: string }[] | undefined;
+        const customOutputs = (node?.data as BaseNodeData)?.customOutputs;
 
         if (typeof nodeOutput === 'object' && nodeOutput !== null) {
             // 展开节点输出的所有字段（无前缀，直接使用字段名）

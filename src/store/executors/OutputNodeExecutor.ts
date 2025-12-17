@@ -1,4 +1,4 @@
-import type { AppNode, FlowContext, OutputNodeData, ContentSource, AttachmentSource, OutputInputMappings } from "@/types/flow";
+import type { AppNode, FlowContext, OutputNodeData, ContentSource, AttachmentSource } from "@/types/flow";
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { replaceVariables } from "@/lib/promptParser";
 import { useFlowStore } from "@/store/flowStore";
@@ -13,10 +13,13 @@ function collectDirectUpstreamVariables(
 ): Record<string, unknown> {
   const variables: Record<string, unknown> = {};
 
+  // 使用 Map 优化节点查找性能 (O(1) vs O(n))
+  const nodeMap = new Map(allNodes.map(n => [n.id, n]));
+
   for (const [nodeId, nodeOutput] of Object.entries(context)) {
     if (nodeId.startsWith('_')) continue;
 
-    const node = allNodes.find(n => n.id === nodeId);
+    const node = nodeMap.get(nodeId);
     const nodeLabel = node?.data?.label as string | undefined;
 
     if (typeof nodeOutput === 'object' && nodeOutput !== null) {
@@ -68,6 +71,7 @@ function resolveSource(
 
 /**
  * 解析附件来源
+ * 支持文件数组 (files) 和单个文件对象 (generatedFile)
  */
 function resolveAttachments(
   attachments: AttachmentSource[] | undefined,
@@ -90,7 +94,7 @@ function resolveAttachments(
     const varName = varMatch[1];
     const value = variables[varName];
 
-    // 如果是文件数组
+    // 处理文件数组 (如 {{用户输入.files}})
     if (Array.isArray(value)) {
       for (const file of value) {
         if (typeof file === 'object' && file !== null && 'name' in file) {
@@ -102,10 +106,20 @@ function resolveAttachments(
         }
       }
     }
+    // 处理单个文件对象 (如 {{代码执行.generatedFile}})
+    else if (typeof value === 'object' && value !== null && 'name' in value && 'url' in value) {
+      const file = value as { name: string; url: string; type?: string };
+      result.push({
+        name: file.name,
+        url: file.url,
+        type: file.type
+      });
+    }
   }
 
   return result;
 }
+
 
 /**
  * Output 节点执行器
@@ -119,10 +133,10 @@ function resolveAttachments(
  * 所有模式都支持可选的 attachments 配置
  */
 export class OutputNodeExecutor extends BaseNodeExecutor {
-  async execute(node: AppNode, context: FlowContext, _mockData?: Record<string, unknown>): Promise<ExecutionResult> {
+  async execute(node: AppNode, context: FlowContext): Promise<ExecutionResult> {
     const { result, time } = await this.measureTime(async () => {
       const nodeData = node.data as OutputNodeData;
-      const inputMappings = nodeData?.inputMappings as OutputInputMappings | undefined;
+      const inputMappings = nodeData?.inputMappings;
 
       // 获取所有节点信息
       const { nodes: allNodes } = useFlowStore.getState();

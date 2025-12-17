@@ -31,7 +31,7 @@ export const formSchema = z.object({
 export type FormValues = z.infer<typeof formSchema>;
 
 // ============ Default Values ============
-export const DEFAULT_MODEL = "qwen-flash";
+export const DEFAULT_MODEL = "deepseek-ai/DeepSeek-V3.2";
 export const DEFAULT_TEMPERATURE = 0.7;
 
 // ============ Style Constants ============
@@ -42,15 +42,14 @@ export const INPUT_CLASS = "bg-gray-50 border-gray-200 text-gray-900";
 export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: string }[]> = {
     input: [
         { field: "user_input", description: "用户输入的文本内容" },
-        { field: "timestamp", description: "输入时间戳" },
-        { field: "files", description: "上传的文件列表，通过 files[n].name/type/size/url 访问" },
-        { field: "formData", description: "结构化表单对象，通过 formData.字段名 访问" },
+
+        { field: "files", description: "上传的文件列表，可通过 files[n]获取单个文件" },
+        { field: "formData", description: "结构化表单对象，通过 formData.字段名 获取" },
     ],
     llm: [
         { field: "response", description: "AI 生成的回复内容" },
     ],
     rag: [
-        { field: "query", description: "检索查询文本" },
         { field: "documents", description: "检索到的文档片段数组" },
         { field: "citations", description: "引用信息" },
     ],
@@ -96,16 +95,17 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
             { field: "timezone", description: "时区" },
         ],
     },
-    weather: {
-        inputs: [
-            { field: "city", description: "城市名称", required: true },
-        ],
-        outputs: [
-            { field: "city", description: "城市名" },
-            { field: "weather", description: "天气信息对象" },
-            { field: "summary", description: "天气概要文本" },
-        ],
-    },
+    // NOTE: Weather tool is hidden from users
+    // weather: {
+    //     inputs: [
+    //         { field: "city", description: "城市名称", required: true },
+    //     ],
+    //     outputs: [
+    //         { field: "city", description: "城市名" },
+    //         { field: "weather", description: "天气信息对象" },
+    //         { field: "summary", description: "天气概要文本" },
+    //     ],
+    // },
     url_reader: {
         inputs: [
             { field: "url", description: "网页 URL", required: true },
@@ -117,6 +117,19 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
             { field: "content", description: "提取的正文内容" },
         ],
     },
+    code_interpreter: {
+        inputs: [
+            { field: "code", description: "要执行的 Python 代码", required: true },
+            { field: "inputFiles", description: "上传到沙箱的文件，如 {{输入节点.files}}", required: false },
+            { field: "outputFileName", description: "期望生成的输出文件名，如 output.csv", required: false },
+        ],
+        outputs: [
+            { field: "logs", description: "代码执行的标准输出日志" },
+            { field: "errors", description: "代码执行的错误输出" },
+            { field: "generatedFile", description: "生成的文件对象 {name, url, type}" },
+            { field: "result", description: "代码执行返回值" },
+        ],
+    },
 };
 
 // ============ 节点需要的上游输入（不包括已有表单配置的参数） ============
@@ -125,7 +138,7 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
 export const NODE_UPSTREAM_INPUTS: Record<NodeKind, { field: string; description: string; required: boolean }[]> = {
     input: [],  // 入口节点，无需上游输入
     llm: [
-        { field: "user_input", description: "用户消息内容", required: true },
+        { field: "user_prompt", description: "用户消息内容（问答场景必填，图片识别等场景可选）", required: false },
     ],
     rag: [
         { field: "query", description: "检索查询文本", required: true },

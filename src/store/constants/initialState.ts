@@ -42,10 +42,21 @@ export const INITIAL_FLOW_STATE = {
 
     inputPromptOpen: false,
 
+    // Clipboard state for copy/paste
+    clipboard: null,
+
     // Streaming state
     streamingText: "",
     isStreaming: false,
     _streamingAborted: false,
+
+    // Segment streaming (merge mode)
+    streamingMode: "single" as const,
+    streamingSegments: [] as { sourceId: string; content: string; status: 'waiting' | 'streaming' | 'completed' | 'error' }[],
+
+    // Select mode (first-char-lock)
+    lockedSourceId: null as string | null,
+    selectSourceIds: [] as string[],
 
     // 执行锁（内部使用，防止并发执行）
     _executionLock: false,

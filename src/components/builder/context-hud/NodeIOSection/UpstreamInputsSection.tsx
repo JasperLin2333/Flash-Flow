@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Check, Settings } from "lucide-react";
 import type { NodeKind } from "@/types/flow";
 import type { UpstreamInputState } from "../types";
@@ -54,9 +55,16 @@ export function UpstreamInputsSection({
                                 }`}>
                                 {input.field}{input.required ? ' *' : ''}
                             </code>
-                            <span className="text-[9px] text-gray-500 flex-1 truncate">
-                                {input.description}
-                            </span>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span className="text-[9px] text-gray-500 flex-1 truncate cursor-default">
+                                        {input.description}
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                    {input.description}
+                                </TooltipContent>
+                            </Tooltip>
                             {input.hasInvalidVars ? (
                                 <span className="text-[9px] text-red-500 shrink-0">变量无效</span>
                             ) : input.isSatisfied ? (
@@ -69,8 +77,7 @@ export function UpstreamInputsSection({
                         </div>
                         {/* 所有节点都显示可编辑输入框 */}
                         {!input.field.includes('*') && (
-                            <input
-                                type="text"
+                            <textarea
                                 value={input.configuredValue || ''}
                                 onChange={(e) => {
                                     if (input.isToolInput) {
@@ -90,7 +97,8 @@ export function UpstreamInputsSection({
                                     }
                                 }}
                                 placeholder="输入值或 {{变量名}}"
-                                className="w-full text-[10px] px-2 py-1 border rounded outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100 bg-white border-gray-200"
+                                rows={1}
+                                className="w-full text-[10px] font-mono px-2 py-1.5 border rounded outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100 bg-white border-gray-200 resize-y"
                             />
                         )}
                     </div>

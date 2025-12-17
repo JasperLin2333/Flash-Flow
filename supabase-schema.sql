@@ -403,3 +403,21 @@ USING (
   bucket_id = 'flow-icons' AND
   auth.role() = 'authenticated'
 );
+
+-- Create 'flow-files' bucket for code interpreter output files
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('flow-files', 'flow-files', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Policy: Public read access for flow-files
+CREATE POLICY "Public Access Flow Files"
+ON storage.objects FOR SELECT
+USING ( bucket_id = 'flow-files' );
+
+-- Policy: Authenticated users can upload files
+CREATE POLICY "Authenticated users can upload flow files"
+ON storage.objects FOR INSERT
+WITH CHECK (
+  bucket_id = 'flow-files' AND
+  auth.role() = 'authenticated'
+);

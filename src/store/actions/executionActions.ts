@@ -1,9 +1,11 @@
-import type { AppNode, AppEdge, FlowContext, InputNodeData, ExecutionStatus, FlowState } from "@/types/flow";
-import { getIncomers, getOutgoers } from "@xyflow/react";
+import type { AppNode, AppEdge, FlowContext, InputNodeData, ExecutionStatus, FlowState, OutputInputMappings } from "@/types/flow";
 import { nanoid } from "nanoid";
 import { NodeExecutorFactory } from "../executors/NodeExecutorFactory";
 import { updateNodeStatus, resetAllNodesStatus } from "../utils/nodeStatusUtils";
 import { hasCycle } from "../utils/cycleDetection";
+import { calculateTopologicalLevels, groupNodesByLevel, getDescendants } from "../utils/parallelExecutionUtils";
+import { resolveSourceNodeIdFromSource } from "../utils/sourceResolver";
+
 
 export const createExecutionActions = (
     set: (partial: ((state: FlowState) => Partial<FlowState>) | Partial<FlowState>) => void,
@@ -99,6 +101,11 @@ export const createExecutionActions = (
                 // 重置中断标志，确保新的流式输出可以正常工作
                 // 这是必须的，因为 abortStreaming 会设置此标志为 true
                 _streamingAborted: false,
+                // Reset segment streaming state
+                streamingMode: "single",
+                streamingSegments: [],
+                lockedSourceId: null,
+                selectSourceIds: [],
             }));
         },
 
@@ -121,17 +128,39 @@ export const createExecutionActions = (
                 }
             }
 
-            // 2. Check if input nodes have valid data
+            // 2. Check if input nodes have valid data or need user input
             const inputNodes = nodes.filter((n: AppNode) => n.type === 'input');
-            const hasInvalidInput = inputNodes.some((n: AppNode) => {
+            const invokeInputPrompt = inputNodes.some((n: AppNode) => {
                 const data = n.data as InputNodeData;
-                const hasText = data.text && data.text.trim() !== '';
-                const hasFileInput = data.enableFileInput === true;
-                const hasFormInput = data.enableStructuredForm === true && Array.isArray(data.formFields) && data.formFields.length > 0;
-                return !hasText && !hasFileInput && !hasFormInput;
+
+                // Check Text
+                const isTextEnabled = data.enableTextInput !== false; // default true
+                const isTextMissing = isTextEnabled && (!data.text || !data.text.trim());
+
+                // Check File
+                // If file input is enabled but no files are selected, we prompt
+                const isFileEnabled = data.enableFileInput === true;
+                const isFileMissing = isFileEnabled && (!data.files || data.files.length === 0);
+
+                // Check Form
+                // If form is enabled, check if any REQUIRED field is missing
+                const isFormEnabled = data.enableStructuredForm === true && Array.isArray(data.formFields);
+                let isFormMissing = false;
+                if (isFormEnabled && data.formFields) {
+                    isFormMissing = data.formFields.some(field =>
+                        field.required && (
+                            data.formData?.[field.name] === undefined ||
+                            data.formData?.[field.name] === null ||
+                            (typeof data.formData[field.name] === 'string' && (data.formData[field.name] as string).trim() === '') ||
+                            (Array.isArray(data.formData[field.name]) && (data.formData[field.name] as unknown[]).length === 0)
+                        )
+                    );
+                }
+
+                return isTextMissing || isFileMissing || isFormMissing;
             });
 
-            if (hasInvalidInput) {
+            if (invokeInputPrompt) {
                 get().openInputPrompt();
                 return;
             }
@@ -144,14 +173,37 @@ export const createExecutionActions = (
             set({ _executionLock: true });
 
             resetExecution();
-            // console.log("[RunFlow] Execution reset. Starting flow...");
             set({ executionStatus: "running", executionError: null });
 
-            try {
-                const entryNodes = nodes.filter((n: AppNode) => !edges.some((e: AppEdge) => e.target === n.id));
-                const queue = [...entryNodes];
-                const visited = new Set<string>();
+            // 4. 初始化流式模式（基于 Output 节点配置）
+            const outputNode = nodes.find((n: AppNode) => n.type === 'output');
+            if (outputNode) {
+                const inputMappings = (outputNode.data as { inputMappings?: OutputInputMappings })?.inputMappings;
+                const mode = inputMappings?.mode || 'direct';
+                const sources = inputMappings?.sources || [];
 
+                if (mode === 'merge' && sources.length > 0) {
+                    // merge 模式：初始化分段流式
+                    const sourceNodeIds = sources
+                        .map(s => resolveSourceNodeIdFromSource(s, nodes))
+                        .filter((id): id is string => id !== null);
+
+                    if (sourceNodeIds.length > 0) {
+                        get().initSegmentedStreaming(sourceNodeIds);
+                    }
+                } else if (mode === 'select' && sources.length > 0) {
+                    // select 模式：初始化首字锁定
+                    const sourceNodeIds = sources
+                        .map(s => resolveSourceNodeIdFromSource(s, nodes))
+                        .filter((id): id is string => id !== null);
+
+                    if (sourceNodeIds.length > 0) {
+                        get().initSelectStreaming(sourceNodeIds);
+                    }
+                }
+            }
+
+            try {
                 const effectiveSessionId = sessionId || nanoid(10);
 
                 // 构建节点标签到 ID 的映射
@@ -165,13 +217,17 @@ export const createExecutionActions = (
                     _meta: {
                         flowId: currentFlowId,
                         sessionId: effectiveSessionId,
-                        nodeLabels, // 添加节点标签映射，用于变量解析
+                        nodeLabels,
                     }
                 };
 
                 set({ flowContext: context });
 
                 const initialNodeIds = new Set(nodes.map((n: AppNode) => n.id));
+                // OPTIMIZATION: Create a map for O(1) node lookups
+                // We use this for static node data (type, data fields) that doesn't change during execution
+                // Execution status/output updates are handled via separate store updates
+                const nodeMap = new Map<string, AppNode>(nodes.map((n: AppNode) => [n.id, n]));
 
                 const checkFlowIntegrity = () => {
                     const currentNodes = get().nodes;
@@ -183,8 +239,28 @@ export const createExecutionActions = (
                     }
                 };
 
-                const traverseNode = async (nodeId: string) => {
+                // ============ PARALLEL EXECUTION ENGINE ============
+
+                // 计算拓扑层级
+                const nodeLevels = calculateTopologicalLevels(nodes, edges);
+                const levelGroups = groupNodesByLevel(nodes, nodeLevels);
+
+                // 获取最大层级
+                const maxLevel = Math.max(...Array.from(levelGroups.keys()));
+
+                // 跟踪完成和阻塞的节点
+                const completedNodes = new Set<string>();
+                const blockedNodes = new Set<string>();
+                const executionErrors: { nodeId: string; error: Error }[] = [];
+
+                // 执行单个节点并处理分支逻辑
+                const executeNodeAndHandleBranch = async (nodeId: string): Promise<void> => {
                     checkFlowIntegrity();
+
+                    // 跳过被阻塞的节点
+                    if (blockedNodes.has(nodeId)) {
+                        return;
+                    }
 
                     const result = await executeSingleNode(nodeId, context, false);
 
@@ -193,47 +269,60 @@ export const createExecutionActions = (
                         set({ flowContext: { ...context } });
                     }
 
-                    checkFlowIntegrity();
+                    completedNodes.add(nodeId);
 
-                    const currentState = get();
-                    const node = currentState.nodes.find((n: AppNode) => n.id === nodeId);
-                    if (!node) return;
-
-                    const outgoers = getOutgoers(node, currentState.nodes, currentState.edges);
-
-                    let allowedSourceHandle: string | null = null;
-                    if (node.type === 'branch') {
-                        const branchOutput = context[nodeId] as Record<string, unknown>;
+                    // 处理分支节点：阻塞未选中的路径
+                    // PERFORMANCE: Use cached nodeMap for lookup
+                    const node = nodeMap.get(nodeId);
+                    if (node?.type === 'branch' && result) {
+                        const branchOutput = result.output as Record<string, unknown>;
                         const conditionResult = !!branchOutput?.conditionResult;
-                        allowedSourceHandle = conditionResult ? 'true' : 'false';
-                        // console.log(`[Execution] Branch node ${nodeId} result: ${conditionResult} -> taking handle ${allowedSourceHandle}`);
-                    }
+                        const notTakenHandle = conditionResult ? 'false' : 'true';
 
-                    for (const outgoer of outgoers) {
-                        checkFlowIntegrity();
-
-                        if (allowedSourceHandle) {
-                            const edge = currentState.edges.find((e: AppEdge) => e.source === node.id && e.target === outgoer.id);
-                            if (edge && edge.sourceHandle !== allowedSourceHandle) {
-                                continue;
-                            }
-                        }
-
-                        if (!visited.has(outgoer.id)) {
-                            visited.add(outgoer.id);
-                            await traverseNode(outgoer.id);
-                        }
+                        // 获取未选中分支的所有下游节点并阻塞
+                        const blockedDescendants = getDescendants(nodeId, edges, notTakenHandle);
+                        blockedDescendants.forEach(id => blockedNodes.add(id));
                     }
                 };
 
-                for (const node of queue) {
-                    visited.add(node.id);
-                    await traverseNode(node.id);
+                // 按层级并行执行
+                for (let level = 0; level <= maxLevel; level++) {
+                    checkFlowIntegrity();
+
+                    const nodesAtLevel = levelGroups.get(level) || [];
+
+                    // 过滤：跳过被阻塞的节点
+                    const executableNodes = nodesAtLevel.filter(id => !blockedNodes.has(id));
+
+                    if (executableNodes.length === 0) continue;
+
+                    // 并行执行当前层级的所有节点
+                    const results = await Promise.allSettled(
+                        executableNodes.map(nodeId => executeNodeAndHandleBranch(nodeId))
+                    );
+
+                    // 收集错误
+                    results.forEach((result, index) => {
+                        if (result.status === 'rejected') {
+                            executionErrors.push({
+                                nodeId: executableNodes[index],
+                                error: result.reason instanceof Error ? result.reason : new Error(String(result.reason))
+                            });
+                        }
+                    });
+
+                    // 如果有错误，停止执行
+                    if (executionErrors.length > 0) {
+                        break;
+                    }
                 }
 
-                // console.log("[RunFlow] All nodes executed. Setting completed.", {
-                //     finalContext: get().flowContext
-                // });
+                // ============ END PARALLEL EXECUTION ============
+
+                if (executionErrors.length > 0) {
+                    const errorMessages = executionErrors.map(e => `${e.nodeId}: ${e.error.message}`).join('; ');
+                    throw new Error(`节点执行失败: ${errorMessages}`);
+                }
 
                 set({ executionStatus: "completed" });
             } catch (error) {

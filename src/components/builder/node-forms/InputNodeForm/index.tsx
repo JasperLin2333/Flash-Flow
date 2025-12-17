@@ -85,6 +85,11 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
         updateFormValue("enableStructuredForm", checked);
         if (checked && formFields.length === 0) {
             updateFormValue("formFields", []);
+        } else if (!checked) {
+            // 关闭结构化表单时，清空字段配置和表单数据
+            setFormFields([]);
+            updateFormValue("formFields", []);
+            updateFormValue("formData", undefined);
         }
     };
 
@@ -154,7 +159,7 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                     </div>
                 </div>
                 <p className="text-xs text-gray-500 pl-7">
-                    关闭后发送按钮将被禁用（除非启用其他输入方式）
+                    关闭后文本发送将被禁用
                 </p>
             </div>
 

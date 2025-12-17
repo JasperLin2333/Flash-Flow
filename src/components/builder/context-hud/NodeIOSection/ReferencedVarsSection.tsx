@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Check, Link } from "lucide-react";
 import type { ReferencedVariable } from "../types";
 import { LABEL_CLASS } from "../constants";
@@ -34,9 +35,16 @@ export function ReferencedVarsSection({
                             }`}>
                             {`{{${ref.field}}}`}
                         </code>
-                        <span className="text-[9px] text-gray-500 flex-1 truncate">
-                            {ref.description}
-                        </span>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="text-[9px] text-gray-500 flex-1 truncate cursor-default">
+                                    {ref.description}
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                                {ref.description}
+                            </TooltipContent>
+                        </Tooltip>
                         {ref.isSatisfied ? (
                             <Check className="w-3 h-3 text-green-500 shrink-0" />
                         ) : (

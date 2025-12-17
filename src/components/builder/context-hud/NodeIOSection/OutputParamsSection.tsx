@@ -1,6 +1,7 @@
 "use client";
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ArrowUpFromLine, Plus, X, Check } from "lucide-react";
 import type { OutputField } from "./hooks/useNodeIO";
 import { LABEL_CLASS } from "../constants";
@@ -63,9 +64,16 @@ export function OutputParamsSection({
                         <code className="text-[10px] font-mono text-green-700 shrink-0">
                             {f.field}
                         </code>
-                        <span className="text-[9px] text-gray-500 truncate">
-                            {f.description}
-                        </span>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="text-[9px] text-gray-500 truncate cursor-default">
+                                    {f.description}
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                                {f.description}
+                            </TooltipContent>
+                        </Tooltip>
                     </div>
                 ))}
 

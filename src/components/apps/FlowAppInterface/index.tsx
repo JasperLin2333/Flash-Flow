@@ -65,7 +65,7 @@ export default function FlowAppInterface({
                 className="flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-out"
                 style={{ marginLeft: sidebarOffset }}
             >
-                <ChatArea messages={messages} isLoading={isLoading} flowIcon={flowIcon} inputNodeData={inputNodeData} />
+                <ChatArea messages={messages} isLoading={isLoading} flowIcon={flowIcon} inputNodeData={inputNodeData} flowTitle={flowTitle} />
                 <div className={`${LAYOUT.spacing.input} bg-gray-50`}>
                     <div className={`${LAYOUT.inputMaxWidth} mx-auto`}>
                         <PromptBubble

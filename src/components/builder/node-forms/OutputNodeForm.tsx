@@ -1,7 +1,6 @@
 "use client";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 
 const LABEL_CLASS = "text-[10px] font-bold uppercase tracking-wider text-gray-500";
 const INPUT_CLASS = "bg-gray-50 border-gray-200 text-gray-900";

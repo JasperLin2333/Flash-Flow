@@ -4,9 +4,10 @@ import { useFlowStore } from "@/store/flowStore";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { nanoid } from "nanoid";
 import FlowAppInterface from "@/components/apps/FlowAppInterface";
-import { extractTextFromUpstream } from "@/store/executors/contextUtils";
+import { extractOutputFromContext } from "@/store/executors/contextUtils";
 import { fileUploadService } from "@/services/fileUploadService";
-import type { FlowContext } from "@/types/flow";
+import type { FlowContext, AppNode } from "@/types/flow";
+import type { ChatAttachment } from "@/types/chat";
 
 // ============ Constants ============
 const ANIMATION = {
@@ -18,29 +19,13 @@ const ANIMATION = {
 const DEFAULT_ASSISTANT_MSG = "Flow completed without output.";
 const ERROR_MSG = "Error executing flow.";
 
-// ============ Utilities ============
-/**
- * 提取执行结果文本
- * 必须通过 output 节点才能输出结果
- * 使用 extractTextFromUpstream 正确过滤 Branch 元数据
- */
-function extractExecutionOutput(
-    flowContext: FlowContext,
-    nodes: Array<{ id: string; type: string }>
-): string {
-    const outputNode = nodes.find((n) => n.type === "output");
-
-    if (!outputNode) {
-        return "请在工作流中添加 Output 节点以显示输出结果。";
-    }
-
-    const outData = flowContext[outputNode.id];
-    if (!outData) {
-        return DEFAULT_ASSISTANT_MSG;
-    }
-
-    // 使用 extractTextFromUpstream 正确过滤 Branch 节点元数据
-    return extractTextFromUpstream(outData, true) || DEFAULT_ASSISTANT_MSG;
+// ============ Types ============
+interface AppMessage {
+    role: "user" | "assistant";
+    content: string;
+    files?: File[];
+    attachments?: ChatAttachment[];
+    timestamp?: Date;
 }
 
 export default function AppModeOverlay() {
@@ -60,7 +45,11 @@ export default function AppModeOverlay() {
     const streamingText = useFlowStore((s) => s.streamingText);
     const isStreaming = useFlowStore((s) => s.isStreaming);
 
-    const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string; files?: File[] }[]>([]);
+    // Segment streaming state (for merge mode)
+    const streamingMode = useFlowStore((s) => s.streamingMode);
+    const streamingSegments = useFlowStore((s) => s.streamingSegments);
+
+    const [messages, setMessages] = useState<AppMessage[]>([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
 
@@ -86,10 +75,15 @@ export default function AppModeOverlay() {
     useEffect(() => {
         if (executionStatus === "completed" && isLoading) {
             setIsLoading(false);
-            const outputText = extractExecutionOutput(flowContext, nodes);
-            setMessages((prev) => [...prev, { role: "assistant", content: outputText, timestamp: new Date() }]);
+            // 使用 extractOutputFromContext 同时提取文本和附件
+            const output = extractOutputFromContext(nodes as AppNode[], flowContext);
+            setMessages((prev) => [...prev, {
+                role: "assistant",
+                content: output.text,
+                attachments: output.attachments,
+                timestamp: new Date()
+            }]);
             // Clear streaming AFTER adding the message to prevent flash
-            // Use setTimeout to ensure state updates are processed first
             setTimeout(() => {
                 useFlowStore.getState().clearStreaming();
             }, 0);
@@ -167,11 +161,78 @@ export default function AppModeOverlay() {
 
     // Compute display messages: append streaming text as partial assistant message
     const displayMessages = useMemo(() => {
-        if (isStreaming && streamingText && isLoading) {
+        if (!isLoading) return messages;
+
+        // Handle segmented streaming (merge mode)
+        if (streamingMode === 'segmented' && streamingSegments.length > 0) {
+            // Check if any segment is still streaming or waiting
+            const hasActiveSegment = streamingSegments.some(s => s.status === 'streaming' || s.status === 'waiting');
+
+            // Concatenate all segment contents that have data
+            const combinedContent = streamingSegments
+                .filter(s => s.content)
+                .map(s => s.content)
+                .join('\n\n');
+
+            if (combinedContent) {
+                return [...messages, { role: "assistant" as const, content: combinedContent, timestamp: new Date() }];
+            }
+
+            // If no content yet but streaming, return messages (isLoading will show loading indicator)
+            return messages;
+        }
+
+        // Handle single/select streaming (existing logic)
+        if (isStreaming && streamingText) {
             return [...messages, { role: "assistant" as const, content: streamingText, timestamp: new Date() }];
         }
+
         return messages;
-    }, [messages, isStreaming, streamingText, isLoading]);
+    }, [messages, isStreaming, streamingText, isLoading, streamingMode, streamingSegments]);
+
+    // Determine if we should show loading indicator
+    // For merge mode: show loading when waiting for segments
+    // For select mode: show loading when no content yet (waiting for first char lock)
+    const showLoading = useMemo(() => {
+        if (!isLoading) return false;
+
+        // In segmented mode (merge), show loading in these cases:
+        // 1. Segments not initialized yet
+        // 2. No content has been produced yet
+        // 3. A segment completed and next is waiting (between segments)
+        if (streamingMode === 'segmented') {
+            // Case 1: Segments not initialized
+            if (streamingSegments.length === 0) {
+                return true;
+            }
+
+            // Case 2: No content yet (first segment hasn't started)
+            const hasAnyContent = streamingSegments.some(s => s.content.length > 0);
+            if (!hasAnyContent) {
+                return true;
+            }
+
+            // Case 3: Between segments - a completed segment and a waiting one exists
+            const hasCompleted = streamingSegments.some(s => s.status === 'completed');
+            const hasWaiting = streamingSegments.some(s => s.status === 'waiting');
+            if (hasCompleted && hasWaiting) {
+                // Check if any segment is actively streaming
+                const hasStreaming = streamingSegments.some(s => s.status === 'streaming');
+                return !hasStreaming; // Show loading only if nothing is actively streaming
+            }
+
+            return false;
+        }
+
+        // In select mode, show loading until we have streaming content
+        if (streamingMode === 'select') {
+            // Show loading if there's no streaming content yet
+            return !streamingText;
+        }
+
+        // For single/direct modes, show loading when not streaming
+        return !isStreaming;
+    }, [isLoading, isStreaming, streamingMode, streamingSegments, streamingText]);
 
     return (
         <AnimatePresence>
@@ -190,7 +251,7 @@ export default function AppModeOverlay() {
                             url: flowIconUrl,
                         }}
                         messages={displayMessages}
-                        isLoading={isLoading && !isStreaming}
+                        isLoading={showLoading}
                         input={input}
                         onInputChange={setInput}
                         onSend={handleSend}

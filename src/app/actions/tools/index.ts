@@ -7,8 +7,10 @@ import type { ToolExecutionResult, ToolExecutionInput } from "./types";
 import { executeWebSearch } from "./executors/webSearch";
 import { executeCalculator } from "./executors/calculator";
 import { executeDatetime, type DatetimeInputs } from "./executors/datetime";
-import { executeWeather } from "./executors/weather";
+// NOTE: Weather tool is hidden from UI
+// import { executeWeather } from "./executors/weather";
 import { executeUrlReader } from "./executors/urlReader";
+import { executeCodeInterpreter, type CodeInterpreterInputs } from "./executors/codeInterpreter";
 
 // Re-export types for external use
 export type { ToolExecutionResult, ToolExecutionInput };
@@ -55,14 +57,17 @@ export async function executeToolAction(input: ToolExecutionInput): Promise<Tool
                 return await executeDatetime(datetimeInputs);
             }
 
-            case "weather": {
-                const weatherInputs = validation.data as { city: string };
-                return await executeWeather(weatherInputs);
-            }
+            // NOTE: Weather tool is hidden from UI but kept for backwards compatibility
+            // Legacy workflows using weather will fall through to default case
 
             case "url_reader": {
                 const urlReaderInputs = validation.data as { url: string; maxLength?: number };
                 return await executeUrlReader(urlReaderInputs);
+            }
+
+            case "code_interpreter": {
+                const codeInputs = validation.data as CodeInterpreterInputs;
+                return await executeCodeInterpreter(codeInputs);
             }
 
             default:

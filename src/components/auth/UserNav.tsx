@@ -73,7 +73,7 @@ export function UserNav() {
                         <h3 className="text-sm font-semibold text-zinc-900 mb-3">使用详情</h3>
                         <QuotaDisplay compact className="flex-col gap-2" />
                         <div className="mt-3 pt-3 border-t border-zinc-100 text-xs text-zinc-500 text-center">
-                            如需提升额度，请联系QQ：3435164639
+                            如需提升额度，请联系WX号：JasperXHL
                         </div>
                     </div>
                 </div>

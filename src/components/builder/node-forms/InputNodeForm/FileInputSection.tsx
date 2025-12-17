@@ -55,10 +55,15 @@ export function FileInputSection({
                             <label className="text-xs font-medium text-gray-600">最大体积 (MB)</label>
                             <Input
                                 type="number"
+                                min={1}
+                                max={100}
                                 value={fileConfig.maxSizeMB}
-                                onChange={(e) =>
-                                    onConfigChange({ maxSizeMB: parseInt(e.target.value) || 10 })
-                                }
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0;
+                                    // Clamp between 1 and 100
+                                    const clamped = Math.min(Math.max(val, 1), 100);
+                                    onConfigChange({ maxSizeMB: clamped });
+                                }}
                                 className={INPUT_CLASS}
                             />
                         </div>
@@ -66,10 +71,15 @@ export function FileInputSection({
                             <label className="text-xs font-medium text-gray-600">最大数量</label>
                             <Input
                                 type="number"
+                                min={1}
+                                max={10}
                                 value={fileConfig.maxCount}
-                                onChange={(e) =>
-                                    onConfigChange({ maxCount: parseInt(e.target.value) || 5 })
-                                }
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0;
+                                    // Clamp between 1 and 10
+                                    const clamped = Math.min(Math.max(val, 1), 10);
+                                    onConfigChange({ maxCount: clamped });
+                                }}
                                 className={INPUT_CLASS}
                             />
                         </div>

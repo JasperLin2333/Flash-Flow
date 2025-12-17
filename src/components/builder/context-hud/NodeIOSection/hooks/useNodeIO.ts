@@ -69,12 +69,26 @@ export function useNodeIO({
             const upCustomOutputs = (upNode.data as Record<string, unknown>)?.customOutputs as { name: string; value: string }[] | undefined;
 
             // 获取该节点类型的标准输出字段
-            const outputFields = NODE_OUTPUT_FIELDS[upNode.type as NodeKind] || [];
+            // 对于 Tool 节点，需要根据 toolType 动态获取输出字段
+            let outputFields: { field: string; description?: string }[] = [];
+            if (upNode.type === 'tool') {
+                const toolType = (upNode.data as Record<string, unknown>)?.toolType as string | undefined;
+                if (toolType && TOOL_IO_DEFINITIONS[toolType]) {
+                    outputFields = TOOL_IO_DEFINITIONS[toolType].outputs;
+                }
+            } else {
+                outputFields = NODE_OUTPUT_FIELDS[upNode.type as NodeKind] || [];
+            }
 
             // 如果有实际执行输出，递归展开所有字段（包括嵌套对象）
             if (upOutput && typeof upOutput === 'object') {
                 const flattened = flattenObjectToVariables(upOutput as Record<string, unknown>, upLabel, upId);
-                variables.push(...flattened);
+                // 对于 RAG 节点，隐藏 query 输出
+                if (upNode.type === 'rag') {
+                    variables.push(...flattened.filter(v => v.field !== 'query'));
+                } else {
+                    variables.push(...flattened);
+                }
             } else {
                 // 没有执行输出时，显示预期字段
                 outputFields.forEach(({ field }) => {
@@ -94,8 +108,9 @@ export function useNodeIO({
                     const upNodeData = upNode.data as Record<string, unknown>;
 
                     // 从 formFields 配置生成表单变量
+                    const enableStructuredForm = upNodeData?.enableStructuredForm as boolean | undefined;
                     const formFields = upNodeData?.formFields as Array<{ name: string; label: string }> | undefined;
-                    if (formFields && formFields.length > 0) {
+                    if (enableStructuredForm && formFields && formFields.length > 0) {
                         formFields.forEach(formField => {
                             variables.push({
                                 nodeLabel: upLabel,
@@ -114,17 +129,14 @@ export function useNodeIO({
                             nodeLabel: upLabel,
                             nodeId: upId,
                             field: 'files',
-                            value: '文件数组 (用于RAG动态模式)',
+                            value: '全部附件 (文件数组)',
                         });
-                        // 2. 生成预期的 files 数组属性变量（使用 files[n] 格式，用于 LLM/Tool 引用）
-                        const fileProps = ['name', 'type', 'size', 'url'];
-                        fileProps.forEach(prop => {
-                            variables.push({
-                                nodeLabel: upLabel,
-                                nodeId: upId,
-                                field: `files[n].${prop}`,
-                                value: `文件属性: ${prop}`,
-                            });
+                        // 2. 添加单个文件引用变量
+                        variables.push({
+                            nodeLabel: upLabel,
+                            nodeId: upId,
+                            field: 'files[n]',
+                            value: '单个附件 (自动提取内容)',
                         });
                     }
                 }
@@ -159,8 +171,29 @@ export function useNodeIO({
             }
             return [{ field: "(请先选择工具类型)", description: "" }];
         }
+
+        // Input 节点：根据启用的功能动态过滤输出字段
+        if (nodeType === 'input') {
+            const baseFields = NODE_OUTPUT_FIELDS[nodeType] || [];
+            const enableFileInput = nodeData?.enableFileInput as boolean | undefined;
+            const enableStructuredForm = nodeData?.enableStructuredForm as boolean | undefined;
+
+            return baseFields.filter(field => {
+                // files 字段只在 enableFileInput 为 true 时显示
+                if (field.field === 'files') {
+                    return enableFileInput === true;
+                }
+                // formData 字段只在 enableStructuredForm 为 true 时显示
+                if (field.field === 'formData') {
+                    return enableStructuredForm === true;
+                }
+                // 其他字段始终显示
+                return true;
+            });
+        }
+
         return NODE_OUTPUT_FIELDS[nodeType] || [];
-    }, [nodeType, nodeData?.toolType]);
+    }, [nodeType, nodeData?.toolType, nodeData?.enableFileInput, nodeData?.enableStructuredForm]);
 
     // 计算当前节点需要的上游输入（检查是否满足）
     const upstreamInputs = useMemo((): UpstreamInputState[] => {

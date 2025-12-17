@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useFlowStore } from "@/store/flowStore";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -44,35 +44,74 @@ export default function ContextHUD() {
         },
     });
 
+    // 当选中节点 ID 变化时，从 store 中获取最新的节点数据并重置表单
+    // 注意：只依赖 selectedNodeId，避免 nodes 数组变化导致不必要的重置
+    // 在 effect 内部通过 getState() 获取最新的节点数据
+    useEffect(() => {
+        if (!selectedNodeId) return;
+
+        // 使用 getState 获取最新状态，避免将 nodes 添加到依赖数组
+        const { nodes: currentNodes } = useFlowStore.getState();
+        const node = currentNodes.find((n) => n.id === selectedNodeId);
+        if (!node) return;
+
+        const type = node.type as NodeKind;
+        const d = node.data || {};
+        const has = (k: string) => k in d;
+        form.reset({
+            label: String(d.label || ""),
+            model: type === "llm" && has("model") ? String((d as { model?: string }).model || DEFAULT_MODEL) : DEFAULT_MODEL,
+            temperature: type === "llm" && has("temperature") ? Number((d as { temperature?: number }).temperature ?? DEFAULT_TEMPERATURE) : DEFAULT_TEMPERATURE,
+            systemPrompt: type === "llm" && has("systemPrompt") ? String((d as { systemPrompt?: string }).systemPrompt || "") : "",
+            // LLM Memory fields
+            enableMemory: type === "llm" && has("enableMemory") ? (d as Record<string, unknown>).enableMemory as boolean : false,
+            memoryMaxTurns: type === "llm" && has("memoryMaxTurns") ? (d as Record<string, unknown>).memoryMaxTurns as number : 10,
+
+            text: (type === "input" || type === "output") && has("text") ? String((d as { text?: string }).text || "") : "",
+            // Input node specific fields
+            enableTextInput: type === "input" && has("enableTextInput") ? (d as Record<string, unknown>).enableTextInput as boolean : true,
+            enableFileInput: type === "input" && has("enableFileInput") ? (d as Record<string, unknown>).enableFileInput as boolean : false,
+            enableStructuredForm: type === "input" && has("enableStructuredForm") ? (d as Record<string, unknown>).enableStructuredForm as boolean : false,
+            fileConfig: type === "input" && has("fileConfig") ? (d as Record<string, unknown>).fileConfig as { allowedTypes: string[]; maxSizeMB: number; maxCount: number } : undefined,
+            formFields: type === "input" && has("formFields") ? (d as Record<string, unknown>).formFields as unknown[] : undefined,
+            toolType: type === "tool" && has("toolType") ? String((d as { toolType?: string }).toolType || "web_search") : "web_search",
+            inputs: type === "tool" && has("inputs") ? (d as { inputs?: Record<string, unknown> }).inputs || {} : {},
+            // Branch node specific fields
+            condition: type === "branch" && has("condition") ? String((d as Record<string, unknown>).condition || "") : "",
+        });
+    }, [selectedNodeId, form]);
+
+    // 使用 ref 来跟踪是否正在初始化表单（避免重复更新）
+    const isInitializing = useRef(false);
+
+    // 监听表单值变化，立即更新节点数据
+    useEffect(() => {
+        const subscription = form.watch((values, { name }) => {
+            // 跳过初始化阶段的更新
+            if (isInitializing.current) return;
+            // 跳过无效状态
+            if (!selectedNodeId || !name) return;
+
+            // 立即更新节点数据
+            updateNodeData(selectedNodeId, values as FormValues);
+        });
+
+        return () => subscription.unsubscribe();
+    }, [form, selectedNodeId, updateNodeData]);
+
+    // 当选中的节点变化时，标记正在初始化
     useEffect(() => {
         if (selectedNode) {
-            const type = selectedNode.type as NodeKind;
-            const d = selectedNode.data || {};
-            const has = (k: string) => k in d;
-            form.reset({
-                label: String(d.label || ""),
-                model: type === "llm" && has("model") ? String((d as { model?: string }).model || DEFAULT_MODEL) : DEFAULT_MODEL,
-                temperature: type === "llm" && has("temperature") ? Number((d as { temperature?: number }).temperature ?? DEFAULT_TEMPERATURE) : DEFAULT_TEMPERATURE,
-                systemPrompt: type === "llm" && has("systemPrompt") ? String((d as { systemPrompt?: string }).systemPrompt || "") : "",
-                // LLM Memory fields
-                enableMemory: type === "llm" && has("enableMemory") ? (d as Record<string, unknown>).enableMemory as boolean : false,
-                memoryMaxTurns: type === "llm" && has("memoryMaxTurns") ? (d as Record<string, unknown>).memoryMaxTurns as number : 10,
-
-                text: (type === "input" || type === "output") && has("text") ? String((d as { text?: string }).text || "") : "",
-                // Input node specific fields
-                enableTextInput: type === "input" && has("enableTextInput") ? (d as Record<string, unknown>).enableTextInput as boolean : true,
-                enableFileInput: type === "input" && has("enableFileInput") ? (d as Record<string, unknown>).enableFileInput as boolean : false,
-                enableStructuredForm: type === "input" && has("enableStructuredForm") ? (d as Record<string, unknown>).enableStructuredForm as boolean : false,
-                fileConfig: type === "input" && has("fileConfig") ? (d as Record<string, unknown>).fileConfig as { allowedTypes: string[]; maxSizeMB: number; maxCount: number } : undefined,
-                formFields: type === "input" && has("formFields") ? (d as Record<string, unknown>).formFields as unknown[] : undefined,
-                toolType: type === "tool" && has("toolType") ? String((d as { toolType?: string }).toolType || "web_search") : "web_search",
-                inputs: type === "tool" && has("inputs") ? (d as { inputs?: Record<string, unknown> }).inputs || {} : {},
-                // Branch node specific fields
-                condition: type === "branch" && has("condition") ? String((d as Record<string, unknown>).condition || "") : "",
-            });
+            isInitializing.current = true;
+            // 使用 setTimeout 确保 form.reset 完成后再取消初始化状态
+            const timer = setTimeout(() => {
+                isInitializing.current = false;
+            }, 50);
+            return () => clearTimeout(timer);
         }
-    }, [selectedNode, form]);
+    }, [selectedNode?.id]);
 
+    // 保留 onSubmit 供需要时使用（例如按钮提交）
     const onSubmit = (values: FormValues) => {
         if (selectedNodeId) {
             updateNodeData(selectedNodeId, values);
@@ -114,7 +153,7 @@ export default function ContextHUD() {
                             though form.reset handles values. Adding key helps with scroll reset. */}
                         <div className="p-5 space-y-6" key={selectedNode.id}>
                             <Form {...form}>
-                                <form onBlur={form.handleSubmit(onSubmit)} className="space-y-4">
+                                <form className="space-y-4">
                                     {type === "llm" && <LLMNodeForm form={form} />}
                                     {type === "input" && <InputNodeForm form={form} selectedNodeId={selectedNodeId || undefined} updateNodeData={updateNodeData} />}
                                     {type === "rag" && <RAGNodeForm form={form} selectedNodeId={selectedNodeId} updateNodeData={updateNodeData} selectedNode={selectedNode} />}

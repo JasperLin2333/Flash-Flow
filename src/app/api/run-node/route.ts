@@ -1,45 +1,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-
-// ============ Provider Configuration ============
-const PROVIDER_CONFIG = {
-    siliconflow: {
-        baseURL: "https://api.siliconflow.cn/v1",
-        getApiKey: () => process.env.SILICONFLOW_API_KEY || "",
-    },
-    dashscope: {
-        baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        getApiKey: () => process.env.DASHSCOPE_API_KEY || "",
-    },
-    openai: {
-        baseURL: "https://api.openai.com/v1",
-        getApiKey: () => process.env.OPENAI_API_KEY || "",
-    },
-} as const;
-
-/**
- * Determine the provider based on model ID prefix
- * - deepseek-ai/* → SiliconFlow
- * - Qwen/* or qwen-* → DashScope
- * - gpt-* → OpenAI
- * - Default: SiliconFlow (for new models)
- */
-function getProviderForModel(model: string): keyof typeof PROVIDER_CONFIG {
-    const modelLower = model.toLowerCase();
-
-    if (model.startsWith("deepseek-ai/") || modelLower.startsWith("deepseek")) {
-        return "siliconflow";
-    }
-    if (model.startsWith("Qwen/") || modelLower.startsWith("qwen")) {
-        return "dashscope";
-    }
-    if (modelLower.startsWith("gpt-")) {
-        return "openai";
-    }
-
-    // Default to SiliconFlow for unknown models
-    return "siliconflow";
-}
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 
 /**
  * Non-streaming LLM API Endpoint
@@ -54,8 +16,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Model is required" }, { status: 400 });
         }
 
-        // Construct messages
-        const messages: { role: string; content: string }[] = [];
+        // Construct messages with proper typing
+        const messages: ChatCompletionMessageParam[] = [];
         if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
 
         // Add conversation history if provided (for memory feature)
@@ -81,16 +43,25 @@ export async function POST(req: Request) {
         const provider = getProviderForModel(model);
         const config = PROVIDER_CONFIG[provider];
 
+        // Validate API key is configured
+        const apiKey = config.getApiKey();
+        if (!apiKey) {
+            return NextResponse.json(
+                { error: `API key for ${provider} is not configured. Please set the corresponding environment variable.` },
+                { status: 500 }
+            );
+        }
+
         // Create OpenAI client for the selected provider
         const client = new OpenAI({
-            apiKey: config.getApiKey(),
+            apiKey,
             baseURL: config.baseURL,
         });
 
         const completion = await client.chat.completions.create({
             model: model,
             temperature: temperature || 0.7,
-            messages: messages as any,
+            messages,
         });
 
         const responseText = completion.choices?.[0]?.message?.content || "";

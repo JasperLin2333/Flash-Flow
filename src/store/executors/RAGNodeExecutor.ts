@@ -139,9 +139,18 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
     }
 
     // 解析变量模板获取文件数组
-    const filesValue = resolveVariableTemplate(filesTemplate, context);
+    let filesValue = resolveVariableTemplate(filesTemplate, context);
 
-    if (!filesValue || !Array.isArray(filesValue)) {
+    if (!filesValue) {
+      return null;
+    }
+
+    // Support single file object (wrap in array)
+    if (!Array.isArray(filesValue) && typeof filesValue === 'object') {
+      filesValue = [filesValue];
+    }
+
+    if (!Array.isArray(filesValue)) {
       return null;
     }
 
