@@ -77,7 +77,43 @@ export const createCopilotActions = (set: any, get: any) => ({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ prompt, ownerId }),
             });
-            const plan = await resp.json() as Plan;
+
+            // Handle streaming response
+            if (!resp.body) {
+                throw new Error("No response body");
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let plan: Plan = { nodes: [], edges: [] };
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const text = decoder.decode(value, { stream: true });
+                const lines = text.split("\n");
+
+                for (const line of lines) {
+                    if (line.startsWith("data: ")) {
+                        const data = line.slice(6);
+                        if (data === "[DONE]") break;
+
+                        try {
+                            const parsed = JSON.parse(data);
+                            if (parsed.type === "result") {
+                                plan = {
+                                    title: parsed.title,
+                                    nodes: parsed.nodes || [],
+                                    edges: parsed.edges || [],
+                                };
+                            }
+                        } catch {
+                            // Ignore parse errors for progress events
+                        }
+                    }
+                }
+            }
 
             const { nodes, edges } = normalizePlan(plan, prompt);
             const title = plan.title || prompt.slice(0, 30) || "Generated Flow";

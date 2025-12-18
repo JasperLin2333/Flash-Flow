@@ -18,6 +18,10 @@ export const PROVIDER_CONFIG = {
         baseURL: "https://api.openai.com/v1",
         getApiKey: () => process.env.OPENAI_API_KEY || "",
     },
+    google: {
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+        getApiKey: () => process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "",
+    },
 } as const;
 
 export type LLMProvider = keyof typeof PROVIDER_CONFIG;
@@ -40,6 +44,9 @@ export function getProviderForModel(model: string): LLMProvider {
     }
     if (modelLower.startsWith("gpt-")) {
         return "openai";
+    }
+    if (modelLower.startsWith("gemini-") || modelLower.startsWith("google/")) {
+        return "google";
     }
 
     // Default to SiliconFlow for unknown models

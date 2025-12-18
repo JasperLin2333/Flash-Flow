@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 
 export async function POST(req: Request) {
   try {
@@ -71,20 +72,22 @@ ${currentWorkflowJSON}
 
 ## 📌 变量引用铁律 (Ref Strategy)
 
-> 🔴 **变量引用格式铁律 - 必须包含节点名前缀！**
+> 🔴 **变量引用格式铁律 - 必须精确匹配！**
+> - **必须包含双大括号**: 所有引用必须用 \`{{ }}\` 包裹。❌ **严禁写成** \`Node.field\`。
+> - **必须精确匹配 Label**: 变量的前缀必须与来源节点的 \`data.label\` 字段**完全一致**（包括空格和大小写）。
 > - ✅ 正确格式: \`{{节点名.属性名}}\` (如 \`{{用户输入.user_input}}\`)
-> - ❌ **严禁无前缀**: \`{{user_input}}\` / \`{{files}}\` / \`{{response}}\` 都是错误的！
-> - ❌ **严禁用ID**: \`{{input_1.user_input}}\` 也是错误的！
-> - ❌ **严禁表达式**: \`{{A.x ? B.y : C.z}}\` 三元表达式不支持！
+> - ❌ **严禁无前缀**: \`{{user_input}}\` / \`{{files}}\`
+> - ❌ **严禁用ID/Slug**: 如果节点名称是"小红书改写"，严禁用 \`{{xhs_writer.response}}\`。必须用 \`{{小红书改写.response}}\`。
+> - ❌ **严禁用点号直连**: 严禁写成 \`input_node.formData.type\`，必须是 \`{{xx.xx}}\`。
 
-| 引用目标 | ✅ 正确写法 | ❌ 错误写法 |
+| 引用目标 | ✅ 正确写法 (假设节点 Label 为 "上传数据") | ❌ 错误写法 (严禁！) |
 |---------|-----------|------------|
-| 用户文本 | \`{{上传股票数据.user_input}}\` | \`{{user_input}}\` / \`{{input_1.user_input}}\` |
-| 用户文件 | \`{{上传文档.files}}\` | \`{{files}}\` |
-| 表单字段 | \`{{配置参数.formData.mode}}\` | \`{{formData.mode}}\` |
-| LLM回复 | \`{{内容生成.response}}\` | \`{{response}}\` |
-| 工具结果 | \`{{网页搜索.results}}\` | \`{{results}}\` |
-| RAG文档 | \`{{知识检索.documents}}\` | \`{{documents}}\` |
+| 用户文本 | \`{{上传数据.user_input}}\` | \`上传数据.user_input\` / \`{{user_input}}\` |
+| 用户文件 | \`{{上传数据.files}}\` | \`{{upload_node.files}}\` / \`files\` |
+| 表单字段 | \`{{配置参数.formData.mode}}\` | \`{{form.mode}}\` / \`{{formData.mode}}\` |
+| LLM回复 | \`{{内容生成.response}}\` | \`{{llm_node.response}}\` / \`response\` |
+| 工具结果 | \`{{网页搜索.results}}\` | \`{{search.results}}\` / \`results\` |
+| RAG文档 | \`{{知识检索.documents}}\` | \`{{rag.documents}}\` / \`documents\` |
 
 
 # 📦 节点参数详解 (Strict Code-Grounding)
@@ -156,12 +159,15 @@ ${currentWorkflowJSON}
 ### 2.1 可用模型列表 (必须从此列表选择)
 | model 值 | 说明 | 类型 |
 |---------|------|------|
+| \`gemini-3-pro-preview\` | gemini-3-pro | 文本 |
+| \`gemini-3-flash-preview\` | gemini-3-flash | 文本 |
 | \`deepseek-ai/DeepSeek-V3.2\` | DeepSeek-V3.2 (默认) | 文本 |
-| \`qwen-flash\` | 千问模型-Flash | 文本 |
+| \`zai-org/GLM-4.6V\` | 智谱-4.6V | 文本 |
 | \`Qwen/Qwen3-Omni-30B-A3B-Instruct\` | 千问模型-3 | 文本 |
-| \`doubao-seed-1-6-flash-250828\` | 豆包模型-1.6 | 文本 |
-| \`Qwen/Qwen3-VL-32B-Instruct\` | 千问-视觉模型 | **视觉** ✅ |
+| \`qwen-flash\` | 千问模型-快速 | 文本 |
 | \`deepseek-ai/DeepSeek-OCR\` | DeepSeek-OCR | **视觉** ✅ |
+| \`Qwen/Qwen3-VL-32B-Instruct\` | 千问-视觉模型-Instruct | **视觉** ✅ |
+| \`doubao-seed-1-6-flash-250828\` | 豆包模型-1.6 | 文本 |
 
 > 🔴 **图片处理必须用视觉模型**: 涉及图片分析/OCR/看图 → 必须选 \`Qwen/Qwen3-VL-32B-Instruct\` 或 \`deepseek-ai/DeepSeek-OCR\`
 
@@ -286,11 +292,14 @@ ${currentWorkflowJSON}
 
     let content = "{}";
 
-    // SiliconFlow API - model from environment variable
+    // Dynamic provider resolution
     const defaultModel = process.env.DEFAULT_LLM_MODEL || "deepseek-ai/DeepSeek-V3.2";
+    const provider = getProviderForModel(defaultModel);
+    const config = PROVIDER_CONFIG[provider];
+
     const client = new OpenAI({
-      apiKey: process.env.SILICONFLOW_API_KEY || "",
-      baseURL: "https://api.siliconflow.cn/v1"
+      apiKey: config.getApiKey(),
+      baseURL: config.baseURL
     });
     const completion = await client.chat.completions.create({
       model: defaultModel,

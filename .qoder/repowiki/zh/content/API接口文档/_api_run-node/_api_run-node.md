@@ -12,7 +12,18 @@
 - [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts)
 - [registry.ts](file://src/lib/tools/registry.ts)
 - [tools.ts](file://src/app/actions/tools.ts)
+- [llmProvider.ts](file://src/lib/llmProvider.ts)
+- [run-node-stream/route.ts](file://src/app/api/run-node-stream/route.ts)
+- [llmModelsAPI.ts](file://src/services/llmModelsAPI.ts)
 </cite>
+
+## 更新摘要
+**已更新内容**
+- 更新了项目结构图以反映新的LLM提供商配置系统
+- 扩展了核心组件部分，详细说明了SiliconFlow和DashScope提供商支持
+- 更新了架构概览中的执行流程图，包含智能路由逻辑
+- 扩展了依赖关系分析，添加了新的环境变量配置
+- 更新了性能考虑部分，增加了缓存策略的详细信息
 
 ## 目录
 1. [简介](#简介)
@@ -27,7 +38,7 @@
 
 ## 简介
 
-`/api/run-node` 是 Flash Flow 应用中的核心 API 端点，负责执行各种类型的节点（Node）计算任务。该系统采用模块化的执行器模式，支持多种节点类型包括 LLM（大语言模型）、RAG（检索增强生成）、工具节点等。API 支持多种 LLM 提供商（OpenAI、豆包等），并提供了强大的调试和监控功能。
+`/api/run-node` 是 Flash Flow 应用中的核心 API 端点，负责执行各种类型的节点（Node）计算任务。该系统采用模块化的执行器模式，支持多种节点类型包括 LLM（大语言模型）、RAG（检索增强生成）、工具节点等。API 支持多种 LLM 提供商（OpenAI、豆包、SiliconFlow、DashScope等），并提供了基于模型名称前缀的智能路由功能。系统通过集中式配置管理所有提供商，并实现了灵活的模型到提供商映射逻辑。
 
 ## 项目结构
 
@@ -38,6 +49,7 @@ graph TB
 subgraph "API 层"
 API[API Routes]
 RunNode[run-node/route.ts]
+RunNodeStream[run-node-stream/route.ts]
 end
 subgraph "执行层"
 ExecFactory[NodeExecutorFactory]
@@ -53,6 +65,10 @@ subgraph "服务层"
 GeminiAPI[GeminiFileSearchAPI]
 ToolsAPI[Tools Registry]
 QuotaService[Quota Service]
+LLMModelsAPI[LLM Models API]
+end
+subgraph "配置层"
+LLMProvider[llmProvider.ts]
 end
 subgraph "类型定义"
 FlowTypes[Flow Types]
@@ -68,16 +84,22 @@ ExecFactory --> OutputExec
 ExecFactory --> BranchExec
 LLMExec --> GeminiAPI
 LLMExec --> QuotaService
+LLMExec --> LLMProvider
 ToolExec --> ToolsAPI
+RunNode --> LLMProvider
+RunNodeStream --> LLMProvider
+LLMModelsAPI --> LLMProvider
 ```
 
 **图表来源**
-- [route.ts](file://src/app/api/run-node/route.ts#L1-L66)
+- [route.ts](file://src/app/api/run-node/route.ts#L1-L76)
 - [NodeExecutorFactory.ts](file://src/store/executors/NodeExecutorFactory.ts#L1-L28)
+- [llmProvider.ts](file://src/lib/llmProvider.ts#L1-L54)
 
 **章节来源**
-- [route.ts](file://src/app/api/run-node/route.ts#L1-L66)
+- [route.ts](file://src/app/api/run-node/route.ts#L1-L76)
 - [NodeExecutorFactory.ts](file://src/store/executors/NodeExecutorFactory.ts#L1-L28)
+- [llmProvider.ts](file://src/lib/llmProvider.ts#L1-L54)
 
 ## 核心组件
 
@@ -85,10 +107,11 @@ ToolExec --> ToolsAPI
 
 `/api/run-node` API 端点提供以下核心功能：
 
-1. **多提供商支持**：支持 OpenAI 和豆包（Doubao）两大 LLM 提供商
-2. **动态消息构建**：根据输入参数动态构建对话消息
-3. **错误处理**：完善的错误捕获和响应机制
-4. **环境配置**：支持通过环境变量配置提供商
+1. **多提供商支持**：支持 OpenAI、豆包、SiliconFlow 和 DashScope 四大 LLM 提供商
+2. **智能路由**：基于模型名称前缀自动路由到正确的提供商
+3. **动态消息构建**：根据输入参数动态构建对话消息
+4. **错误处理**：完善的错误捕获和响应机制
+5. **环境配置**：支持通过环境变量配置各提供商
 
 ### 执行器架构
 
@@ -158,6 +181,7 @@ participant LLM as LLM提供商
 participant Gemini as Gemini API
 Client->>API : POST /api/run-node
 API->>API : 解析请求参数
+API->>API : 确定LLM提供商
 API->>Factory : 获取对应执行器
 Factory-->>API : 返回执行器实例
 alt LLM节点
@@ -179,7 +203,7 @@ API-->>Client : 返回最终结果
 ```
 
 **图表来源**
-- [route.ts](file://src/app/api/run-node/route.ts#L4-L65)
+- [route.ts](file://src/app/api/run-node/route.ts#L4-L75)
 - [executionActions.ts](file://src/store/actions/executionActions.ts#L173-L228)
 
 ### 节点类型映射
@@ -223,18 +247,23 @@ QuotaOK --> |否| ReturnQuotaError[返回配额错误]
 QuotaOK --> |是| ExtractInput[提取上游输入]
 UseMock --> BuildPrompt[构建系统提示词]
 ExtractInput --> BuildPrompt
-BuildPrompt --> CallAPI[调用 /api/run-node]
+BuildPrompt --> DetermineProvider[确定提供商]
+DetermineProvider --> ValidateAPIKey[验证API密钥]
+ValidateAPIKey --> |无效| ReturnAPIKeyError[返回密钥错误]
+ValidateAPIKey --> |有效| CallAPI[调用LLM API]
 CallAPI --> APISuccess{API调用成功?}
 APISuccess --> |否| ReturnAPIError[返回API错误]
 APISuccess --> |是| IncrementQuota[增加配额使用]
 IncrementQuota --> ReturnSuccess[返回成功结果]
 ReturnQuotaError --> End([结束])
+ReturnAPIKeyError --> End
 ReturnAPIError --> End
 ReturnSuccess --> End
 ```
 
 **图表来源**
 - [LLMNodeExecutor.ts](file://src/store/executors/LLMNodeExecutor.ts#L12-L136)
+- [route.ts](file://src/app/api/run-node/route.ts#L42-L52)
 
 #### 配额检查机制
 
@@ -358,11 +387,10 @@ Request[接收 POST 请求] --> ParseBody[解析请求体]
 ParseBody --> ValidateModel{验证模型参数}
 ValidateModel --> |缺失| ReturnModelError[返回模型错误]
 ValidateModel --> |存在| DetermineProvider[确定提供商]
-DetermineProvider --> IsDoubao{是否为豆包?}
-IsDoubao --> |是| SetupDoubao[配置豆包 API]
-IsDoubao --> |否| SetupOpenAI[配置 OpenAI API]
-SetupDoubao --> BuildMessages[构建消息数组]
-SetupOpenAI --> BuildMessages
+DetermineProvider --> GetProviderConfig[获取提供商配置]
+GetProviderConfig --> ValidateAPIKey{验证API密钥}
+ValidateAPIKey --> |无效| ReturnAPIKeyError[返回密钥错误]
+ValidateAPIKey --> |有效| BuildMessages[构建消息数组]
 BuildMessages --> HasSystemPrompt{有系统提示词?}
 HasSystemPrompt --> |是| AddSystemMessage[添加系统消息]
 HasSystemPrompt --> |否| CheckInput{有输入内容?}
@@ -374,11 +402,12 @@ AddDefaultMessage --> CallLLM
 CallLLM --> HandleResponse[处理 API 响应]
 HandleResponse --> ReturnResult[返回执行结果]
 ReturnModelError --> End([结束])
+ReturnAPIKeyError --> End
 ReturnResult --> End
 ```
 
 **图表来源**
-- [route.ts](file://src/app/api/run-node/route.ts#L4-L65)
+- [route.ts](file://src/app/api/run-node/route.ts#L4-L75)
 
 #### 错误处理机制
 
@@ -405,7 +434,7 @@ Level4 --> ErrorResponse
 ```
 
 **章节来源**
-- [route.ts](file://src/app/api/run-node/route.ts#L1-L66)
+- [route.ts](file://src/app/api/run-node/route.ts#L1-L76)
 
 ## 依赖关系分析
 
@@ -417,11 +446,14 @@ subgraph "外部依赖"
 OpenAI[OpenAI SDK]
 Gemini[Google GenAI]
 MathJS[Math.js]
+SiliconFlow[SiliconFlow API]
+DashScope[DashScope API]
 end
 subgraph "内部服务"
 QuotaService[配额服务]
 AuthService[认证服务]
 FlowAPI[流程 API]
+LLMModelsAPI[LLM模型API]
 end
 subgraph "执行器"
 LLMExec[LLM执行器]
@@ -430,22 +462,28 @@ ToolExec[工具执行器]
 end
 subgraph "API 端点"
 RunNode[run-node路由]
+RunNodeStream[run-node-stream路由]
 end
 OpenAI --> RunNode
 Gemini --> RAGExec
 MathJS --> ToolExec
+SiliconFlow --> RunNode
+DashScope --> RunNode
 QuotaService --> LLMExec
 AuthService --> LLMExec
 FlowAPI --> LLMExec
 RunNode --> LLMExec
 RunNode --> RAGExec
 RunNode --> ToolExec
+LLMModelsAPI --> RunNode
+LLMModelsAPI --> RunNodeStream
 ```
 
 **图表来源**
-- [route.ts](file://src/app/api/run-node/route.ts#L1-L3)
+- [route.ts](file://src/app/api/run-node/route.ts#L1-L76)
 - [LLMNodeExecutor.ts](file://src/store/executors/LLMNodeExecutor.ts#L1-L6)
 - [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L3)
+- [llmProvider.ts](file://src/lib/llmProvider.ts#L1-L54)
 
 ### 环境变量配置
 
@@ -458,10 +496,15 @@ RunNode --> ToolExec
 | `NEXT_PUBLIC_GEMINI_API_KEY` | Gemini API 密钥 | - | 否 |
 | `TAVILY_API_KEY` | Tavily API 密钥 | - | 否 |
 | `LLM_PROVIDER` | 默认 LLM 提供商 | "openai" | 否 |
+| `SILICONFLOW_API_KEY` | SiliconFlow API 密钥 | - | 否 |
+| `DASHSCOPE_API_KEY` | DashScope API 密钥 | - | 否 |
+| `DEFAULT_LLM_MODEL` | 默认LLM模型 | "deepseek-ai/DeepSeek-V3.2" | 否 |
 
 **章节来源**
 - [route.ts](file://src/app/api/run-node/route.ts#L13-L13)
 - [LLMNodeExecutor.ts](file://src/store/executors/LLMNodeExecutor.ts#L23-L23)
+- [llmProvider.ts](file://src/lib/llmProvider.ts#L11-L15)
+- [llmModelsAPI.ts](file://src/services/llmModelsAPI.ts#L22-L23)
 
 ## 性能考虑
 
@@ -490,6 +533,10 @@ protected async measureTime<T>(fn: () => Promise<T>): Promise<{ result: T; time:
 - **配额缓存**：用户配额信息在内存中缓存
 - **工具配置缓存**：工具注册表信息静态加载
 - **API 响应缓存**：LLM API 响应结果可选择性缓存
+- **模型列表缓存**：LLM模型列表在内存中缓存5分钟，减少数据库查询
+
+**章节来源**
+- [llmModelsAPI.ts](file://src/services/llmModelsAPI.ts#L39-L41)
 
 ## 故障排除指南
 
@@ -503,12 +550,14 @@ protected async measureTime<T>(fn: () => Promise<T>): Promise<{ result: T; time:
 - API 密钥配置错误
 - 配额不足
 - 网络连接问题
+- 未配置正确的提供商密钥
 
 **解决步骤**：
 1. 检查环境变量配置
 2. 验证 API 密钥有效性
 3. 检查用户配额状态
 4. 查看浏览器开发者工具网络面板
+5. 确认模型名称前缀与提供商匹配
 
 #### 2. RAG 检索失败
 
@@ -545,15 +594,16 @@ protected async measureTime<T>(fn: () => Promise<T>): Promise<{ result: T; time:
 
 ## 结论
 
-`/api/run-node` API 是 Flash Flow 应用的核心组件，它通过模块化的执行器架构实现了灵活且可扩展的节点执行能力。系统支持多种 LLM 提供商、丰富的节点类型和强大的调试功能，为构建复杂的 AI 工作流提供了坚实的基础。
+`/api/run-node` API 是 Flash Flow 应用的核心组件，它通过模块化的执行器架构实现了灵活且可扩展的节点执行能力。系统支持多种 LLM 提供商（包括新加入的SiliconFlow和DashScope）、丰富的节点类型和强大的调试功能，为构建复杂的 AI 工作流提供了坚实的基础。
 
 ### 主要优势
 
 1. **模块化设计**：清晰的职责分离和可扩展的架构
-2. **多提供商支持**：灵活的 LLM 提供商切换能力
-3. **完善的错误处理**：多层次的错误捕获和恢复机制
-4. **强大的调试功能**：支持模拟数据和详细的执行监控
-5. **性能优化**：内置的时间测量和并发控制机制
+2. **多提供商支持**：灵活的 LLM 提供商切换能力，支持OpenAI、豆包、SiliconFlow和DashScope
+3. **智能路由**：基于模型名称前缀的自动路由逻辑，简化配置
+4. **完善的错误处理**：多层次的错误捕获和恢复机制
+5. **强大的调试功能**：支持模拟数据和详细的执行监控
+6. **性能优化**：内置的时间测量、并发控制和缓存机制
 
 ### 未来发展方向
 
@@ -561,3 +611,4 @@ protected async measureTime<T>(fn: () => Promise<T>): Promise<{ result: T; time:
 2. **性能优化**：引入更高效的缓存和并发控制机制
 3. **监控增强**：添加更详细的执行指标和监控功能
 4. **安全加固**：加强输入验证和访问控制机制
+5. **提供商扩展**：支持更多LLM提供商，完善智能路由逻辑

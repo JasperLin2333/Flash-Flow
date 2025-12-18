@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import { getProviderForModel } from "@/lib/llmProvider";
 
 // ============ Types ============
 export interface LLMModel {
@@ -26,7 +27,7 @@ const getDefaultModels = (): LLMModel[] => {
             id: "default-1",
             model_id: defaultModel,
             model_name: modelName,
-            provider: "siliconflow",
+            provider: getProviderForModel(defaultModel),
             is_active: true,
             display_order: 1,
         },
