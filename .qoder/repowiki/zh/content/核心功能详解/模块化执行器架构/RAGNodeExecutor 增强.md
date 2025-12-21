@@ -3,21 +3,20 @@
 <cite>
 **本文引用的文件**
 - [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts)
-- [BaseNodeExecutor.ts](file://src/store/executors/BaseNodeExecutor.ts)
-- [NodeExecutorFactory.ts](file://src/store/executors/NodeExecutorFactory.ts)
 - [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts)
-- [contextUtils.ts](file://src/store/executors/contextUtils.ts)
-- [variableUtils.ts](file://src/store/executors/utils/variableUtils.ts)
-- [flowStore.ts](file://src/store/flowStore.ts)
-- [executionActions.ts](file://src/store/actions/executionActions.ts)
 - [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx)
 - [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx)
-- [CustomNode.tsx](file://src/components/flow/CustomNode.tsx)
-- [flow.ts](file://src/types/flow.ts)
-- [planNormalizer.ts](file://src/store/utils/planNormalizer.ts)
-- [nodeStatusUtils.ts](file://src/store/utils/nodeStatusUtils.ts)
-- [debugActions.ts](file://src/store/actions/debugActions.ts)
+- [api/rag/search/route.ts](file://src/app/api/rag/search/route.ts)
+- [api/rag/store/route.ts](file://src/app/api/rag/store/route.ts)
+- [api/rag/upload/route.ts](file://src/app/api/rag/upload/route.ts)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 将 RAGNodeExecutor 的执行逻辑从直接调用 Gemini 客户端更新为通过服务端 API 端点进行通信
+- 增强对 Gemini FileSearchStore 和多模态搜索的支持
+- 更新架构总览和详细组件分析以反映新的 API 调用模式
+- 更新依赖关系分析以包含新的 API 路由
 
 ## 目录
 1. [简介](#简介)
@@ -79,18 +78,18 @@ O --> A
 ```
 
 图表来源
-- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L242)
+- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L272)
 - [BaseNodeExecutor.ts](file://src/store/executors/BaseNodeExecutor.ts#L1-L26)
 - [NodeExecutorFactory.ts](file://src/store/executors/NodeExecutorFactory.ts#L1-L28)
-- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L393)
+- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L397)
 - [contextUtils.ts](file://src/store/executors/contextUtils.ts#L1-L124)
 - [variableUtils.ts](file://src/store/executors/utils/variableUtils.ts#L1-L139)
 - [flowStore.ts](file://src/store/flowStore.ts#L1-L49)
 - [executionActions.ts](file://src/store/actions/executionActions.ts#L1-L285)
 - [debugActions.ts](file://src/store/actions/debugActions.ts#L1-L144)
 - [nodeStatusUtils.ts](file://src/store/utils/nodeStatusUtils.ts#L1-L42)
-- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L271)
-- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L40)
+- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L307)
+- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L96)
 - [CustomNode.tsx](file://src/components/flow/CustomNode.tsx#L227-L257)
 - [flow.ts](file://src/types/flow.ts#L1-L309)
 - [planNormalizer.ts](file://src/store/utils/planNormalizer.ts#L62-L90)
@@ -109,22 +108,22 @@ O --> A
 - Builder 表单与调试对话框：RAGNodeForm 负责知识库配置与文件上传；RAGDebugDialog 与 debugActions 协助调试。
 
 章节来源
-- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L242)
+- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L272)
 - [BaseNodeExecutor.ts](file://src/store/executors/BaseNodeExecutor.ts#L1-L26)
 - [NodeExecutorFactory.ts](file://src/store/executors/NodeExecutorFactory.ts#L1-L28)
-- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L393)
+- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L397)
 - [contextUtils.ts](file://src/store/executors/contextUtils.ts#L1-L124)
 - [variableUtils.ts](file://src/store/executors/utils/variableUtils.ts#L1-L139)
 - [executionActions.ts](file://src/store/actions/executionActions.ts#L1-L285)
-- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L271)
-- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L40)
+- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L307)
+- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L96)
 - [debugActions.ts](file://src/store/actions/debugActions.ts#L1-L144)
 
 ## 架构总览
 RAGNodeExecutor 的执行链路如下：
 - 执行入口由执行动作触发，构建 FlowContext 并按拓扑顺序执行节点。
 - RAGNodeExecutor 依据 inputMappings 解析查询与文件引用，决定走静态检索或动态多模态。
-- 通过 geminiFileSearchAPI 与 Gemini API 交互，返回检索结果与引用信息。
+- 通过服务端 API 端点 `/api/rag/search` 与 Gemini API 交互，返回检索结果与引用信息。
 - 执行结果写回 FlowContext，节点状态更新为 completed 或 error。
 
 ```mermaid
@@ -133,7 +132,7 @@ participant UI as "界面/用户"
 participant Store as "flowStore/executionActions"
 participant Factory as "NodeExecutorFactory"
 participant Exec as "RAGNodeExecutor"
-participant API as "geminiFileSearchAPI"
+participant API as "服务端API"
 participant Ctx as "FlowContext"
 UI->>Store : 触发 runFlow/runNode
 Store->>Factory : 获取执行器
@@ -141,10 +140,10 @@ Factory-->>Store : 返回 RAGNodeExecutor
 Store->>Exec : execute(node, upstreamContext)
 Exec->>Ctx : 解析 inputMappings/query/files
 alt 动态文件模式
-Exec->>API : queryWithFiles(query, files)
+Exec->>API : POST /api/rag/search (mode=multimodal)
 API-->>Exec : 检索结果/引用
 else 静态文件模式
-Exec->>API : searchInStore(query, storeName, topK)
+Exec->>API : POST /api/rag/search (mode=fileSearch)
 API-->>Exec : 检索结果/引用
 end
 Exec-->>Store : {output, executionTime}
@@ -155,8 +154,8 @@ Store-->>UI : 更新节点状态/展示结果
 图表来源
 - [executionActions.ts](file://src/store/actions/executionActions.ts#L1-L285)
 - [NodeExecutorFactory.ts](file://src/store/executors/NodeExecutorFactory.ts#L1-L28)
-- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L74-L242)
-- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L190-L313)
+- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L74-L272)
+- [api/rag/search/route.ts](file://src/app/api/rag/search/route.ts#L1-L89)
 
 ## 详细组件分析
 
@@ -167,9 +166,9 @@ Store-->>UI : 更新节点状态/展示结果
 - 查询内容解析
   - 优先使用 inputMappings.query 模板解析；若为空则回退到从上游提取文本。
 - 动态文件模式
-  - 从 inputMappings.files 解析上游文件数组，过滤有效文件（含 url），调用多模态 API 直接处理。
+  - 从 inputMappings.files 解析上游文件数组，过滤有效文件（含 url），调用服务端 API 端点进行多模态处理。
 - 静态文件模式
-  - 依赖预配置的 File Search Store 与上传文件，调用检索接口并返回引用信息。
+  - 依赖预配置的 File Search Store 与上传文件，调用服务端 API 端点进行检索并返回引用信息。
 - 错误处理与输出
   - 统一返回 { query, documents, citations, documentCount, mode } 结构；异常时返回 { error }。
   - 计时统计 executionTime，便于性能监控。
@@ -184,8 +183,8 @@ ResolveQ --> QEmpty{"查询为空？"}
 QEmpty --> |是| ErrQ["返回错误：未找到查询内容"]
 QEmpty --> |否| ResolveF["解析动态文件引用"]
 ResolveF --> HasF{"存在有效文件？"}
-HasF --> |是| ModeM["动态模式：queryWithFiles"]
-HasF --> |否| ModeFS["静态模式：searchInStore"]
+HasF --> |是| ModeM["动态模式：POST /api/rag/search (multimodal)"]
+HasF --> |否| ModeFS["静态模式：POST /api/rag/search (fileSearch)"]
 ModeM --> BuildOut["组装输出：documents/citations/mode"]
 ModeFS --> BuildOut
 BuildOut --> Done(["结束"])
@@ -194,11 +193,11 @@ ErrQ --> Done
 ```
 
 图表来源
-- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L74-L242)
+- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L74-L272)
 - [contextUtils.ts](file://src/store/executors/contextUtils.ts#L1-L124)
 
 章节来源
-- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L242)
+- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L272)
 - [contextUtils.ts](file://src/store/executors/contextUtils.ts#L1-L124)
 
 ### 变量解析与收集（variableUtils）
@@ -223,9 +222,9 @@ UseMock --> Done
 - [variableUtils.ts](file://src/store/executors/utils/variableUtils.ts#L1-L139)
 
 ### 与 Gemini API 的集成
-- 静态检索：searchInStore，支持 topK 与可选 metadataFilter。
-- 动态多模态：queryWithFiles，支持从 URL 加载文件并直接调用模型生成内容。
-- Store 生命周期：创建、上传、轮询处理进度、列举与删除。
+- 静态检索：通过 POST `/api/rag/search` 调用，支持 topK 与可选 metadataFilter。
+- 动态多模态：通过 POST `/api/rag/search` 调用，支持从 URL 加载文件并直接调用模型生成内容。
+- Store 生命周期：通过 POST `/api/rag/store` 创建、POST `/api/rag/upload` 上传、轮询处理进度、列举与删除。
 
 ```mermaid
 classDiagram
@@ -241,10 +240,10 @@ class GeminiFileSearchAPI {
 ```
 
 图表来源
-- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L393)
+- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L397)
 
 章节来源
-- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L393)
+- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L397)
 
 ### Builder 表单与调试
 - RAGNodeForm：自动创建 File Search Store、上传文件、分块与重叠配置、返回结果数设置。
@@ -253,11 +252,11 @@ class GeminiFileSearchAPI {
 ```mermaid
 sequenceDiagram
 participant Builder as "RAGNodeForm.tsx"
-participant API as "geminiFileSearchAPI"
+participant API as "服务端API"
 participant Store as "flowStore/debugActions"
 participant Exec as "executionActions"
 participant Node as "RAG 节点"
-Builder->>API : 创建/上传/检索
+Builder->>API : POST /api/rag/store & /api/rag/upload
 Store->>Exec : runNode(nodeId, mockData)
 Exec->>Node : execute(...)
 Node-->>Exec : {output, executionTime}
@@ -265,13 +264,13 @@ Exec-->>Store : 更新节点状态/上下文
 ```
 
 图表来源
-- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L271)
+- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L307)
 - [debugActions.ts](file://src/store/actions/debugActions.ts#L70-L101)
 - [executionActions.ts](file://src/store/actions/executionActions.ts#L251-L285)
 
 章节来源
-- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L271)
-- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L40)
+- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L307)
+- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L96)
 - [debugActions.ts](file://src/store/actions/debugActions.ts#L70-L101)
 
 ## 依赖关系分析
@@ -298,16 +297,16 @@ Custom["CustomNode.tsx"] --> ExecAct
 ```
 
 图表来源
-- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L242)
+- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L1-L272)
 - [BaseNodeExecutor.ts](file://src/store/executors/BaseNodeExecutor.ts#L1-L26)
 - [NodeExecutorFactory.ts](file://src/store/executors/NodeExecutorFactory.ts#L1-L28)
-- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L393)
+- [geminiFileSearchAPI.ts](file://src/services/geminiFileSearchAPI.ts#L1-L397)
 - [contextUtils.ts](file://src/store/executors/contextUtils.ts#L1-L124)
 - [variableUtils.ts](file://src/store/executors/utils/variableUtils.ts#L1-L139)
 - [executionActions.ts](file://src/store/actions/executionActions.ts#L1-L285)
 - [nodeStatusUtils.ts](file://src/store/utils/nodeStatusUtils.ts#L1-L42)
-- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L271)
-- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L40)
+- [RAGNodeForm.tsx](file://src/components/builder/node-forms/RAGNodeForm.tsx#L1-L307)
+- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L96)
 - [debugActions.ts](file://src/store/actions/debugActions.ts#L1-L144)
 - [CustomNode.tsx](file://src/components/flow/CustomNode.tsx#L227-L257)
 
@@ -345,8 +344,8 @@ Custom["CustomNode.tsx"] --> ExecAct
   - FlowContext 保存每个节点的输出，便于后续节点引用。
 
 章节来源
-- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L74-L242)
-- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L40)
+- [RAGNodeExecutor.ts](file://src/store/executors/RAGNodeExecutor.ts#L74-L272)
+- [RAGDebugDialog.tsx](file://src/components/flow/RAGDebugDialog.tsx#L1-L96)
 - [debugActions.ts](file://src/store/actions/debugActions.ts#L70-L101)
 - [nodeStatusUtils.ts](file://src/store/utils/nodeStatusUtils.ts#L1-L42)
 - [executionActions.ts](file://src/store/actions/executionActions.ts#L1-L285)
