@@ -1,14 +1,32 @@
 import OpenAI from "openai";
+export const runtime = 'edge';
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
+import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
 
 /**
  * Streaming LLM API Endpoint
  * Dynamically routes to the correct provider based on model ID
  */
 export async function POST(req: Request) {
+    // Clone request for quota operations (body can only be read once)
+    const reqClone = req.clone();
+
     try {
-        const body = await req.json();
+        // Authentication check
+        const user = await getAuthenticatedUser(req);
+        if (!user) {
+            return unauthorizedResponse();
+        }
+
+        // Server-side quota check
+        const quotaCheck = await checkQuotaOnServer(req, user.id, "llm_executions");
+        if (!quotaCheck.allowed) {
+            return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "LLM 执行次数");
+        }
+
+        const body = await reqClone.json();
         const { model, systemPrompt, input, temperature, conversationHistory } = body;
 
         if (!model) {
@@ -73,11 +91,18 @@ export async function POST(req: Request) {
                     });
 
                     for await (const chunk of completion) {
-                        const content = chunk.choices?.[0]?.delta?.content || "";
-                        if (content) {
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
+                        const delta = chunk.choices?.[0]?.delta;
+                        const content = delta?.content || "";
+                        // @ts-ignore - reasoning_content is specific to some models like DeepSeek
+                        const reasoning = delta?.reasoning_content || "";
+
+                        if (content || reasoning) {
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content, reasoning })}\n\n`));
                         }
                     }
+
+                    // Increment quota after successful completion
+                    await incrementQuotaOnServer(req, user.id, "llm_executions");
 
                     // Signal stream end
                     controller.enqueue(encoder.encode("data: [DONE]\n\n"));

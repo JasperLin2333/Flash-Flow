@@ -44,7 +44,7 @@ export default function RAGDebugDialog() {
             <DialogContent className="sm:max-w-[500px] rounded-2xl border border-gray-200 shadow-xl">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 font-bold text-base">
-                        <Search className="w-5 h-5 text-blue-600" />
+                        <Search className="w-5 h-5 text-gray-600" />
                         填写测试数据
                     </DialogTitle>
                     <DialogDescription className="text-xs text-gray-500">

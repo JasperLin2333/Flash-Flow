@@ -149,7 +149,7 @@ export function createDebugDialogActions(
                 set({ [dialogOpenKey]: false });
                 await get().runNode(nodeId, mockData);
             } catch (e) {
-                console.error(`${nodeType.toUpperCase()} debug run failed:`, e);
+                // Silently handled
             }
         },
     };

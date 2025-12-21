@@ -65,7 +65,7 @@ export default function LLMDebugDialog() {
                 <div className="space-y-4 py-4">
                     <div className="space-y-2">
                         <Label className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                            user_prompt
+                            user_input
                             {isEmpty && (
                                 <span className="text-xs text-red-600 font-medium">(必填)</span>
                             )}
@@ -80,7 +80,7 @@ export default function LLMDebugDialog() {
                                 }`}
                         />
                         <p className="text-xs text-gray-400">
-                            这是 LLM 节点所需的用户输入，对应"需要的上游输入"中的 user_prompt 字段
+                            这是 LLM 节点所需的用户输入，对应"需要的上游输入"中的 user_input 字段
                         </p>
                     </div>
                 </div>

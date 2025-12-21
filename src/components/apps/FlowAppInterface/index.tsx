@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import PromptBubble from "@/components/ui/prompt-bubble";
 import { useFlowStore } from "@/store/flowStore";
 import type { InputNodeData } from "@/types/flow";
@@ -13,11 +13,12 @@ export type { Message, FlowAppInterfaceProps };
  * FlowAppInterface - 主应用界面
  * 提供完整的聊天交互体验
  */
-export default function FlowAppInterface({
+export default memo(function FlowAppInterface({
     flowTitle,
     flowIcon,
     messages,
     isLoading,
+    isStreaming, // 新增
     input,
     onInputChange,
     onSend,
@@ -65,7 +66,14 @@ export default function FlowAppInterface({
                 className="flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-out"
                 style={{ marginLeft: sidebarOffset }}
             >
-                <ChatArea messages={messages} isLoading={isLoading} flowIcon={flowIcon} inputNodeData={inputNodeData} flowTitle={flowTitle} />
+                <ChatArea
+                    messages={messages}
+                    isLoading={isLoading}
+                    isStreaming={isStreaming} // 新增
+                    flowIcon={flowIcon}
+                    inputNodeData={inputNodeData}
+                    flowTitle={flowTitle}
+                />
                 <div className={`${LAYOUT.spacing.input} bg-gray-50`}>
                     <div className={`${LAYOUT.inputMaxWidth} mx-auto`}>
                         <PromptBubble
@@ -91,4 +99,4 @@ export default function FlowAppInterface({
             </div>
         </div>
     );
-}
+});

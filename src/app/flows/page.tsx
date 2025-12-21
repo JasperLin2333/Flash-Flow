@@ -9,11 +9,13 @@ import FlowCard from "@/components/flows/FlowCard";
 import { Input } from "@/components/ui/input";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useFlowStore } from "@/store/flowStore";
+import { toast } from "@/hooks/use-toast";
 
 function FlowsPageContent() {
   const router = useRouter();
   const [flows, setFlows] = useState<FlowRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
@@ -36,7 +38,11 @@ function FlowsPageContent() {
   };
 
   const handleCreateFlow = async () => {
+    if (isCreating) return; // 防止重复点击
+
     try {
+      setIsCreating(true);
+
       // Reset all visual state immediately
       const { setNodes, setEdges, setFlowTitle, setFlowIcon, setCurrentFlowId } = useFlowStore.getState();
       setNodes([]);
@@ -58,7 +64,30 @@ function FlowsPageContent() {
       router.push(`/builder?flowId=${newFlow.id}`);
     } catch (err) {
       console.error("Failed to create flow:", err);
-      alert("Failed to create flow. Please try again.");
+      const errorMsg = err instanceof Error ? err.message : String(err);
+
+      // 区分错误类型
+      if (errorMsg.includes("未登录") || errorMsg.includes("not authenticated")) {
+        toast({
+          title: "请先登录",
+          description: "登录后即可创建工作流",
+          variant: "destructive",
+        });
+      } else if (errorMsg.includes("network") || errorMsg.includes("fetch")) {
+        toast({
+          title: "网络连接失败",
+          description: "请检查网络后重试",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "创建失败",
+          description: "无法创建工作流，请稍后重试",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -75,8 +104,9 @@ function FlowsPageContent() {
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索助手" className="w-[240px] pl-8 shadow-sm" />
               <SearchIcon className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
             </div>
-            <Button className="bg-gray-100 text-gray-700 hover:bg-gray-200 gap-2 rounded-lg px-6 h-11" onClick={handleCreateFlow}>
-              <Plus className="w-4 h-4" /> 新建 Flow
+            <Button className="bg-gray-100 text-gray-700 hover:bg-gray-200 gap-2 rounded-lg px-6 h-11 disabled:opacity-50" onClick={handleCreateFlow} disabled={isCreating}>
+              {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {isCreating ? "创建中..." : "新建 Flow"}
             </Button>
             <Button className="bg-black text-white hover:bg-black/90 gap-2 rounded-lg px-6 h-11" onClick={() => router.push("/")}>
               <Home className="w-4 h-4" /> 首页

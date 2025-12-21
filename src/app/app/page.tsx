@@ -92,15 +92,27 @@ function AppContent() {
         };
     }, [flowId, urlSessionId, currentFlowId, setCurrentFlowId, setFlowTitle, setFlowIcon, setNodes, setEdges, loadSession]);
 
+    // Use a ref to store a stable timestamp for the CURRENT streaming session
+    const streamingStartTimeRef = useRef<Date | null>(null);
+
     // Compute display messages: append streaming text as partial assistant message
     // 当有流式输出时，将其作为临时助手消息显示
     const { displayMessages, shouldShowLoading } = useMemo(() => {
         if (isStreaming && streamingText) {
+            if (!streamingStartTimeRef.current) {
+                streamingStartTimeRef.current = new Date();
+            }
             return {
-                displayMessages: [...messages, { role: "assistant" as const, content: streamingText, timestamp: new Date() }],
+                displayMessages: [...messages, { role: "assistant" as const, content: streamingText, timestamp: streamingStartTimeRef.current }],
                 shouldShowLoading: false // 流式输出时不显示loading
             };
         }
+
+        // Reset stable timestamp when not streaming
+        if (!isStreaming && streamingStartTimeRef.current) {
+            streamingStartTimeRef.current = null;
+        }
+
         // 如果最后一条消息是用户消息，且正在loading，说明正在等待AI回复
         const lastMessage = messages[messages.length - 1];
         const isWaitingForResponse = isLoading && lastMessage?.role === "user";
@@ -141,6 +153,7 @@ function AppContent() {
                 }}
                 messages={displayMessages}
                 isLoading={shouldShowLoading}
+                isStreaming={isStreaming} // 新增
                 input={input}
                 onInputChange={setInput}
                 onSend={sendMessage}

@@ -1,10 +1,28 @@
 import { NextResponse } from "next/server";
+export const runtime = 'edge';
 import OpenAI from "openai";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
+import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
 
 export async function POST(req: Request) {
+  // Clone request for quota operations
+  const reqClone = req.clone();
+
   try {
-    const body = await req.json();
+    // Authentication check
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
+      return unauthorizedResponse();
+    }
+
+    // Server-side quota check for flow generations
+    const quotaCheck = await checkQuotaOnServer(req, user.id, "flow_generations");
+    if (!quotaCheck.allowed) {
+      return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "Flow 生成次数");
+    }
+
+    const body = await reqClone.json();
     const { prompt, currentNodes, currentEdges } = body;
 
     if (!prompt || !currentNodes || !currentEdges) {
@@ -38,8 +56,8 @@ ${currentWorkflowJSON}
 
 ### 1. 🖼️ 视觉能力感知
 需求涉及 **图片处理**（分析/识别/OCR/看图/图像理解）时的**铁律**：
-- **必须**在 LLM 节点使用视觉模型（\`DeepSeek-OCR\`, \`千问-视觉模型\`）
-- ❌ 普通文本模型（deepseek-v3）**无法处理图片**
+- **必须**在 LLM 节点使用视觉模型（\`deepseek-ai/DeepSeek-OCR\`, \`doubao-seed-1-6-251015\`, \`gemini-3-flash-preview\`, \`zai-org/GLM-4.6V\`）
+- ❌ 普通文本模型（deepseek-chat/deepseek-ai/DeepSeek-V3.2）**无法处理图片**
 - LLM Prompt 中若需引用图片文件，请引用 \`{{InputNode.files}}\`
 
 ### 2. 🕐 时间/环境感知
@@ -149,27 +167,39 @@ ${currentWorkflowJSON}
 | \`systemPrompt\` | string | \`""\` | 系统提示词，支持 \`{{变量}}\` |
 | \`enableMemory\` | boolean | \`false\` | 是否启用多轮对话记忆 |
 | \`memoryMaxTurns\` | number | \`10\` | 1-20, 最大记忆轮数 |
-| \`inputMappings.user_prompt\` | string | 可选 | 用户消息来源，如 \`{{用户输入.user_input}}\` |
+| \`inputMappings.user_input\` | string | 可选 | 用户消息来源，如 \`{{用户输入.user_input}}\` |
 
-\> 🟡 **user_prompt 配置说明**:
-\> - **问答/对话场景**: 必须配置，指向用户输入 \`{{输入节点.user_input}}\`
-\> - **图片识别/文件处理**: 可不配置，直接在 systemPrompt 中引用 \`{{xx.files}}\`
-\> - **工具链处理**: 可不配置，在 systemPrompt 中引用上游节点输出
+\> 🔴 **user_input 配置铁律 - 二选一，禁止重复！**
+\> 
+\> 用户输入只能通过**一种方式**传递给 LLM，以下两种方式**互斥**：
+\> 
+\> | 方式 | 适用场景 | 示例 |
+\> |------|---------|------|
+\> | **A. inputMappings.user_input** | 简单对话/问答，用户消息作为独立的 user 角色发送 | \`inputMappings: {user_input: "{{用户输入.user_input}}"}\` |
+\> | **B. systemPrompt 内引用** | 复杂场景，用户输入需要与其他上下文组合 | \`systemPrompt: "分析 {{输入.user_input}} 结合 {{搜索.results}}..."\` |
+\> 
+\> ❌ **严禁同时使用 A+B**: 会导致用户输入被重复发送两次！
+\> 
+\> **场景选择指南**:
+\> - 纯对话/聊天/问答助手 → 使用 **A** (配置 inputMappings.user_input)
+\> - 多步骤工具链 (systemPrompt 已引用用户输入变量) → 使用 **B** (不配置 inputMappings.user_input)
+\> - 图片识别/文件处理 → 使用 **B**，在 systemPrompt 中引用 \`{{xx.files}}\`
 
 ### 2.1 可用模型列表 (必须从此列表选择)
 | model 值 | 说明 | 类型 |
 |---------|------|------|
-| \`gemini-3-pro-preview\` | gemini-3-pro | 文本 |
-| \`gemini-3-flash-preview\` | gemini-3-flash | 文本 |
-| \`deepseek-ai/DeepSeek-V3.2\` | DeepSeek-V3.2 (默认) | 文本 |
-| \`zai-org/GLM-4.6V\` | 智谱-4.6V | 文本 |
-| \`Qwen/Qwen3-Omni-30B-A3B-Instruct\` | 千问模型-3 | 文本 |
-| \`qwen-flash\` | 千问模型-快速 | 文本 |
+| \`gemini-3-flash-preview\` | gemini-3-Flash | **视觉/文件** ✅ |
+| \`deepseek-v3-2-251201\` | DeepSeek-V3.2 (火山引擎) | 文本 |
+| \`deepseek-ai/DeepSeek-V3.2\` | DeepSeek-V3.2 (SiliconFlow) | 文本 |
+| \`deepseek-chat\` | DeepSeek-V3.2 (官方) | 文本 |
 | \`deepseek-ai/DeepSeek-OCR\` | DeepSeek-OCR | **视觉** ✅ |
-| \`Qwen/Qwen3-VL-32B-Instruct\` | 千问-视觉模型-Instruct | **视觉** ✅ |
-| \`doubao-seed-1-6-flash-250828\` | 豆包模型-1.6 | 文本 |
+| \`doubao-1-5-pro-32k-character-250715\` | doubao-1-5-pro | 文本 |
+| \`doubao-seed-1-6-251015\` | doubao-seed-1.6 | **视觉/文件** ✅ |
+| \`doubao-seed-1-6-flash-250828\` | doubao-seed-1.6-flash | 文本 |
+| \`zai-org/GLM-4.6V\` | 智谱-4.6V | **视觉** ✅ |
+| \`qwen-flash\` | 千问模型-快速 | 文本 |
 
-> 🔴 **图片处理必须用视觉模型**: 涉及图片分析/OCR/看图 → 必须选 \`Qwen/Qwen3-VL-32B-Instruct\` 或 \`deepseek-ai/DeepSeek-OCR\`
+> 🔴 **图片处理必须用视觉模型**: 涉及图片分析/OCR/看图 → 必须选带有 **视觉** 标记的模型（如 \`deepseek-ai/DeepSeek-OCR\`、\`doubao-seed-1-6-251015\`、\`gemini-3-flash-preview\`、\`zai-org/GLM-4.6V\`）
 
 ### 2.2 记忆功能配置铁律 🧠
 
@@ -191,7 +221,6 @@ ${currentWorkflowJSON}
 ### 3.1 参数限制
 | 参数 | 类型 | 默认值 | 取值范围 | 说明 |
 |------|------|-------|---------|------|
-| \`topK\` | number | 5 | 1/3/5/7/10 | 检索结果数量 |
 | \`maxTokensPerChunk\` | number | 200 | 50-500 | 静态分块大小 (tokens) |
 | \`maxOverlapTokens\` | number | 20 | 0-100 | 静态分块重叠 (tokens) |
 
@@ -322,6 +351,9 @@ ${currentWorkflowJSON}
     } catch {
       instruction = { action: "unknown" };
     }
+
+    // Increment quota after successful modification
+    await incrementQuotaOnServer(req, user.id, "flow_generations");
 
     return NextResponse.json(instruction);
   } catch (e) {

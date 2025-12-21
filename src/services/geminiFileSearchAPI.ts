@@ -55,7 +55,7 @@ class GeminiFileSearchAPI {
      *               支持依赖注入以便于单元测试
      */
     constructor(apiKey?: string) {
-        this.apiKey = apiKey ?? process.env.NEXT_PUBLIC_GEMINI_API_KEY ?? null;
+        this.apiKey = apiKey ?? process.env.GEMINI_API_KEY ?? null;
         if (this.apiKey) {
             this.ai = new GoogleGenAI({ apiKey: this.apiKey });
         }
@@ -75,7 +75,7 @@ class GeminiFileSearchAPI {
     private ensureInitialized(): void {
         if (!this.ai || !this.apiKey) {
             throw new Error(
-                'Gemini API Key not configured. Please set NEXT_PUBLIC_GEMINI_API_KEY in your environment variables.'
+                'Gemini API Key not configured. Please set GEMINI_API_KEY in your environment variables.'
             );
         }
     }
@@ -191,12 +191,12 @@ class GeminiFileSearchAPI {
 
     /**
      * 在 File Search Store 中搜索
+     * Note: topK is managed internally by Gemini API, not configurable
      */
     async searchInStore(
         query: string,
         fileSearchStoreName: string,
         options?: {
-            topK?: number;
             metadataFilter?: string;
         }
     ): Promise<SearchResult> {

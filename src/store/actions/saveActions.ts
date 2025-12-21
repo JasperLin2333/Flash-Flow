@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
 import { flowAPI } from "@/services/flowAPI";
 import type { FlowState } from "@/types/flow";
+import { showWarning } from "@/utils/errorNotify";
 
 // Module-level timer for debounce
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -56,8 +57,8 @@ export const createSaveActions: StateCreator<
                     set({ currentFlowId: id, saveStatus: "saved" });
                     resolve(id);
                 } catch (err) {
-                    console.error("Auto-save failed:", err);
                     set({ saveStatus: "saved" }); // Reset status even on error
+                    showWarning("保存失败", "自动保存失败，请手动保存或稍后重试");
                     resolve(null); // FIX: Resolve with null instead of rejecting, don't break the flow
                 }
             }, 800);
@@ -101,8 +102,8 @@ export const createSaveActions: StateCreator<
             set({ currentFlowId: id, saveStatus: "saved" });
             return id;
         } catch (err) {
-            console.error("Flush save failed:", err);
             set({ saveStatus: "saved" });
+            showWarning("保存失败", "保存失败，请稍后重试");
             return null;
         }
     },

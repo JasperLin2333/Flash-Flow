@@ -11,6 +11,14 @@
 - [supabase-schema.sql](file://supabase-schema.sql)
 </cite>
 
+## 更新摘要
+**变更内容**   
+- 更新核心配置部分，新增Google Gemini提供商的详细配置信息
+- 更新环境变量部分，增加Gemini API密钥相关环境变量
+- 更新核心配置流程图，包含Google Gemini提供商
+- 更新执行流程图，体现动态路由机制
+- 新增动态路由机制说明
+
 ## 目录
 1. [简介](#简介)
 2. [核心配置](#核心配置)
@@ -29,7 +37,7 @@ LLM提供商配置系统是本应用的核心组件，负责管理与不同大�
 - [llmModelsAPI.ts](file://src/services/llmModelsAPI.ts#L1-L122)
 
 ## 核心配置
-核心配置主要在`llmProvider.ts`文件中定义，包含了所有支持的LLM提供商的配置信息。配置采用常量对象的形式，每个提供商都有其基础URL和API密钥获取函数。
+核心配置主要在`llmProvider.ts`文件中定义，包含了所有支持的LLM提供商的配置信息。配置采用常量对象的形式，每个提供商都有其基础URL和API密钥获取函数。新增了Google Gemini提供商支持，其配置包括基础URL和API密钥获取函数。
 
 ```mermaid
 flowchart TD
@@ -44,7 +52,7 @@ C --> I[API密钥: DASHSCOPE_API_KEY]
 D --> J[基础URL: https://api.openai.com/v1]
 D --> K[API密钥: OPENAI_API_KEY]
 E --> L[基础URL: https://generativelanguage.googleapis.com/v1beta/openai/]
-E --> M[API密钥: NEXT_PUBLIC_GEMINI_API_KEY/GEMINI_API_KEY]
+E --> M[API密钥: GEMINI_API_KEY]
 ```
 
 **Diagram sources**
@@ -168,7 +176,7 @@ flowchart TD
 A[环境变量] --> B[SILICONFLOW_API_KEY]
 A --> C[DASHSCOPE_API_KEY]
 A --> D[OPENAI_API_KEY]
-A --> E[NEXT_PUBLIC_GEMINI_API_KEY]
+A --> E[GEMINI_API_KEY]
 A --> F[DEFAULT_LLM_MODEL]
 A --> G[NEXT_PUBLIC_DEFAULT_LLM_MODEL]
 ```
@@ -182,7 +190,7 @@ A --> G[NEXT_PUBLIC_DEFAULT_LLM_MODEL]
 - [executorConfig.ts](file://src/store/constants/executorConfig.ts#L11-L13)
 
 ## 执行流程
-LLM节点的执行流程涉及多个组件的协同工作，从用户输入到最终响应的生成。
+LLM节点的执行流程涉及多个组件的协同工作，从用户输入到最终响应的生成。系统通过`getProviderForModel`函数实现动态路由机制，根据模型ID的前缀自动确定对应的提供商。
 
 ```mermaid
 flowchart TD
@@ -199,7 +207,9 @@ H --> I[返回结果]
 **Diagram sources**
 - [run-node/route.ts](file://src/app/api/run-node/route.ts#L10-L74)
 - [run-node-stream/route.ts](file://src/app/api/run-node-stream/route.ts#L9-L110)
+- [llmProvider.ts](file://src/lib/llmProvider.ts#L50-L71)
 
 **Section sources**
 - [run-node/route.ts](file://src/app/api/run-node/route.ts#L10-L74)
 - [run-node-stream/route.ts](file://src/app/api/run-node-stream/route.ts#L9-L110)
+- [llmProvider.ts](file://src/lib/llmProvider.ts#L50-L71)

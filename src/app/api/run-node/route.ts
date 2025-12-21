@@ -1,15 +1,33 @@
 import { NextResponse } from "next/server";
+export const runtime = 'edge';
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
+import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
 
 /**
  * Non-streaming LLM API Endpoint
  * Dynamically routes to the correct provider based on model ID
  */
 export async function POST(req: Request) {
+    // Clone request for quota operations
+    const reqClone = req.clone();
+
     try {
-        const body = await req.json();
+        // Authentication check
+        const user = await getAuthenticatedUser(req);
+        if (!user) {
+            return unauthorizedResponse();
+        }
+
+        // Server-side quota check
+        const quotaCheck = await checkQuotaOnServer(req, user.id, "llm_executions");
+        if (!quotaCheck.allowed) {
+            return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "LLM 执行次数");
+        }
+
+        const body = await reqClone.json();
         const { model, systemPrompt, input, temperature, conversationHistory } = body;
 
         if (!model) {
@@ -64,9 +82,18 @@ export async function POST(req: Request) {
             messages,
         });
 
-        const responseText = completion.choices?.[0]?.message?.content || "";
+        const message = completion.choices?.[0]?.message;
+        const responseText = message?.content || "";
+        // @ts-ignore
+        const reasoningText = message?.reasoning_content || "";
 
-        return NextResponse.json({ response: responseText });
+        // Increment quota after successful completion
+        await incrementQuotaOnServer(req, user.id, "llm_executions");
+
+        return NextResponse.json({
+            response: responseText,
+            reasoning: reasoningText
+        });
     } catch (error) {
         console.error("Run node error:", error);
         return NextResponse.json({ error: "Execution failed", details: error instanceof Error ? error.message : String(error) }, { status: 500 });

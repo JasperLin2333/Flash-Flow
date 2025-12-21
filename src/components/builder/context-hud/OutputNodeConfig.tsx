@@ -57,13 +57,13 @@ export function OutputNodeConfig({
 
     const handleModeChange = (newMode: OutputMode) => {
         let newSources = sources;
-        
+
         // 如果切换到直连模式，只能保留一个 source
         if (newMode === 'direct') {
             newSources = sources.slice(0, 1);
         }
-        
-        updateMappings({ 
+
+        updateMappings({
             mode: newMode,
             sources: newSources
         });
@@ -113,7 +113,7 @@ export function OutputNodeConfig({
                 </label>
                 <button
                     onClick={() => setShowModeDropdown(!showModeDropdown)}
-                    className="w-full flex items-center justify-between px-3 py-2 text-sm bg-white border rounded-lg hover:border-blue-300 transition-colors"
+                    className="w-full flex items-center justify-between px-3 py-2 text-sm bg-white border rounded-lg hover:border-gray-400 transition-colors"
                 >
                     <div className="text-left">
                         <span className="font-medium text-gray-900">{currentModeOption.label}</span>
@@ -127,7 +127,7 @@ export function OutputNodeConfig({
                             <button
                                 key={option.value}
                                 onClick={() => handleModeChange(option.value)}
-                                className={`w-full px-3 py-2 text-left hover:bg-blue-50 first:rounded-t-lg last:rounded-b-lg ${mode === option.value ? 'bg-blue-50' : ''
+                                className={`w-full px-3 py-2 text-left hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg ${mode === option.value ? 'bg-gray-100' : ''
                                     }`}
                             >
                                 <span className="font-medium text-gray-900 text-sm">{option.label}</span>
@@ -149,7 +149,7 @@ export function OutputNodeConfig({
                         value={template}
                         onChange={(e) => updateMappings({ template: e.target.value })}
                         placeholder="输入模板内容，使用 {{变量名}} 或 {{节点名.字段}} 引用变量&#10;&#10;例如:&#10;## 用户问题&#10;{{user_input}}&#10;&#10;## AI 回复&#10;{{LLM处理.response}}"
-                        className="w-full h-32 text-xs px-3 py-2 border rounded-lg outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100 resize-none font-mono"
+                        className="w-full min-h-32 text-xs px-3 py-2 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 resize-y font-mono"
                     />
                     <p className="text-[9px] text-gray-400 mt-1">
                         支持 <code className="bg-gray-100 px-1 rounded">{"{{变量名}}"}</code> 或 <code className="bg-gray-100 px-1 rounded">{"{{节点名.字段}}"}</code> 语法
@@ -170,7 +170,7 @@ export function OutputNodeConfig({
                                     value={source.value}
                                     onChange={(e) => handleUpdateSource(idx, e.target.value)}
                                     placeholder="{{节点名.字段}} 或 {{response}}"
-                                    className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100 font-mono"
+                                    className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono"
                                 />
                                 <Button
                                     variant="ghost"
@@ -220,7 +220,7 @@ export function OutputNodeConfig({
                                 value={attachment.value}
                                 onChange={(e) => handleUpdateAttachment(idx, e.target.value)}
                                 placeholder="{{用户输入.files}}"
-                                className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100 font-mono"
+                                className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono"
                             />
                             <Button
                                 variant="ghost"

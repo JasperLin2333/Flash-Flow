@@ -5,6 +5,7 @@ import { updateNodeStatus, resetAllNodesStatus } from "../utils/nodeStatusUtils"
 import { hasCycle } from "../utils/cycleDetection";
 import { calculateTopologicalLevels, groupNodesByLevel, getDescendants } from "../utils/parallelExecutionUtils";
 import { resolveSourceNodeIdFromSource } from "../utils/sourceResolver";
+import { showWarning } from "@/utils/errorNotify";
 
 
 export const createExecutionActions = (
@@ -167,7 +168,7 @@ export const createExecutionActions = (
 
             // 3. 执行锁
             if (get()._executionLock) {
-                console.warn('[RunFlow] 执行已在进行中，请等待完成');
+                showWarning("请等待", "流程正在执行中，请等待完成后再试");
                 return;
             }
             set({ _executionLock: true });
@@ -326,7 +327,6 @@ export const createExecutionActions = (
 
                 set({ executionStatus: "completed" });
             } catch (error) {
-                console.error('Flow execution failed:', error);
                 set({
                     executionStatus: "error" as ExecutionStatus,
                     executionError: error instanceof Error ? error.message : "Unknown error occurred"
@@ -367,7 +367,7 @@ export const createExecutionActions = (
                     set({ flowContext: { ...prev, [nodeId]: result.output } });
                 }
             } catch (error) {
-                console.error(`Single node run error caught in action:`, error);
+                // Silently handled
             }
         },
     };

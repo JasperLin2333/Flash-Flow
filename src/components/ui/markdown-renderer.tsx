@@ -3,48 +3,31 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { memo, useDeferredValue } from "react";
+import { memo } from "react";
 import { CodeBlock } from "./code-block";
 import { ImageLightbox } from "./image-lightbox";
 
 interface MarkdownRendererProps {
     content: string;
     className?: string;
+    isStreaming?: boolean; // 新增：标识是否正在流式输出
 }
 
 /**
  * MarkdownRenderer - Markdown 渲染组件
- * 
- * 支持的语法：
- * - 标题 (h1-h6)
- * - 粗体、斜体、删除线
- * - 有序/无序列表
- * - 代码块和行内代码（带语法高亮）
- * - 链接和图片（点击放大）
- * - 表格 (GFM)
- * - 任务列表 (GFM)
- * - 引用块
- * 
- * 优化特性：
- * - 代码语法高亮 (rehype-highlight)
- * - 一键复制代码
- * - 长代码块折叠 (>15行)
- * - 图片点击放大
- * - 流式渲染优化 (useDeferredValue)
  */
 export const MarkdownRenderer = memo(function MarkdownRenderer({
     content,
-    className = ""
+    className = "",
+    isStreaming = false
 }: MarkdownRendererProps) {
-    // 流式渲染优化：使用 useDeferredValue 降低快速更新时的渲染优先级
-    const deferredContent = useDeferredValue(content);
-
     return (
-        <div className={`markdown-content ${className}`}>
+        <div className={`markdown-content ${className} ${isStreaming ? "is-streaming" : ""} relative`}>
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
                 components={{
+                    // ... existing components ...
                     // 标题
                     h1: ({ children }) => (
                         <h1 className="text-xl font-bold mt-4 mb-2 first:mt-0">{children}</h1>
@@ -122,7 +105,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 
                     // 引用
                     blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-blue-300 pl-3 py-1 my-2 bg-blue-50/50 rounded-r text-gray-700 italic">
+                        <blockquote className="border-l-4 border-gray-300 pl-3 py-1 my-2 bg-gray-50 rounded-r text-gray-700 italic">
                             {children}
                         </blockquote>
                     ),
@@ -133,7 +116,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
                             href={href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                            className="text-gray-900 hover:text-black underline underline-offset-2"
                         >
                             {children}
                         </a>
@@ -189,7 +172,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
                     ),
                 }}
             >
-                {deferredContent}
+                {content}
             </ReactMarkdown>
         </div>
     );

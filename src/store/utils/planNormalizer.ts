@@ -50,6 +50,7 @@ function normalizeInputNode(node: PlanNode, data: PlanNodeData, label: string): 
         enableStructuredForm,
         fileConfig,
         formFields,
+        greeting: String(getProp<string>(node, data, 'greeting') || ""),
     } as AppNodeData;
 }
 
@@ -82,7 +83,6 @@ function normalizeRAGNode(node: PlanNode, data: PlanNodeData, label: string): Ap
         label,
         status: "idle",
         files: processedFiles,
-        topK: getProp<number>(node, data, 'topK') ?? 5,
         maxTokensPerChunk: getProp<number>(node, data, 'maxTokensPerChunk') ?? 200,
         maxOverlapTokens: getProp<number>(node, data, 'maxOverlapTokens') ?? 50,
         inputMappings: getProp<Record<string, string>>(node, data, 'inputMappings') || {},

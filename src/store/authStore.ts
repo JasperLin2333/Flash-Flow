@@ -5,6 +5,7 @@
 
 import { create } from "zustand";
 import { authService } from "@/services/authService";
+import { mapAuthError } from "@/utils/authErrorMapper";
 import type { User, LoginCredentials, RegisterData } from "@/types/auth";
 
 interface AuthStore {
@@ -73,7 +74,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                 }
             });
         } catch (e) {
-            console.error("[authStore] initialize error:", e);
             set({ user: null, isAuthenticated: false, isLoading: false });
         }
     },
@@ -86,7 +86,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             const { user, error } = await authService.signIn(credentials);
 
             if (error) {
-                set({ error: error.message, isLoading: false });
+                set({ error: mapAuthError(error.message), isLoading: false });
                 return false;
             }
 
@@ -98,7 +98,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             set({ error: "登录失败", isLoading: false });
             return false;
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : "登录时发生错误";
+            const errorMsg = e instanceof Error ? mapAuthError(e.message) : "登录时发生错误";
             set({ error: errorMsg, isLoading: false });
             return false;
         } finally {
@@ -117,7 +117,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             const { user, error } = await authService.signUp(data);
 
             if (error) {
-                set({ error: error.message, isLoading: false });
+                set({ error: mapAuthError(error.message), isLoading: false });
                 return false;
             }
 
@@ -129,7 +129,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             set({ error: "注册失败", isLoading: false });
             return false;
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : "注册时发生错误";
+            const errorMsg = e instanceof Error ? mapAuthError(e.message) : "注册时发生错误";
             set({ error: errorMsg, isLoading: false });
             return false;
         } finally {
@@ -156,7 +156,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                 resetEmail: null,
             });
         } catch (e) {
-            console.error("[authStore] logout error:", e);
             // Force logout even if API call fails
             set({ user: null, isAuthenticated: false, isLoading: false });
         }
@@ -184,7 +183,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             const { isNewUser, error } = await authService.sendSignUpOtp(email);
 
             if (error) {
-                set({ error: error.message, isLoading: false });
+                set({ error: mapAuthError(error.message), isLoading: false });
                 return false;
             }
 
@@ -197,7 +196,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             });
             return true;
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : "发送验证码失败";
+            const errorMsg = e instanceof Error ? mapAuthError(e.message) : "发送验证码失败";
             set({ error: errorMsg, isLoading: false });
             return false;
         }
@@ -220,7 +219,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             );
 
             if (error) {
-                set({ error: error.message, isLoading: false });
+                set({ error: mapAuthError(error.message), isLoading: false });
                 return false;
             }
 
@@ -240,7 +239,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             set({ error: "登录失败", isLoading: false });
             return false;
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : "验证失败";
+            const errorMsg = e instanceof Error ? mapAuthError(e.message) : "验证失败";
             set({ error: errorMsg, isLoading: false });
             return false;
         }
@@ -264,7 +263,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             );
 
             if (error) {
-                set({ error: error.message, isLoading: false });
+                set({ error: mapAuthError(error.message), isLoading: false });
                 return false;
             }
 
@@ -284,7 +283,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             set({ error: "注册失败", isLoading: false });
             return false;
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : "验证失败";
+            const errorMsg = e instanceof Error ? mapAuthError(e.message) : "验证失败";
             set({ error: errorMsg, isLoading: false });
             return false;
         }
@@ -298,7 +297,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             const { error } = await authService.sendPasswordResetOtp(email);
 
             if (error) {
-                set({ error: error.message, isLoading: false });
+                set({ error: mapAuthError(error.message), isLoading: false });
                 return false;
             }
 
@@ -310,7 +309,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             });
             return true;
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : "发送验证码失败";
+            const errorMsg = e instanceof Error ? mapAuthError(e.message) : "发送验证码失败";
             set({ error: errorMsg, isLoading: false });
             return false;
         }
@@ -334,7 +333,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             );
 
             if (error) {
-                set({ error: error.message, isLoading: false });
+                set({ error: mapAuthError(error.message), isLoading: false });
                 return false;
             }
 
@@ -346,7 +345,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             });
             return true;
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : "重置密码失败";
+            const errorMsg = e instanceof Error ? mapAuthError(e.message) : "重置密码失败";
             set({ error: errorMsg, isLoading: false });
             return false;
         }
@@ -366,14 +365,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             const { error } = await authService.resendVerificationEmail(user.email);
 
             if (error) {
-                set({ error: error.message, isLoading: false });
+                set({ error: mapAuthError(error.message), isLoading: false });
                 return false;
             }
 
             set({ isLoading: false, error: null });
             return true;
         } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : "发送验证邮件失败";
+            const errorMsg = e instanceof Error ? mapAuthError(e.message) : "发送验证邮件失败";
             set({ error: errorMsg, isLoading: false });
             return false;
         }

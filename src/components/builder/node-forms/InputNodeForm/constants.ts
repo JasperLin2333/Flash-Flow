@@ -1,9 +1,10 @@
 import type { FormFieldConfig, SelectFieldConfig, TextFieldConfig, FileInputConfig, MultiSelectFieldConfig, InputNodeData } from "@/types/flow";
+import { NODE_FORM_STYLES } from "../shared";
 
-// ============ Style Constants ============
-export const LABEL_CLASS = "text-[10px] font-bold uppercase tracking-wider text-gray-500";
-export const INPUT_CLASS = "bg-gray-50 border-gray-200 text-gray-900";
-export const SECTION_TITLE_CLASS = "text-xs font-semibold text-gray-700 flex items-center gap-2";
+// ============ Style Constants (从共享模块导入) ============
+export const LABEL_CLASS = NODE_FORM_STYLES.LABEL;
+export const INPUT_CLASS = NODE_FORM_STYLES.INPUT;
+export const SECTION_TITLE_CLASS = NODE_FORM_STYLES.SECTION_TITLE;
 
 // ============ File Type Options ============
 export const FILE_TYPE_OPTIONS = [

@@ -62,7 +62,7 @@ export const createDebugActions: StateCreator<
             set({ llmDebugDialogOpen: false });
             await get().runNode(llmDebugNodeId, mockData);
         } catch (e) {
-            console.error("LLM debug run failed:", e);
+            // Silently handled
         }
     },
 
@@ -95,7 +95,7 @@ export const createDebugActions: StateCreator<
             set({ ragDebugDialogOpen: false });
             await get().runNode(ragDebugNodeId, mockData);
         } catch (e) {
-            console.error("RAG debug run failed:", e);
+            // Silently handled
         }
     },
 
@@ -126,7 +126,7 @@ export const createDebugActions: StateCreator<
             set({ toolDebugDialogOpen: false });
             await get().runNode(toolDebugNodeId, mockData);
         } catch (e) {
-            console.error("Tool debug run failed:", e);
+            // Silently handled
         }
     },
 

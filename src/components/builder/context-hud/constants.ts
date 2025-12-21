@@ -24,9 +24,11 @@ export const formSchema = z.object({
         maxCount: z.number(),
     }).optional(),
     formFields: z.array(z.any()).optional(),
+    greeting: z.string().optional(),  // 招呼语
     // Branch node specific fields
     condition: z.string().optional(),
 });
+
 
 export type FormValues = z.infer<typeof formSchema>;
 
@@ -138,7 +140,7 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
 export const NODE_UPSTREAM_INPUTS: Record<NodeKind, { field: string; description: string; required: boolean }[]> = {
     input: [],  // 入口节点，无需上游输入
     llm: [
-        { field: "user_prompt", description: "用户消息内容（问答场景必填，图片识别等场景可选）", required: false },
+        { field: "user_input", description: "用户消息内容（问答场景必填，图片识别等场景可选）", required: false },
     ],
     rag: [
         { field: "query", description: "检索查询文本", required: true },

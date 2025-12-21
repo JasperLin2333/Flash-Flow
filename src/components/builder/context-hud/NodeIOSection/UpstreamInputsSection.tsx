@@ -98,7 +98,7 @@ export function UpstreamInputsSection({
                                 }}
                                 placeholder="输入值或 {{变量名}}"
                                 rows={1}
-                                className="w-full text-[10px] font-mono px-2 py-1.5 border rounded outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100 bg-white border-gray-200 resize-y"
+                                className="w-full text-[10px] font-mono px-2 py-1.5 border rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 bg-white border-gray-200 resize-y"
                             />
                         )}
                     </div>

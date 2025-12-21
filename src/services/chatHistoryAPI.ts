@@ -23,7 +23,6 @@ export const chatHistoryAPI = {
             .order("created_at", { ascending: true });
 
         if (error) {
-            console.error("Error fetching chat history:", error);
             return [];
         }
 
@@ -41,7 +40,6 @@ export const chatHistoryAPI = {
             .order("created_at", { ascending: true });
 
         if (error) {
-            console.error("Error fetching session messages:", error);
             return [];
         }
 
@@ -86,7 +84,6 @@ export const chatHistoryAPI = {
             .single();
 
         if (error) {
-            console.error("Error adding chat message:", error);
             return null;
         }
 
@@ -106,7 +103,6 @@ export const chatHistoryAPI = {
             .eq("id", id);
 
         if (error) {
-            console.error("Error updating chat message:", error);
             return false;
         }
 
@@ -123,7 +119,6 @@ export const chatHistoryAPI = {
             .eq("flow_id", flowId);
 
         if (error) {
-            console.error("Error clearing chat history:", error);
             return false;
         }
 

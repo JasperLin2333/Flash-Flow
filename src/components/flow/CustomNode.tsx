@@ -128,7 +128,6 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
     if (type === "rag") {
       const files = rag?.files || [];
       const maxTokens = rag?.maxTokensPerChunk || 200;
-      const topK = rag?.topK || 5;
 
       return (
         <div className="flex flex-col gap-1">
@@ -140,13 +139,10 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
             <span className={METADATA_LABEL_STYLE}>块大小:</span>
             <span className={METADATA_VALUE_STYLE}>{maxTokens} 字符</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={METADATA_LABEL_STYLE}>返回数量:</span>
-            <span className={METADATA_VALUE_STYLE}>前 {topK} 条</span>
-          </div>
         </div>
       );
     }
+
 
     // ===== Input 节点 =====
     if (type === "input") {
@@ -249,8 +245,19 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
       return;
     }
 
-    // RAG 节点：直接打开调试弹窗
+    // RAG 节点：检查 inputMappings.query 是否已配置
     if (type === 'rag') {
+      const ragData = data as RAGNodeData;
+      const inputMappings = (ragData as unknown as { inputMappings?: Record<string, string> })?.inputMappings;
+      const queryValue = inputMappings?.query;
+
+      // 如果已配置且不是变量引用（没有 {{），则直接运行
+      if (queryValue && queryValue.trim() && !queryValue.includes('{{')) {
+        runNode(id as string, { query: queryValue });
+        return;
+      }
+
+      // 否则打开调试弹窗让用户填写
       openRAGDebugDialog(id as string);
       return;
     }

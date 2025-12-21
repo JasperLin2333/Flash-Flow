@@ -19,7 +19,7 @@ import { Loader2, ArrowLeft, Mail, KeyRound, CheckCircle2 } from "lucide-react";
 const FORM_STYLES = {
     FIELD_SPACING: "space-y-2",
     FORM_SPACING: "space-y-4",
-    INPUT_CLASSES: "bg-white border-zinc-200",
+    INPUT_CLASSES: "bg-white border-gray-200",
 } as const;
 
 const OTP_RESEND_INTERVAL = 60; // seconds
@@ -66,12 +66,12 @@ export function AuthDialog({ open, onOpenChange, defaultTab = "login" }: AuthDia
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="sm:max-w-[425px] bg-white border-zinc-200">
+            <DialogContent className="sm:max-w-[425px] bg-white border-gray-200">
                 <DialogHeader>
-                    <DialogTitle className="text-xl font-semibold text-zinc-900">
+                    <DialogTitle className="text-xl font-semibold text-gray-900">
                         {getTitle()}
                     </DialogTitle>
-                    <DialogDescription className="text-zinc-600">
+                    <DialogDescription className="text-gray-600">
                         {getDescription()}
                     </DialogDescription>
                 </DialogHeader>
@@ -150,7 +150,7 @@ function LoginForm({ onSuccess, onForgotPassword }: { onSuccess: () => void; onF
                     <button
                         type="button"
                         onClick={onForgotPassword}
-                        className="text-sm text-zinc-500 hover:text-zinc-900 transition-colors"
+                        className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
                     >
                         忘记密码？
                     </button>
@@ -170,7 +170,7 @@ function LoginForm({ onSuccess, onForgotPassword }: { onSuccess: () => void; onF
 
             <Button
                 type="submit"
-                className="w-full bg-zinc-900 hover:bg-zinc-800 text-white"
+                className="w-full bg-gray-900 hover:bg-gray-800 text-white"
                 disabled={isLoading}
             >
                 {isLoading ? (
@@ -306,7 +306,7 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
 
                     <Button
                         type="submit"
-                        className="w-full bg-zinc-900 hover:bg-zinc-800 text-white"
+                        className="w-full bg-gray-900 hover:bg-gray-800 text-white"
                         disabled={isLoading || !email}
                     >
                         {isLoading ? (
@@ -326,8 +326,8 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
                 <form onSubmit={handleVerifyOtp} className={FORM_STYLES.FORM_SPACING}>
                     <div className={FORM_STYLES.FIELD_SPACING}>
                         <Label htmlFor="register-otp">验证码</Label>
-                        <p className="text-sm text-zinc-500 mb-2">
-                            已发送 6 位验证码到 <span className="font-medium text-zinc-700">{email}</span>
+                        <p className="text-sm text-gray-500 mb-2">
+                            已发送 8 位验证码到 <span className="font-medium text-gray-700">{email}</span>
                         </p>
                         <Input
                             id="register-otp"
@@ -365,7 +365,7 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
                         </Button>
                         <Button
                             type="submit"
-                            className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white"
+                            className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
                             disabled={isLoading || otp.length !== 8}
                         >
                             下一步
@@ -426,7 +426,7 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
                         </Button>
                         <Button
                             type="submit"
-                            className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white"
+                            className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
                             disabled={isLoading || !password || password !== confirmPassword}
                         >
                             {isLoading ? (
@@ -519,11 +519,11 @@ function ForgotPasswordForm({ onBack, onSuccess }: { onBack: () => void; onSucce
                     <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                         <CheckCircle2 className="w-8 h-8 text-green-600" />
                     </div>
-                    <h3 className="text-lg font-medium text-zinc-900 mb-2">密码重置成功</h3>
-                    <p className="text-sm text-zinc-500 mb-4">您现在可以使用新密码登录了</p>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">密码重置成功</h3>
+                    <p className="text-sm text-gray-500 mb-4">您现在可以使用新密码登录了</p>
                     <Button
                         onClick={onSuccess}
-                        className="w-full bg-zinc-900 hover:bg-zinc-800 text-white"
+                        className="w-full bg-gray-900 hover:bg-gray-800 text-white"
                     >
                         返回登录
                     </Button>
@@ -572,7 +572,7 @@ function ForgotPasswordForm({ onBack, onSuccess }: { onBack: () => void; onSucce
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white"
+                                    className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
                                     disabled={isLoading || !email}
                                 >
                                     {isLoading ? (
@@ -593,8 +593,8 @@ function ForgotPasswordForm({ onBack, onSuccess }: { onBack: () => void; onSucce
                         <form onSubmit={handleVerifyAndReset} className={FORM_STYLES.FORM_SPACING}>
                             <div className={FORM_STYLES.FIELD_SPACING}>
                                 <Label htmlFor="reset-otp">验证码</Label>
-                                <p className="text-sm text-zinc-500 mb-2">
-                                    已发送 6 位验证码到 <span className="font-medium text-zinc-700">{email}</span>
+                                <p className="text-sm text-gray-500 mb-2">
+                                    已发送 8 位验证码到 <span className="font-medium text-gray-700">{email}</span>
                                 </p>
                                 <Input
                                     id="reset-otp"
@@ -632,7 +632,7 @@ function ForgotPasswordForm({ onBack, onSuccess }: { onBack: () => void; onSucce
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white"
+                                    className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
                                     disabled={isLoading || otp.length !== 8}
                                 >
                                     下一步
@@ -693,7 +693,7 @@ function ForgotPasswordForm({ onBack, onSuccess }: { onBack: () => void; onSucce
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white"
+                                    className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
                                     disabled={isLoading || !newPassword || newPassword !== confirmPassword}
                                 >
                                     {isLoading ? (
@@ -745,16 +745,16 @@ function StepIndicator({ steps, currentStep }: StepIndicatorProps) {
                         <div
                             className={`
                                 flex items-center justify-center w-8 h-8 rounded-full transition-colors
-                                ${isActive ? 'bg-zinc-900 text-white' : ''}
+                                ${isActive ? 'bg-gray-900 text-white' : ''}
                                 ${isCompleted ? 'bg-green-500 text-white' : ''}
-                                ${!isActive && !isCompleted ? 'bg-zinc-100 text-zinc-400' : ''}
+                                ${!isActive && !isCompleted ? 'bg-gray-100 text-gray-400' : ''}
                             `}
                         >
                             <Icon className="w-4 h-4" />
                         </div>
                         {index < steps.length - 1 && (
                             <div
-                                className={`w-8 h-0.5 mx-1 transition-colors ${isCompleted ? 'bg-green-500' : 'bg-zinc-200'
+                                className={`w-8 h-0.5 mx-1 transition-colors ${isCompleted ? 'bg-green-500' : 'bg-gray-200'
                                     }`}
                             />
                         )}
@@ -798,7 +798,7 @@ function ResendOtpButton({ otpSentAt, onResend, isLoading }: ResendOtpButtonProp
     return (
         <div className="text-center">
             {countdown > 0 ? (
-                <span className="text-sm text-zinc-500">
+                <span className="text-sm text-gray-500">
                     {countdown} 秒后可重新发送
                 </span>
             ) : (
@@ -806,7 +806,7 @@ function ResendOtpButton({ otpSentAt, onResend, isLoading }: ResendOtpButtonProp
                     type="button"
                     onClick={handleResend}
                     disabled={isLoading}
-                    className="text-sm text-zinc-600 hover:text-zinc-900 transition-colors disabled:opacity-50"
+                    className="text-sm text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
                 >
                     重新发送验证码
                 </button>

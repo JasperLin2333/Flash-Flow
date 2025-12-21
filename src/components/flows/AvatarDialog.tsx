@@ -5,6 +5,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { uploadFlowIcon, isValidImageFile, SUPPORTED_IMAGE_FORMATS } from "./flowCardUtils";
 import React from "react";
+import { toast } from "@/hooks/use-toast";
+
+// 文件大小限制常量
+const MAX_FILE_SIZE_MB = 5;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 // ============ 常量 ============
 const EMOJI_LIST = [
@@ -66,7 +71,21 @@ export function AvatarDialog({
   const processFile = async (file: File) => {
     // 验证文件类型
     if (!isValidImageFile(file)) {
-      alert(`不支持的文件格式。支持: ${SUPPORTED_IMAGE_FORMATS}`);
+      toast({
+        title: "不支持的文件格式",
+        description: `请上传 ${SUPPORTED_IMAGE_FORMATS} 格式的图片`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // 验证文件大小
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      toast({
+        title: "文件过大",
+        description: `图片大小不能超过 ${MAX_FILE_SIZE_MB}MB，当前文件大小为 ${(file.size / 1024 / 1024).toFixed(1)}MB`,
+        variant: "destructive",
+      });
       return;
     }
 
@@ -77,8 +96,19 @@ export function AvatarDialog({
         await onImageSelect(url);
         onOpenChange(false);
       } else {
-        alert("上传失败，请检查存储桶配置 flow-icons");
+        toast({
+          title: "上传失败",
+          description: "无法上传图片，请检查网络后重试",
+          variant: "destructive",
+        });
       }
+    } catch (error) {
+      console.error("Upload failed:", error);
+      toast({
+        title: "上传失败",
+        description: "上传过程中发生错误，请稍后重试",
+        variant: "destructive",
+      });
     } finally {
       setUploading(false);
       // 重置文件输入
@@ -121,8 +151,8 @@ export function AvatarDialog({
         await onEmojiSelect(selectedEmoji);
         onOpenChange(false);
       } catch (error) {
+        // 错误已在 FlowCard 的 handleEmojiSelect 中处理
         console.error("Failed to update emoji:", error);
-        alert("更新头像失败");
       }
     } else {
       onOpenChange(false);
@@ -165,7 +195,7 @@ export function AvatarDialog({
               className={cn(
                 "border-2 border-dashed rounded-lg p-6 text-center transition-colors duration-150 cursor-pointer",
                 isDragging
-                  ? "border-blue-500 bg-blue-50"
+                  ? "border-black bg-gray-50"
                   : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
               )}
               onClick={() => fileInputRef.current?.click()}
@@ -180,10 +210,10 @@ export function AvatarDialog({
                 onChange={handleFileChange}
                 className="hidden"
               />
-              <div className={cn("text-sm", isDragging ? "text-blue-600" : "text-gray-600")}>
+              <div className={cn("text-sm", isDragging ? "text-black" : "text-gray-600")}>
                 {isDragging ? "松开鼠标上传文件" : "点击选择文件或拖拽文件到此处"}
               </div>
-              <div className="text-xs text-gray-500 mt-2">支持 {SUPPORTED_IMAGE_FORMATS} 格式</div>
+              <div className="text-xs text-gray-500 mt-2">支持 {SUPPORTED_IMAGE_FORMATS} 格式，最大 {MAX_FILE_SIZE_MB}MB</div>
               {uploading && (
                 <div className="text-xs mt-2 text-gray-600 font-medium">上传中...</div>
               )}

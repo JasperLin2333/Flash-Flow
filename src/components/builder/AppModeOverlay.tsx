@@ -8,6 +8,7 @@ import { extractOutputFromContext } from "@/store/executors/contextUtils";
 import { fileUploadService } from "@/services/fileUploadService";
 import type { FlowContext, AppNode } from "@/types/flow";
 import type { ChatAttachment } from "@/types/chat";
+import { showError } from "@/utils/errorNotify";
 
 // ============ Constants ============
 const ANIMATION = {
@@ -17,7 +18,7 @@ const ANIMATION = {
 } as const;
 
 const DEFAULT_ASSISTANT_MSG = "Flow completed without output.";
-const ERROR_MSG = "Error executing flow.";
+const ERROR_MSG = "执行过程中发生错误，请检查流程配置。";
 
 // ============ Types ============
 interface AppMessage {
@@ -101,17 +102,21 @@ export default function AppModeOverlay() {
         const inputNode = nodes.find((n) => n.type === "input");
         const inputNodeData = inputNode?.data as import("@/types/flow").InputNodeData | undefined;
         const enableTextInput = inputNodeData?.enableTextInput !== false;
+        const enableFileInput = inputNodeData?.enableFileInput === true;
+        const enableStructuredForm = inputNodeData?.enableStructuredForm === true;
         const currentFlowId = useFlowStore.getState().currentFlowId;
 
         // 检查是否有内容可发送
         const hasText = input.trim().length > 0;
         const hasFiles = files && files.length > 0;
-        const hasFormData = inputNodeData?.enableStructuredForm && inputNodeData?.formFields?.length;
+        const hasFormData = enableStructuredForm && inputNodeData?.formFields?.length && inputNodeData?.formData;
 
-        // 如果启用文本输入但没有任何内容，不发送
-        if (enableTextInput && !hasText && !hasFiles) return;
-        // 如果禁用文本输入，但既没有文件也没有表单，不发送
-        if (!enableTextInput && !hasFiles && !hasFormData) return;
+        // 统一验证：根据启用的模式判断是否可发送
+        const hasValidContent =
+            (enableTextInput && hasText) ||
+            (enableFileInput && hasFiles) ||
+            (enableStructuredForm && hasFormData);
+        if (!hasValidContent) return;
         if (isLoading) return;
 
         // 构建用户消息（支持空文本时显示友好提示）
@@ -145,6 +150,7 @@ export default function AppModeOverlay() {
                 uploadedFiles = results.filter((f): f is NonNullable<typeof f> => f !== null);
             } catch (error) {
                 console.error("文件上传失败:", error);
+                showError("文件上传失败", "请检查网络连接后重试");
             }
         }
 

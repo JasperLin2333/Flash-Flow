@@ -18,7 +18,7 @@ import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
 const FORM_STYLES = {
     FIELD_SPACING: "space-y-2",
     FORM_SPACING: "space-y-4",
-    INPUT_CLASSES: "bg-white border-zinc-200",
+    INPUT_CLASSES: "bg-white border-gray-200",
 } as const;
 
 const UI_TEXT = {
@@ -129,12 +129,12 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="sm:max-w-[425px] bg-white border-zinc-200">
+            <DialogContent className="sm:max-w-[425px] bg-white border-gray-200">
                 <DialogHeader>
-                    <DialogTitle className="text-xl font-semibold text-zinc-900">
+                    <DialogTitle className="text-xl font-semibold text-gray-900">
                         {UI_TEXT.title}
                     </DialogTitle>
-                    <DialogDescription className="text-zinc-600">
+                    <DialogDescription className="text-gray-600">
                         {UI_TEXT.description}
                     </DialogDescription>
                 </DialogHeader>
@@ -207,7 +207,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
                         </Button>
                         <Button
                             type="submit"
-                            className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white"
+                            className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
                             disabled={isLoading || success}
                         >
                             {isLoading ? (

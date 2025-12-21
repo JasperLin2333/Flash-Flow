@@ -57,15 +57,16 @@ export default function Home() {
           <div className="flex items-center justify-center gap-3 mb-6 -translate-x-7">
             <Image src={Logo} alt="Flash Flow Logo" width={60} height={60} className="w-20 h-20" />
             <h1
-              className="text-5xl font-semibold tracking-tight text-black"
+              className="text-5xl font-semibold tracking-tight bg-clip-text text-transparent"
               style={{
                 fontFamily: "Inter, SF Pro Display, system-ui, -apple-system, sans-serif",
+                backgroundImage: "var(--brand-gradient)",
               }}
             >
               Flash Flow
             </h1>
           </div>
-          <p className="text-zinc-700 text-lg text-center tracking-wide font-light">想要什么，就做什么</p>
+          <p className="text-gray-700 text-lg text-center tracking-wide font-light">想要什么，就做什么</p>
 
           <div className="mt-10 w-full">
             <PromptBubble

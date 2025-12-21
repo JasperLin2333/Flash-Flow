@@ -83,10 +83,18 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
         };
     }, [handleUserScroll, handleInteractionStart]);
 
+    // 使用 Ref 记录上次滚动时间，实现节流
+    const lastScrollTimeRef = useRef(0);
+    const THROTTLE_MS = 100;
+
     // 当依赖项变化时，如果用户没有主动滚动过，则自动滚动到底部
     useEffect(() => {
         if (!userScrolledRef.current) {
-            scrollToBottom();
+            const now = Date.now();
+            if (now - lastScrollTimeRef.current >= THROTTLE_MS) {
+                scrollToBottom();
+                lastScrollTimeRef.current = now;
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, dependencies);

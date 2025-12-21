@@ -63,6 +63,7 @@ export interface FlowAppInterfaceProps {
     flowIcon?: FlowIconConfig;
     messages: Message[];
     isLoading: boolean;
+    isStreaming?: boolean; // 新增：标识是否正在流式输出
     input: string;
     onInputChange: (value: string) => void;
     onSend: (files?: File[]) => void;

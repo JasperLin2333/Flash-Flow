@@ -9,6 +9,7 @@ import type { AppNode, InputNodeData, FlowState, SelectFieldConfig, MultiSelectF
 import { AlertCircle, Paperclip, X, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { fileUploadService } from "@/services/fileUploadService";
+import { showError, showWarning } from "@/utils/errorNotify";
 
 // Type for file items - can be raw File objects or already uploaded file metadata
 type UploadedFileData = { name: string; size: number; type: string; url?: string };
@@ -66,7 +67,7 @@ export default function InputPromptDialog() {
 
             // Validate Text
             if (enableText && (!data.text || !data.text.trim())) {
-                alert(`请为节点 "${data.label || 'Input'}" 填写文本内容`);
+                showWarning("输入不完整", `请为节点 "${data.label || 'Input'}" 填写文本内容`);
                 return;
             }
 
@@ -77,7 +78,7 @@ export default function InputPromptDialog() {
                         const val = data.formData?.[field.name];
                         const isEmpty = Array.isArray(val) ? val.length === 0 : (!val && val !== 0);
                         if (isEmpty) {
-                            alert(`请为节点 "${data.label || 'Input'}" 填写必填字段: ${field.label}`);
+                            showWarning("必填字段未填", `请为节点 "${data.label || 'Input'}" 填写: ${field.label}`);
                             return;
                         }
                     }
@@ -132,7 +133,7 @@ export default function InputPromptDialog() {
             await confirmRun();
         } catch (e: any) {
             console.error(e);
-            alert("运行失败: " + (e.message || "未知错误"));
+            showError("运行失败", e.message || "未知错误");
         } finally {
             setIsUploading(false);
         }
@@ -153,21 +154,21 @@ export default function InputPromptDialog() {
 
         // 1. Check Count
         if (currentFiles.length + newFiles.length > maxCount) {
-            alert(`最多只能上传 ${maxCount} 个文件，当前已选择 ${currentFiles.length} 个`);
+            showWarning("文件数量超限", `最多只能上传 ${maxCount} 个文件，当前已选择 ${currentFiles.length} 个`);
             return;
         }
 
         // 2. Check Size
         const oversized = newFiles.filter(f => f.size > maxSizeMB * 1024 * 1024);
         if (oversized.length > 0) {
-            alert(`文件 "${oversized[0].name}" 超过最大体积 ${maxSizeMB}MB`);
+            showWarning("文件过大", `文件 "${oversized[0].name}" 超过最大体积 ${maxSizeMB}MB`);
             return;
         }
 
         // 3. Check Type using improved validation
         const invalidFiles = newFiles.filter(f => !validateFileType(f, allowedTypes));
         if (invalidFiles.length > 0) {
-            alert(`不支持的文件类型: ${invalidFiles[0].name}`);
+            showWarning("文件类型不支持", `不支持的文件类型: ${invalidFiles[0].name}`);
             return;
         }
 

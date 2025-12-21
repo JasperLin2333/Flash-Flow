@@ -19,13 +19,11 @@ export const quotaService = {
                 .single();
 
             if (error) {
-                console.error("[quotaService] getUserQuota error:", error);
                 return null;
             }
 
             return data;
         } catch (e) {
-            console.error("[quotaService] getUserQuota exception:", e);
             return null;
         }
     },
@@ -95,7 +93,6 @@ export const quotaService = {
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             const quota = await this.getUserQuota(userId);
             if (!quota) {
-                console.error("[quotaService] Cannot increment: quota record not found");
                 return null;
             }
 
@@ -128,7 +125,6 @@ export const quotaService = {
             }
         }
 
-        console.error("[quotaService] incrementUsage failed after max retries");
         return null;
     },
 
@@ -160,13 +156,11 @@ export const quotaService = {
                 .eq("user_id", userId);
 
             if (error) {
-                console.error("[quotaService] resetQuota error:", error);
                 return false;
             }
 
             return true;
         } catch (e) {
-            console.error("[quotaService] resetQuota exception:", e);
             return false;
         }
     },
@@ -186,13 +180,11 @@ export const quotaService = {
                 .eq("user_id", userId);
 
             if (error) {
-                console.error("[quotaService] resetAllQuotas error:", error);
                 return false;
             }
 
             return true;
         } catch (e) {
-            console.error("[quotaService] resetAllQuotas exception:", e);
             return false;
         }
     },
@@ -215,13 +207,11 @@ export const quotaService = {
                 .eq("user_id", userId);
 
             if (error) {
-                console.error("[quotaService] updateLimits error:", error);
                 return false;
             }
 
             return true;
         } catch (e) {
-            console.error("[quotaService] updateLimits exception:", e);
             return false;
         }
     },

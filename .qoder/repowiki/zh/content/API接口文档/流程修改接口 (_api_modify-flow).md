@@ -8,7 +8,14 @@
 - [flowStore.ts](file://src/store/flowStore.ts)
 - [edgeActions.ts](file://src/store/actions/edgeActions.ts)
 - [flowAPI.ts](file://src/services/flowAPI.ts)
+- [llmProvider.ts](file://src/lib/llmProvider.ts)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 更新了接口概述、系统提示词和架构图部分，以反映从硬编码的SiliconFlow API客户端迁移到基于`getProviderForModel`函数的动态提供商路由机制
+- 新增了关于动态提供商路由机制的详细说明
+- 更新了架构图以反映新的动态路由流程
 
 ## 目录
 1. [简介](#简介)
@@ -28,7 +35,7 @@
 
 ## 接口概述
 
-该接口采用 POST 方法，接收包含用户修改需求和当前流程状态的 JSON 请求体，返回结构化的修改指令。接口支持多种 LLM 提供商，包括 OpenAI 和豆包（Doubao）。
+该接口采用 POST 方法，接收包含用户修改需求和当前流程状态的 JSON 请求体，返回结构化的修改指令。接口支持多种 LLM 提供商，包括 OpenAI、豆包（Doubao）、DeepSeek、Google Gemini、阿里云通义千问和SiliconFlow。
 
 ```mermaid
 sequenceDiagram
@@ -39,6 +46,7 @@ participant Frontend as 前端应用
 Client->>API : POST /api/modify-flow
 Note over Client,API : 包含prompt、currentNodes、currentEdges
 API->>API : 验证请求参数
+API->>API : 动态确定提供商
 API->>LLM : 发送系统提示词和用户请求
 LLM-->>API : 返回JSON格式的修改指令
 API->>API : 解析和验证指令
@@ -443,6 +451,10 @@ end
 subgraph "LLM服务"
 OpenAI[OpenAI GPT-4o-mini]
 Doubao[豆包DouBao]
+DeepSeek[DeepSeek官方]
+Google[Google Gemini]
+DashScope[阿里云通义千问]
+SiliconFlow[SiliconFlow多模型]
 end
 subgraph "前端状态管理"
 FlowStore[流程状态]
@@ -454,8 +466,13 @@ Supabase[Supabase存储]
 end
 UI --> BrainBar
 BrainBar --> ModifyAPI
-ModifyAPI --> OpenAI
-ModifyAPI --> Doubao
+ModifyAPI --> ProviderRouter[动态提供商路由]
+ProviderRouter --> OpenAI
+ProviderRouter --> Doubao
+ProviderRouter --> DeepSeek
+ProviderRouter --> Google
+ProviderRouter --> DashScope
+ProviderRouter --> SiliconFlow
 ModifyAPI --> FlowStore
 FlowStore --> NodeActions
 FlowStore --> EdgeActions
@@ -467,6 +484,7 @@ EdgeActions --> Supabase
 - [route.ts](file://src/app/api/modify-flow/route.ts#L1-L104)
 - [BrainBar.tsx](file://src/components/builder/BrainBar.tsx#L1-L93)
 - [flowStore.ts](file://src/store/flowStore.ts#L1-L131)
+- [llmProvider.ts](file://src/lib/llmProvider.ts#L51-L70)
 
 ### 数据流图
 
@@ -474,7 +492,8 @@ EdgeActions --> Supabase
 flowchart LR
 UserInput[用户输入] --> API[Modify-Flow API]
 CurrentState[当前流程状态] --> API
-API --> LLM[LLM推理]
+API --> ProviderRouter[动态提供商路由]
+ProviderRouter --> LLM[LLM推理]
 LLM --> Instruction[修改指令]
 Instruction --> Frontend[前端执行]
 Frontend --> StateUpdate[状态更新]
@@ -484,6 +503,7 @@ StateUpdate --> Persist[持久化存储]
 **图表来源**
 - [route.ts](file://src/app/api/modify-flow/route.ts#L4-L103)
 - [BrainBar.tsx](file://src/components/builder/BrainBar.tsx#L38-L62)
+- [llmProvider.ts](file://src/lib/llmProvider.ts#L51-L70)
 
 **章节来源**
 - [route.ts](file://src/app/api/modify-flow/route.ts#L1-L104)

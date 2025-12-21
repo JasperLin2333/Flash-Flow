@@ -15,7 +15,6 @@
 | `files` | File[] | ❌ | `[]` | 知识库文件列表（仅静态模式） |
 | `fileSearchStoreName` | string | ❌ | - | File Search Store 名称 (自动创建) |
 | `fileSearchStoreId` | string | ❌ | - | Store 显示 ID (用户友好) |
-| `topK` | number | ❌ | `5` | 检索结果数量 (1/3/5/7/10) |
 | `maxTokensPerChunk` | number | ❌ | `200` | 静态分块大小 (50-500 tokens) |
 | `maxOverlapTokens` | number | ❌ | `20` | 静态分块重叠 (0-100 tokens) |
 | `uploadStatus` | string | ❌ | `"idle"` | 上传状态 (`idle`/`uploading`/`processing`/`completed`/`error`) |
@@ -67,11 +66,21 @@
 {
   "query": string,           // 实际执行的检索词
   "documents": string[],     // 检索到的文档片段列表 (或 LLM 回答)
-  "citations": any[],        // 引用来源信息
+  "citations": any[],        // 引用来源信息 (来自 groundingMetadata)
   "documentCount": number,   // 结果数量
   "mode": "fileSearch" | "multimodal" // 执行使用的模式
 }
 ```
 
+## 服务端 API
+
+RAG 功能通过以下服务端 API 路由实现（API Key 不暴露到客户端）：
+
+| 路由 | 功能 |
+|------|------|
+| `/api/rag/search` | RAG 搜索 (fileSearch + multimodal) |
+| `/api/rag/store` | 创建 FileSearchStore |
+| `/api/rag/upload` | 上传文件到 Store |
+
 > [!TIP]
-> 如果 Gemini API Key 未配置 (`NEXT_PUBLIC_GEMINI_API_KEY`)，节点会返回错误提示。
+> 如果 Gemini API Key 未配置 (`GEMINI_API_KEY`)，节点会返回错误提示。

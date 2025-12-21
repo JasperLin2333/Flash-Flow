@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { userProfileAPI } from "@/services/userProfileAPI";
 import React from "react";
+import { showError, showWarning } from "@/utils/errorNotify";
 
 // ============ 常量 ============
 const EMOJI_LIST = [
@@ -58,7 +59,7 @@ export function UserAvatarDialog({
 
         // 验证文件类型
         if (!isValidImageFile(file)) {
-            alert(`不支持的文件格式。支持: ${SUPPORTED_IMAGE_FORMATS}`);
+            showWarning("文件格式不支持", `支持格式: ${SUPPORTED_IMAGE_FORMATS}`);
             return;
         }
 
@@ -70,7 +71,7 @@ export function UserAvatarDialog({
                 onAvatarChange("image", url);
                 onOpenChange(false);
             } else {
-                alert("上传失败，请检查存储桶配置 user-avatars");
+                showError("上传失败", "请检查网络连接或存储配置");
             }
         } finally {
             setUploading(false);
@@ -93,7 +94,7 @@ export function UserAvatarDialog({
                 onOpenChange(false);
             } catch (error) {
                 console.error("Failed to update emoji:", error);
-                alert("更新头像失败");
+                showError("更新头像失败", "请稍后重试");
             }
         } else {
             onOpenChange(false);

@@ -65,7 +65,6 @@ export const useQuotaStore = create<QuotaStore>((set, get) => ({
 
             return false;
         } catch (e) {
-            console.error("[quotaStore] checkAndUse error:", e);
             return false;
         }
     },
@@ -78,7 +77,7 @@ export const useQuotaStore = create<QuotaStore>((set, get) => ({
                 set({ quota });
             }
         } catch (e) {
-            console.error("[quotaStore] refreshQuota error:", e);
+            // Silently fail
         }
     },
 

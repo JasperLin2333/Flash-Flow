@@ -42,7 +42,6 @@ export interface RAGNodeData extends BaseNodeData {
   // 搜索配置
   maxTokensPerChunk?: number;    // 每个块的最大 token 数，默认 200
   maxOverlapTokens?: number;     // 块之间的重叠 token 数，默认 20
-  topK?: number;                 // 返回前 K 个最相关结果，默认 5
 
   // 执行结果
   searchQuery?: string;          // 最后一次搜索的查询
@@ -102,6 +101,9 @@ export interface InputNodeData extends BaseNodeData {
   // Configurations (Builder side)
   fileConfig?: FileInputConfig;
   formFields?: FormFieldConfig[];
+
+  // 招呼语配置
+  greeting?: string;  // 欢迎描述，引导用户如何使用该助手
 
   // Runtime data (App/Runner side)
   files?: { name: string; size: number; type: string; url?: string }[];

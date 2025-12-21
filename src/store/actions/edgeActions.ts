@@ -80,7 +80,6 @@ export const createEdgeActions = (set: SetState, get: GetState) => ({
 
         // 1. 自环检测
         if (connection.source === connection.target) {
-            console.warn("Cannot connect node to itself");
             return;
         }
 
@@ -88,7 +87,6 @@ export const createEdgeActions = (set: SetState, get: GetState) => ({
         const tempEdges = addEdge(connection, edges);
 
         if (hasCycle(connection.target, nodes, tempEdges)) {
-            console.error("Cycle detected! Connection rejected.");
             return;
         }
 

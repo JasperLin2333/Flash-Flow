@@ -4,25 +4,81 @@ import { useState, useEffect } from "react";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { RAGNodeData, AppNode, AppNodeData } from "@/types/flow";
-import { geminiFileSearchAPI } from "@/services/geminiFileSearchAPI";
 import { Upload, FileText, Trash2, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
-import type { UseFormReturn } from "react-hook-form";
+import { showError, showWarning } from "@/utils/errorNotify";
+import { NODE_FORM_STYLES, type ExtendedNodeFormProps } from "./shared";
 
 // ============ 样式常量 ============
 const STYLES = {
-  LABEL: "text-[10px] font-bold uppercase tracking-wider text-gray-500",
-  INPUT: "bg-gray-50 border-gray-200 text-gray-900",
+  ...NODE_FORM_STYLES,
   FILE_AREA: "border-2 border-dashed border-gray-300 rounded-xl p-6 text-center transition-all duration-150",
   FILE_ITEM: "flex items-center justify-between p-2 bg-white border border-gray-200 rounded-lg",
 } as const;
 
-interface RAGNodeFormProps {
-  form: UseFormReturn<{ label: string }>;
-  selectedNodeId: string | null;
-  updateNodeData: (id: string, data: Partial<AppNodeData>) => void;
+interface RAGNodeFormProps extends ExtendedNodeFormProps {
+  /** RAG 节点需要完整的节点对象 */
   selectedNode: AppNode;
+}
+
+/**
+ * 通过服务端 API 创建 FileSearchStore
+ */
+async function createFileSearchStoreViaAPI(displayName: string): Promise<{ name: string; displayName?: string }> {
+  const response = await fetch("/api/rag/store", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `创建 Store 失败: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * 通过服务端 API 上传文件到 FileSearchStore
+ */
+async function uploadToFileSearchStoreViaAPI(
+  file: File,
+  fileSearchStoreName: string,
+  options?: {
+    displayName?: string;
+    maxTokensPerChunk?: number;
+    maxOverlapTokens?: number;
+    onProgress?: (progress: { status: string; progress?: number }) => void;
+  }
+): Promise<{ name: string; displayName: string; sizeBytes: number }> {
+  options?.onProgress?.({ status: 'uploading', progress: 0 });
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('fileSearchStoreName', fileSearchStoreName);
+  if (options?.displayName) {
+    formData.append('displayName', options.displayName);
+  }
+  formData.append('maxTokensPerChunk', String(options?.maxTokensPerChunk || 200));
+  formData.append('maxOverlapTokens', String(options?.maxOverlapTokens || 20));
+
+  options?.onProgress?.({ status: 'processing', progress: 50 });
+
+  const response = await fetch("/api/rag/upload", {
+    method: "POST",
+    body: formData
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    options?.onProgress?.({ status: 'error', progress: 0 });
+    throw new Error(errorData.error || `上传失败: ${response.status}`);
+  }
+
+  options?.onProgress?.({ status: 'completed', progress: 100 });
+
+  return response.json();
 }
 
 export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode }: RAGNodeFormProps) {
@@ -35,7 +91,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
     if (!ragData.fileSearchStoreName && selectedNodeId) {
       const autoStoreName = `store-${selectedNodeId.slice(0, 8)}-${Date.now()}`;
 
-      geminiFileSearchAPI.createFileSearchStore(autoStoreName)
+      createFileSearchStoreViaAPI(autoStoreName)
         .then((store) => {
           updateNodeData(selectedNodeId, {
             fileSearchStoreName: store.name,
@@ -59,7 +115,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
 
     const ragData = selectedNode.data as RAGNodeData;
     if (!ragData.fileSearchStoreName) {
-      alert("请先创建 File Search Store");
+      showWarning("知识库未初始化", "请稍等，File Search Store 正在创建中...");
       return;
     }
 
@@ -72,7 +128,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
       try {
         updateNodeData(selectedNodeId, { uploadStatus: 'uploading' });
 
-        await geminiFileSearchAPI.uploadToFileSearchStore(
+        await uploadToFileSearchStoreViaAPI(
           file,
           ragData.fileSearchStoreName,
           {
@@ -97,7 +153,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
           uploadStatus: 'error',
           uploadError: errorMsg
         });
-        alert(`文件 "${file.name}" 上传失败: ${errorMsg} `);
+        showError("文件上传失败", `文件 "${file.name}" 上传失败: ${errorMsg}`);
         break;
       }
     }
@@ -125,7 +181,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
   const hasStore = Boolean(ragData.fileSearchStoreName);
   const statusIcon = {
     idle: null,
-    uploading: <Loader2 className="w-4 h-4 animate-spin text-blue-500" />,
+    uploading: <Loader2 className="w-4 h-4 animate-spin text-gray-500" />,
     processing: <Loader2 className="w-4 h-4 animate-spin text-yellow-500" />,
     completed: <CheckCircle className="w-4 h-4 text-green-500" />,
     error: <AlertCircle className="w-4 h-4 text-red-500" />
@@ -242,25 +298,6 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
               className="w-full"
             />
             <div className="text-xs text-gray-500 text-right">{ragData.maxOverlapTokens || 20}</div>
-          </div>
-
-          <div className="space-y-2">
-            <FormLabel className={STYLES.LABEL}>返回结果数 (返回最相关的前 K 个结果)</FormLabel>
-            <Select
-              value={String(ragData.topK || 5)}
-              onValueChange={(value) => selectedNodeId && updateNodeData(selectedNodeId, { topK: parseInt(value) })}
-            >
-              <SelectTrigger className={STYLES.INPUT}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[1, 3, 5, 7, 10].map(k => (
-                  <SelectItem key={k} value={String(k)}>
-                    {k} 个结果
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         </>
       )}

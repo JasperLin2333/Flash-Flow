@@ -12,6 +12,13 @@
 - [package.json](file://package.json)
 </cite>
 
+## 更新摘要
+**变更内容**
+- 新增了对流式响应的支持说明，包括 ReadableStream 的实现、Server-Sent Events 格式和客户端流式读取处理
+- 在“核心业务逻辑”部分增加了流式处理流程图
+- 在“前端应用场景”中更新了 Copilot 功能集成的序列图
+- 在“错误处理与容错机制”中增加了流式错误处理说明
+
 ## 目录
 1. [简介](#简介)
 2. [接口概述](#接口概述)
@@ -130,6 +137,25 @@ ReturnResponse --> End
 **图表来源**
 - [route.ts](file://src/app/api/plan/route.ts#L6-L123)
 
+### 流式处理流程图
+
+```mermaid
+flowchart TD
+Start([开始流式响应]) --> CreateStream["创建ReadableStream"]
+CreateStream --> LLMCall["调用LLM流式API"]
+LLMCall --> ReceiveChunk["接收数据块"]
+ReceiveChunk --> ProcessChunk["处理数据块并发送进度"]
+ProcessChunk --> CollectContent["收集完整内容"]
+CollectContent --> ParseJSON["解析JSON内容"]
+ParseJSON --> SendResult["发送最终结果"]
+SendResult --> SendDone["发送[DONE]标记"]
+SendDone --> CloseStream["关闭流"]
+CloseStream --> End([结束])
+```
+
+**节来源**
+- [route.ts](file://src/app/api/plan/route.ts#L374-L457)
+
 ### 关键处理步骤
 
 1. **输入验证**: 使用 `PlanRequestSchema` 验证请求体结构
@@ -138,6 +164,7 @@ ReturnResponse --> End
 4. **系统提示词构建**: 根据节点类型和约束条件生成详细的指导语
 5. **JSON提取机制**: 从LLM响应中提取有效的JSON片段
 6. **输出规范化**: 将原始JSON转换为标准化的节点和边结构
+7. **流式响应**: 使用 ReadableStream 实现 Server-Sent Events 格式的流式响应
 
 **节来源**
 - [route.ts](file://src/app/api/plan/route.ts#L6-L123)
@@ -371,6 +398,29 @@ Success --> End
 
 **图表来源**
 - [route.ts](file://src/app/api/plan/route.ts#L119-L122)
+
+### 流式错误处理
+
+在流式响应中，错误处理机制如下：
+
+```mermaid
+flowchart TD
+Start([流式处理开始]) --> TryBlock["try块中处理"]
+TryBlock --> LLMCall["调用LLM流式API"]
+LLMCall --> SuccessPath["成功路径"]
+SuccessPath --> SendResult["发送结果"]
+SuccessPath --> SendDone["发送[DONE]"]
+SuccessPath --> CloseStream["关闭流"]
+TryBlock --> CatchBlock["catch块中处理错误"]
+CatchBlock --> LogError["记录错误日志"]
+CatchBlock --> SendError["发送错误事件"]
+CatchBlock --> SendEmpty["发送空结果"]
+CatchBlock --> SendDone["发送[DONE]"]
+CatchBlock --> CloseStream["关闭流"]
+```
+
+**节来源**
+- [route.ts](file://src/app/api/plan/route.ts#L433-L438)
 
 ### 错误类型与处理策略
 

@@ -1,10 +1,61 @@
 import OpenAI from "openai";
+export const runtime = 'edge';
 import { PlanRequestSchema } from "@/utils/validation";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
+import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
+
+// ============ 兜底策略配置 ============
+const FALLBACK_MODEL = "gemini-3-flash-preview"; // 备选模型 (视觉+文本)
+const MAX_RETRIES = 2; // 每个模型最大重试次数
+const RETRY_DELAY_MS = 1000; // 重试延迟
+
+/** 延迟函数 */
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** 判断是否应该重试（可恢复性错误） */
+function shouldRetry(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  // 超时、速率限制、服务暂时不可用 → 重试
+  return msg.includes("timeout") ||
+    msg.includes("rate limit") ||
+    msg.includes("429") ||
+    msg.includes("503") ||
+    msg.includes("502") ||
+    msg.includes("network") ||
+    msg.includes("econnreset") ||
+    msg.includes("fetch failed");
+}
+
+/** 判断是否应该切换到备选模型 */
+function shouldFallback(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  // 5xx 错误（非暂时性）、模型不可用 → 切换备选
+  return msg.includes("500") ||
+    msg.includes("model not found") ||
+    msg.includes("invalid model") ||
+    msg.includes("unsupported");
+}
+
 
 export async function POST(req: Request) {
+  // Clone request for quota operations
+  const reqClone = req.clone();
+
   try {
-    const body = await req.json();
+    // Authentication check
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
+      return unauthorizedResponse();
+    }
+
+    // Server-side quota check for flow generations
+    const quotaCheck = await checkQuotaOnServer(req, user.id, "flow_generations");
+    if (!quotaCheck.allowed) {
+      return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "Flow 生成次数");
+    }
+
+    const body = await reqClone.json();
 
     // 1. Validation
     const parseResult = PlanRequestSchema.safeParse(body);
@@ -41,8 +92,8 @@ export async function POST(req: Request) {
 
 ### 1. 🖼️ 视觉能力感知
 需求涉及 **图片处理**（分析/识别/OCR/看图/图像理解）时的**铁律**：
-- **必须**在 LLM 节点使用视觉模型（\`DeepSeek-OCR\`, \`千问-视觉模型\`）
-- ❌ 普通文本模型（deepseek-v3）**无法处理图片**
+- **必须**在 LLM 节点使用视觉模型（\`deepseek-ai/DeepSeek-OCR\`, \`doubao-seed-1-6-251015\`, \`gemini-3-flash-preview\`, \`zai-org/GLM-4.6V\`）
+- ❌ 普通文本模型（deepseek-chat/deepseek-ai/DeepSeek-V3.2）**无法处理图片**
 - LLM Prompt 中若需引用图片文件，请引用 \`{{InputNode.files}}\`
 
 ### 2. 🕐 时间/环境感知
@@ -113,6 +164,7 @@ export async function POST(req: Request) {
 | \`enableTextInput\` | boolean | \`true\` | 启用文本输入框 |
 | \`enableFileInput\` | boolean | \`false\` | 启用文件上传 |
 | \`enableStructuredForm\` | boolean | \`false\` | 启用结构化表单：预置配置参数（选项/数值），运行时自动弹窗采集，供下游分支判断或 LLM 引用 |
+| \`greeting\` | string | \`"我是您的智能助手，请告诉我您的需求。"\` | 招呼语，引导用户如何使用该助手 |
 | \`fileConfig.allowedTypes\` | string[] | \`["*/*"]\` | 允许的文件类型 |
 | \`fileConfig.maxSizeMB\` | number | \`100\` | 单文件最大体积 (MB) |
 | \`fileConfig.maxCount\` | number | \`10\` | 最大文件数量 |
@@ -121,6 +173,10 @@ export async function POST(req: Request) {
 > - 涉及 **文件/图片/文档** → \`enableFileInput: true\` + \`fileConfig.allowedTypes\`
 > - 涉及 **可选模式/风格/策略等预设选项** → \`enableStructuredForm: true\` + \`formFields\`
 >   - 典型场景：分析模式(基本面/技术面)、风险偏好(保守/激进)、输出风格(简洁/详细)、语言选择
+> - **greeting** 招呼语：根据应用场景，用 1-2 句话引导用户如何使用该助手，例如：
+>   - 翻译助手 → "请输入需要翻译的文本，我会帮您翻译成目标语言"
+>   - 文档分析 → "请上传您的文档，我将帮您提取关键信息并进行分析"
+>   - 智能客服 → "有任何问题都可以问我，我会尽力为您解答"
 
 ### 1.1 allowedTypes 常用值
 | 文件类型 | allowedTypes |
@@ -162,27 +218,39 @@ export async function POST(req: Request) {
 | \`systemPrompt\` | string | \`""\` | 系统提示词，支持 \`{{变量}}\` |
 | \`enableMemory\` | boolean | \`false\` | 是否启用多轮对话记忆 |
 | \`memoryMaxTurns\` | number | \`10\` | 1-20, 最大记忆轮数 |
-| \`inputMappings.user_prompt\` | string | 可选 | 用户消息来源，如 \`{{用户输入.user_input}}\` |
+| \`inputMappings.user_input\` | string | 可选 | 用户消息来源，如 \`{{用户输入.user_input}}\` |
 
-\> � **user_prompt 配置说明**:
-\> - **问答/对话场景**: 必须配置，指向用户输入 \`{{输入节点.user_input}}\`
-\> - **图片识别/文件处理**: 可不配置，直接在 systemPrompt 中引用 \`{{xx.files}}\`
-\> - **工具链处理**: 可不配置，在 systemPrompt 中引用上游节点输出
+\> 🔴 **user_input 配置铁律 - 二选一，禁止重复！**
+\> 
+\> 用户输入只能通过**一种方式**传递给 LLM，以下两种方式**互斥**：
+\> 
+\> | 方式 | 适用场景 | 示例 |
+\> |------|---------|------|
+\> | **A. inputMappings.user_input** | 简单对话/问答，用户消息作为独立的 user 角色发送 | \`inputMappings: {user_input: "{{用户输入.user_input}}"}\` |
+\> | **B. systemPrompt 内引用** | 复杂场景，用户输入需要与其他上下文组合 | \`systemPrompt: "分析 {{输入.user_input}} 结合 {{搜索.results}}..."\` |
+\> 
+\> ❌ **严禁同时使用 A+B**: 会导致用户输入被重复发送两次！
+\> 
+\> **场景选择指南**:
+\> - 纯对话/聊天/问答助手 → 使用 **A** (配置 inputMappings.user_input)
+\> - 多步骤工具链 (systemPrompt 已引用用户输入变量) → 使用 **B** (不配置 inputMappings.user_input)
+\> - 图片识别/文件处理 → 使用 **B**，在 systemPrompt 中引用 \`{{xx.files}}\`
 
 ### 2.1 可用模型列表 (必须从此列表选择)
 | model 值 | 说明 | 类型 |
 |---------|------|------|
-| \`gemini-3-pro-preview\` | gemini-3-pro | 文本 |
-| \`gemini-3-flash-preview\` | gemini-3-flash | 文本 |
-| \`deepseek-ai/DeepSeek-V3.2\` | DeepSeek-V3.2 (默认) | 文本 |
-| \`zai-org/GLM-4.6V\` | 智谱-4.6V | 文本 |
-| \`Qwen/Qwen3-Omni-30B-A3B-Instruct\` | 千问模型-3 | 文本 |
-| \`qwen-flash\` | 千问模型-快速 | 文本 |
+| \`gemini-3-flash-preview\` | gemini-3-Flash | **视觉/文件** ✅ |
+| \`deepseek-v3-2-251201\` | DeepSeek-V3.2 (火山引擎) | 文本 |
+| \`deepseek-ai/DeepSeek-V3.2\` | DeepSeek-V3.2 (SiliconFlow) | 文本 |
+| \`deepseek-chat\` | DeepSeek-V3.2 (官方) | 文本 |
 | \`deepseek-ai/DeepSeek-OCR\` | DeepSeek-OCR | **视觉** ✅ |
-| \`Qwen/Qwen3-VL-32B-Instruct\` | 千问-视觉模型-Instruct | **视觉** ✅ |
-| \`doubao-seed-1-6-flash-250828\` | 豆包模型-1.6 | 文本 |
+| \`doubao-1-5-pro-32k-character-250715\` | doubao-1-5-pro | 文本 |
+| \`doubao-seed-1-6-251015\` | doubao-seed-1.6 | **视觉/文件** ✅ |
+| \`doubao-seed-1-6-flash-250828\` | doubao-seed-1.6-flash | 文本 |
+| \`zai-org/GLM-4.6V\` | 智谱-4.6V | **视觉** ✅ |
+| \`qwen-flash\` | 千问模型-快速 | 文本 |
 
-> 🔴 **图片处理必须用视觉模型**: 涉及图片分析/OCR/看图 → 必须选 \`Qwen/Qwen3-VL-32B-Instruct\` 或 \`deepseek-ai/DeepSeek-OCR\`
+> 🔴 **图片处理必须用视觉模型**: 涉及图片分析/OCR/看图 → 必须选带有 **视觉** 标记的模型（如 \`deepseek-ai/DeepSeek-OCR\`、\`doubao-seed-1-6-251015\`、\`gemini-3-flash-preview\`、\`zai-org/GLM-4.6V\`）
 
 ### 2.2 记忆功能配置铁律 🧠
 
@@ -204,7 +272,6 @@ export async function POST(req: Request) {
 ### 3.1 参数限制
 | 参数 | 类型 | 默认值 | 取值范围 | 说明 |
 |------|------|-------|---------|------|
-| \`topK\` | number | 5 | 1/3/5/7/10 | 检索结果数量 |
 | \`maxTokensPerChunk\` | number | 200 | 50-500 | 静态分块大小 (tokens) |
 | \`maxOverlapTokens\` | number | 20 | 0-100 | 静态分块重叠 (tokens) |
 
@@ -320,7 +387,7 @@ export async function POST(req: Request) {
   {"id": "in", "type": "input", "data": {"label": "研报配置", "enableTextInput": true, "enableFileInput": true, "enableStructuredForm": true, "fileConfig": {"allowedTypes": [".pdf",".xlsx"], "maxCount": 3}, "formFields": [{"name": "depth", "label": "分析深度", "type": "select", "options": ["快速摘要", "深度研报"], "required": true}]}},
   {"id": "t_time", "type": "tool", "data": {"label": "获取日期", "toolType": "datetime", "inputs": {"operation": "now", "format": "YYYY年MM月DD日"}}},
   {"id": "t_news", "type": "tool", "data": {"label": "搜索新闻", "toolType": "web_search", "inputs": {"query": "{{研报配置.user_input}} 最新财经新闻 业绩"}}},
-  {"id": "rag", "type": "rag", "data": {"label": "检索财报", "topK": 7, "inputMappings": {"query": "营收 利润 同比增长 主营业务", "files": "{{研报配置.files}}"}}},
+  {"id": "rag", "type": "rag", "data": {"label": "检索财报", "inputMappings": {"query": "营收 利润 同比增长 主营业务", "files": "{{研报配置.files}}"}}},
   {"id": "llm_analysis", "type": "llm", "data": {"label": "财务分析", "model": "deepseek-ai/DeepSeek-V3.2", "temperature": 0.2, "systemPrompt": "# 角色\\n你是顶级投行的首席分析师，CFA/CPA双证持有者。\\n\\n# 任务\\n基于财报数据 {{检索财报.documents}} 和市场新闻 {{搜索新闻.results}}，分析公司 {{研报配置.user_input}}。\\n\\n# 输出要求\\n1. **核心指标**: 营收/净利润/毛利率及同比变化\\n2. **业务拆解**: 各业务线贡献占比\\n3. **风险点**: 识别2-3个潜在风险\\n4. **估值建议**: 给出合理PE区间\\n\\n# 约束\\n- 数据必须标注来源\\n- 所有百分比保留1位小数"}},
   {"id": "llm_coder", "type": "llm", "data": {"label": "生成代码", "model": "deepseek-ai/DeepSeek-V3.2", "temperature": 0.1, "systemPrompt": "# 角色\\n你是资深Python量化工程师。\\n\\n# 任务\\n根据财务分析 {{财务分析.response}}，编写Python代码生成可视化图表。\\n\\n# 输出要求\\n- 使用matplotlib绑定中文字体\\n- 绘制: 营收趋势折线图 + 利润率柱状图\\n- 保存为 report_chart.png\\n- 只输出纯Python代码，无解释"}},
   {"id": "t_code", "type": "tool", "data": {"label": "执行绘图", "toolType": "code_interpreter", "inputs": {"code": "{{生成代码.response}}", "outputFileName": "report_chart.png"}}},
@@ -333,12 +400,13 @@ export async function POST(req: Request) {
 ]}
 \`\`\`
 
-# ✅ 核心检查清单 (TOP 5)
+# ✅ 核心检查清单 (TOP 6)
 1. ⚠️ **FormData引用**: 必须是 \`{{节点.formData.name}}\`
 2. ⚠️ **LLM文件引用**: 必须引用 \`{{节点.files}}\` (勿用下标)
-3. 🖼️ **视觉场景**: 必须用视觉模型 (deepseek-ocr / 千问-视觉模型)
+3. 🖼️ **视觉场景**: 必须用视觉模型 (\`deepseek-ai/DeepSeek-OCR\` / \`doubao-seed-1-6-251015\` / \`gemini-3-flash-preview\` / \`zai-org/GLM-4.6V\`)
 4. 🕐 **时间场景**: 必须加 \`datetime\` 工具
 5. 🔀 **分支场景**: Branch 必须配双路径，Output 必须用 \`select\` 模式
+6. 🔴 **user_input 二选一**: 若 systemPrompt 已引用 \`{{xx.user_input}}\`，则**禁止**配置 \`inputMappings.user_input\`
 
 # 输出格式
 纯 JSON：
@@ -357,64 +425,120 @@ export async function POST(req: Request) {
 
     const stream = new ReadableStream({
       async start(controller) {
-        try {
-          const provider = getProviderForModel(preferredModel);
-          const config = PROVIDER_CONFIG[provider];
+        const modelsToTry = [preferredModel, FALLBACK_MODEL];
+        let lastError: unknown = null;
+        let success = false;
 
-          const client = new OpenAI({
-            apiKey: config.getApiKey(),
-            baseURL: config.baseURL
-          });
+        // 尝试每个模型
+        for (let modelIndex = 0; modelIndex < modelsToTry.length && !success; modelIndex++) {
+          const currentModel = modelsToTry[modelIndex];
+          const isFallback = modelIndex > 0;
 
-          const completion = await client.chat.completions.create({
-            model: preferredModel,
-            temperature: 0.2,
-            messages: [
-              { role: "system", content: system },
-              { role: "user", content: userMsg },
-            ],
-            stream: true,
-          });
+          // 通知切换到备选模型
+          if (isFallback) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "fallback", model: currentModel })}\n\n`));
+          }
 
-          let fullContent = "";
+          // 每个模型最多重试 MAX_RETRIES 次
+          for (let attempt = 0; attempt < MAX_RETRIES && !success; attempt++) {
+            try {
+              // 通知重试
+              if (attempt > 0) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "retrying", attempt: attempt + 1, model: currentModel })}\n\n`));
+                await delay(RETRY_DELAY_MS);
+              }
 
-          // Send progress updates to keep connection alive
-          for await (const chunk of completion) {
-            const content = chunk.choices?.[0]?.delta?.content || "";
-            if (content) {
-              fullContent += content;
-              // Send progress event (optional, keeps connection alive)
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "progress", content })}\n\n`));
+              const provider = getProviderForModel(currentModel);
+              const config = PROVIDER_CONFIG[provider];
+
+              const client = new OpenAI({
+                apiKey: config.getApiKey(),
+                baseURL: config.baseURL
+              });
+
+              const completion = await client.chat.completions.create({
+                model: currentModel,
+                temperature: 0.2,
+                messages: [
+                  { role: "system", content: system },
+                  { role: "user", content: userMsg },
+                ],
+                stream: true,
+              });
+
+              let fullContent = "";
+
+              // Send progress updates to keep connection alive
+              for await (const chunk of completion) {
+                const content = chunk.choices?.[0]?.delta?.content || "";
+                if (content) {
+                  fullContent += content;
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "progress", content })}\n\n`));
+                }
+              }
+
+              // Parse the complete response
+              let jsonText = fullContent;
+              const match = fullContent.match(/\{[\s\S]*\}/);
+              if (match) jsonText = match[0];
+
+              let plan: { title?: string; nodes?: unknown; edges?: unknown } = {};
+              try {
+                plan = JSON.parse(jsonText) as { title?: string; nodes?: unknown; edges?: unknown };
+              } catch (parseError) {
+                // JSON 解析失败，可能需要重试
+                lastError = new Error("Failed to parse LLM response as JSON");
+                if (shouldRetry(lastError) && attempt < MAX_RETRIES - 1) {
+                  continue; // 重试当前模型
+                }
+                // 切换到下一个模型
+                break;
+              }
+
+              const title = plan?.title || prompt.slice(0, 20);
+              const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+              const edges = Array.isArray(plan?.edges) ? plan.edges : [];
+
+              // 检查是否生成了有效内容
+              if (nodes.length === 0) {
+                lastError = new Error("LLM returned empty nodes");
+                if (attempt < MAX_RETRIES - 1) {
+                  continue; // 重试
+                }
+                break; // 切换模型
+              }
+
+              // 成功！发送结果
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "result", title, nodes, edges })}\n\n`));
+              await incrementQuotaOnServer(req, user.id, "flow_generations");
+              success = true;
+
+            } catch (error) {
+              lastError = error;
+              console.error(`Plan generation error (model: ${currentModel}, attempt: ${attempt + 1}):`, error);
+
+              // 判断是否应该重试当前模型
+              if (shouldRetry(error) && attempt < MAX_RETRIES - 1) {
+                continue; // 重试
+              }
+
+              // 判断是否应该切换到备选模型
+              if (shouldFallback(error) || attempt >= MAX_RETRIES - 1) {
+                break; // 跳出重试循环，尝试下一个模型
+              }
             }
           }
-
-          // Parse the complete response
-          let jsonText = fullContent;
-          const match = fullContent.match(/\{[\s\S]*\}/);
-          if (match) jsonText = match[0];
-
-          let plan: { title?: string; nodes?: unknown; edges?: unknown } = {};
-          try {
-            plan = JSON.parse(jsonText) as { title?: string; nodes?: unknown; edges?: unknown };
-          } catch {
-            plan = { nodes: [], edges: [] };
-          }
-
-          const title = plan?.title || prompt.slice(0, 20);
-          const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
-          const edges = Array.isArray(plan?.edges) ? plan.edges : [];
-
-          // Send final result
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "result", title, nodes, edges })}\n\n`));
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
-        } catch (error) {
-          console.error("Plan streaming error:", error);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Unknown error" })}\n\n`));
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "result", title: prompt.slice(0, 20), nodes: [], edges: [] })}\n\n`));
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
         }
+
+        // 所有尝试都失败
+        if (!success) {
+          console.error("All plan generation attempts failed:", lastError);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", message: lastError instanceof Error ? lastError.message : "生成失败，请稍后重试" })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "result", title: prompt.slice(0, 20), nodes: [], edges: [] })}\n\n`));
+        }
+
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
       }
     });
 

@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useFlowStore } from "@/store/flowStore";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,6 +20,7 @@ import { BranchNodeForm } from "../node-forms/BranchNodeForm";
 // Local components and utilities
 import { NodeIOSection } from "./NodeIOSection";
 import { ExecutionOutput } from "./ExecutionOutput";
+import { ResizeHandle } from "./ResizeHandle";
 import {
     formSchema,
     DEFAULT_MODEL,
@@ -27,9 +28,18 @@ import {
     type FormValues,
 } from "./constants";
 
+// Panel width constants
+const PANEL_DEFAULT_WIDTH = 320;
+const PANEL_MIN_WIDTH = 280;
+const PANEL_MAX_WIDTH = 800;
+const PANEL_RIGHT_OFFSET = 24; // 6 * 4 = 24px (right-6 in tailwind)
+
 export default function ContextHUD() {
     const { selectedNodeId, nodes, edges, updateNodeData, setSelectedNode, flowContext } = useFlowStore();
     const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+
+    // Panel width state for resizable functionality
+    const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_WIDTH);
 
     const form = useForm<FormValues>({
         resolver: zodResolver(formSchema),
@@ -41,6 +51,7 @@ export default function ContextHUD() {
             text: "",
             enableMemory: false,
             memoryMaxTurns: 10,
+            greeting: "",  // 招呼语默认值
         },
     });
 
@@ -74,6 +85,7 @@ export default function ContextHUD() {
             enableStructuredForm: type === "input" && has("enableStructuredForm") ? (d as Record<string, unknown>).enableStructuredForm as boolean : false,
             fileConfig: type === "input" && has("fileConfig") ? (d as Record<string, unknown>).fileConfig as { allowedTypes: string[]; maxSizeMB: number; maxCount: number } : undefined,
             formFields: type === "input" && has("formFields") ? (d as Record<string, unknown>).formFields as unknown[] : undefined,
+            greeting: type === "input" && has("greeting") ? String((d as Record<string, unknown>).greeting || "") : "",
             toolType: type === "tool" && has("toolType") ? String((d as { toolType?: string }).toolType || "web_search") : "web_search",
             inputs: type === "tool" && has("inputs") ? (d as { inputs?: Record<string, unknown> }).inputs || {} : {},
             // Branch node specific fields
@@ -128,12 +140,22 @@ export default function ContextHUD() {
             {selectedNode && type && (
                 <motion.div
                     key="context-hud-panel"
-                    initial={{ x: 320, opacity: 0 }}
+                    initial={{ x: panelWidth, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
-                    exit={{ x: 320, opacity: 0 }}
+                    exit={{ x: panelWidth, opacity: 0 }}
                     transition={{ duration: 0.3, ease: "easeOut" }}
-                    className="fixed top-6 right-6 w-80 max-h-[calc(100vh-48px)] bg-white border border-gray-200 shadow-xl rounded-2xl flex flex-col z-20 overflow-hidden"
+                    className="fixed top-6 right-6 max-h-[calc(100vh-48px)] bg-white border border-gray-200 shadow-xl rounded-2xl flex flex-col z-20 overflow-hidden"
+                    style={{ width: panelWidth }}
                 >
+                    {/* Resize Handle - Left edge drag area */}
+                    <ResizeHandle
+                        width={panelWidth}
+                        minWidth={PANEL_MIN_WIDTH}
+                        maxWidth={PANEL_MAX_WIDTH}
+                        rightOffset={PANEL_RIGHT_OFFSET}
+                        onWidthChange={setPanelWidth}
+                    />
+
                     <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white">
                         <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
                             {type} 节点

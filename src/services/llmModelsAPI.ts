@@ -31,6 +31,22 @@ const getDefaultModels = (): LLMModel[] => {
             is_active: true,
             display_order: 1,
         },
+        {
+            id: "ds-chat",
+            model_id: "deepseek-chat",
+            model_name: "DeepSeek-V3 (Official)",
+            provider: "deepseek",
+            is_active: true,
+            display_order: 2,
+        },
+        {
+            id: "ds-reasoner",
+            model_id: "deepseek-reasoner",
+            model_name: "DeepSeek-R1 (Official)",
+            provider: "deepseek",
+            is_active: true,
+            display_order: 3,
+        },
     ];
 };
 
@@ -74,7 +90,6 @@ export const llmModelsAPI = {
             }
 
             const models = data as LLMModel[];
-            console.log("[llmModelsAPI] Loaded models from DB:", models.length, models.map(m => m.model_name));
 
             // Update cache
             modelsCache = models;

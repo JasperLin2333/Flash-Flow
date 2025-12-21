@@ -36,7 +36,6 @@ export const llmMemoryService = {
                 .limit(maxTurns * 2); // user + assistant per turn
 
             if (error) {
-                console.error("[llmMemoryService] getHistory error:", error);
                 return [];
             }
 
@@ -45,7 +44,6 @@ export const llmMemoryService = {
                 content: record.content,
             }));
         } catch (e) {
-            console.error("[llmMemoryService] getHistory exception:", e);
             return [];
         }
     },
@@ -92,10 +90,10 @@ export const llmMemoryService = {
                 });
 
             if (error) {
-                console.error("[llmMemoryService] appendMessage error:", error);
+                // Silently fail
             }
         } catch (e) {
-            console.error("[llmMemoryService] appendMessage exception:", e);
+            // Silently fail
         }
     },
 
@@ -116,7 +114,7 @@ export const llmMemoryService = {
                 .delete()
                 .eq("flow_id", flowId)
                 .eq("node_id", nodeId);
-            
+
             // 如果指定了 sessionId，则只清空该会话的记忆
             if (sessionId) {
                 query = query.eq("session_id", sessionId);
@@ -125,10 +123,10 @@ export const llmMemoryService = {
             const { error } = await query;
 
             if (error) {
-                console.error("[llmMemoryService] clearHistory error:", error);
+                // Silently fail
             }
         } catch (e) {
-            console.error("[llmMemoryService] clearHistory exception:", e);
+            // Silently fail
         }
     },
 
@@ -175,7 +173,7 @@ export const llmMemoryService = {
                 }
             }
         } catch (e) {
-            console.error("[llmMemoryService] trimHistory exception:", e);
+            // Silently fail
         }
     },
 };

@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import PromptBubble from "@/components/ui/prompt-bubble";
 import type { AppNode, NodeKind } from "@/types/flow";
 import { executeModification as executeModificationService } from "@/store/services/modificationExecutor";
+import { showError } from "@/utils/errorNotify";
 
 // ============ 配置常量 ============
 const CONFIG = {
@@ -224,9 +225,15 @@ export default function BrainBar() {
         setConfirmOpen(false);
         setIsGenerating(true);
         setCopilotBackdrop("overlay");
-        await startCopilot(prompt);
-        setIsGenerating(false);
-        setPrompt("");
+        try {
+            await startCopilot(prompt);
+            setPrompt("");
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : "生成失败，请稍后重试";
+            showError("流程生成失败", errorMsg);
+        } finally {
+            setIsGenerating(false);
+        }
     };
 
     const handleModify = async () => {
@@ -246,6 +253,9 @@ export default function BrainBar() {
                 setCopilotStatus
             );
             setPrompt("");
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : "修改失败，请稍后重试";
+            showError("流程修改失败", errorMsg);
         } finally {
             setIsGenerating(false);
         }

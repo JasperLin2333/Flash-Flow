@@ -61,12 +61,19 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         const inputNode = inputNodes[0];
         const inputNodeData = inputNode?.data as import("@/types/flow").InputNodeData | undefined;
         const enableTextInput = inputNodeData?.enableTextInput !== false;
+        const enableFileInput = inputNodeData?.enableFileInput === true;
+        const enableStructuredForm = inputNodeData?.enableStructuredForm === true;
 
         const hasText = input.trim().length > 0;
-        const hasFormData = inputNodeData?.enableStructuredForm && inputNodeData?.formFields?.length;
+        const hasFiles = (inputNodeData?.files?.length ?? 0) > 0;
+        const hasFormData = enableStructuredForm && inputNodeData?.formFields?.length;
 
-        if (enableTextInput && !hasText) return;
-        if (!enableTextInput && !hasFormData) return;
+        // 统一验证：根据启用的模式判断是否可发送
+        const hasValidContent =
+            (enableTextInput && hasText) ||
+            (enableFileInput && hasFiles) ||
+            (enableStructuredForm && hasFormData);
+        if (!hasValidContent) return;
         if (isLoading || !flowId) return;
 
         // 2. Validate Quota

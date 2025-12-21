@@ -19,6 +19,7 @@ import {
     AccountManager,
     renderFlowIcon,
 } from "./sidebar-shared";
+import { toast } from "@/hooks/use-toast";
 
 // Sidebar width constant
 const SIDEBAR_WIDTH = 280;
@@ -54,9 +55,11 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
         }[]
     >([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     // 加载 Flow 列表
     useEffect(() => {
+        setLoadError(null);
         flowAPI.listFlows()
             .then((data: FlowRecord[]) => {
                 const mapped = data
@@ -73,9 +76,23 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
                 setFlows(mapped);
             })
             .catch((err) => {
-                // 静默处理错误（如未登录），不阻塞 UI
-                console.warn("[HomeSidebar] Failed to load flows:", err?.message || err);
+                const errorMsg = err?.message || String(err);
+                console.warn("[HomeSidebar] Failed to load flows:", errorMsg);
                 setFlows([]);
+
+                // 区分错误类型：未登录静默处理，其他错误显示提示
+                if (errorMsg.includes("未登录") || errorMsg.includes("not authenticated") || errorMsg.includes("User not logged in")) {
+                    // 未登录状态，静默处理
+                } else if (errorMsg.includes("network") || errorMsg.includes("fetch") || errorMsg.includes("Failed to fetch")) {
+                    setLoadError("网络连接失败");
+                    toast({
+                        title: "加载失败",
+                        description: "网络连接失败，请检查网络后重试",
+                        variant: "destructive",
+                    });
+                } else {
+                    setLoadError("加载失败");
+                }
             })
             .finally(() => {
                 setLoading(false);
@@ -93,7 +110,7 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
             {!isOpen && (
                 <Button
                     onClick={() => onToggle(true)}
-                    className="fixed top-8 left-8 z-50 rounded-full bg-white text-[#60B4FF] hover:bg-gray-100 active:bg-gray-200 shadow-md font-semibold transition-all duration-150 h-10 w-10 flex items-center justify-center border border-gray-200"
+                    className="fixed top-8 left-8 z-50 rounded-full bg-black text-white hover:bg-gray-800 active:bg-gray-700 shadow-md font-semibold transition-all duration-150 h-10 w-10 flex items-center justify-center border border-gray-800"
                     aria-label="打开侧边栏"
                     title="打开侧边栏"
                 >
@@ -131,7 +148,7 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
                             <div className="px-3 pt-5 pb-2">
                                 <button
                                     onClick={() => router.push("/flows")}
-                                    className="w-full group flex items-center justify-between px-4 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white shadow-sm hover:shadow-md transition-all duration-200"
+                                    className="w-full group flex items-center justify-between px-4 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white shadow-sm hover:shadow-md transition-all duration-200"
                                 >
                                     <div className="flex items-center gap-3">
                                         <div className="w-5 h-5 flex items-center justify-center">
@@ -139,7 +156,7 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
                                         </div>
                                         <span className="text-[15px] font-medium tracking-wide">Flow Box</span>
                                     </div>
-                                    <ArrowUpRight className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+                                    <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
 
                                 </button>
                             </div>
@@ -158,6 +175,16 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
                                 <div className="px-4 space-y-1.5">
                                     {loading ? (
                                         <div className="text-center py-8 text-sm text-gray-400">加载中...</div>
+                                    ) : loadError ? (
+                                        <div className="text-center py-8 text-sm text-red-500">
+                                            {loadError}
+                                            <button
+                                                onClick={() => window.location.reload()}
+                                                className="block mx-auto mt-2 text-xs text-gray-500 hover:text-gray-700 underline"
+                                            >
+                                                点击刷新重试
+                                            </button>
+                                        </div>
                                     ) : filteredFlows.length === 0 ? (
                                         <div className="text-center py-8 text-sm text-gray-400">
                                             {searchQuery ? "未找到相关 Flow" : "还没有创建任何 Flow"}

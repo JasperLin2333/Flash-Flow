@@ -13,6 +13,7 @@ import { formatUpdateTime, getNodeCount } from "./flowCardUtils";
 import { EditFlowDialog } from "./EditFlowDialog";
 import { AvatarDialog } from "./AvatarDialog";
 import { IconDisplay } from "./IconDisplay";
+import { toast } from "@/hooks/use-toast";
 
 // ============ 常量 ============
 const CARD_STYLES = {
@@ -102,9 +103,17 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
     try {
       await flowAPI.deleteFlow(flow.id);
       onDeleted(flow.id);
+      toast({
+        title: "删除成功",
+        description: `已删除流程「${flow.name}」`,
+      });
     } catch (error) {
       console.error("Failed to delete flow:", error);
-      alert("删除失败，请稍后重试");
+      toast({
+        title: "删除失败",
+        description: "请稍后重试",
+        variant: "destructive",
+      });
     } finally {
       setIsDeleting(false);
       setDeleteOpen(false);
@@ -112,26 +121,66 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
   };
 
   const handleSaveBasic = async (name: string, description: string) => {
-    const updated = await flowAPI.updateFlow(flow.id, { name, description });
-    onUpdated(updated);
+    try {
+      const updated = await flowAPI.updateFlow(flow.id, { name, description });
+      onUpdated(updated);
+      toast({
+        title: "保存成功",
+        description: "流程信息已更新",
+      });
+    } catch (error) {
+      console.error("Failed to save flow:", error);
+      toast({
+        title: "保存失败",
+        description: "无法更新流程信息，请稍后重试",
+        variant: "destructive",
+      });
+      throw error; // 重新抛出以便 EditFlowDialog 知道保存失败
+    }
   };
 
   const handleImageSelect = async (url: string) => {
-    const updated = await flowAPI.updateFlow(flow.id, {
-      icon_kind: "image",
-      icon_url: url,
-      icon_name: null,
-    });
-    onUpdated(updated);
+    try {
+      const updated = await flowAPI.updateFlow(flow.id, {
+        icon_kind: "image",
+        icon_url: url,
+        icon_name: null,
+      });
+      onUpdated(updated);
+      toast({
+        title: "头像已更新",
+      });
+    } catch (error) {
+      console.error("Failed to update avatar:", error);
+      toast({
+        title: "更新头像失败",
+        description: "请稍后重试",
+        variant: "destructive",
+      });
+      throw error;
+    }
   };
 
   const handleEmojiSelect = async (emoji: string) => {
-    const updated = await flowAPI.updateFlow(flow.id, {
-      icon_kind: "emoji",
-      icon_name: emoji,
-      icon_url: null,
-    });
-    onUpdated(updated);
+    try {
+      const updated = await flowAPI.updateFlow(flow.id, {
+        icon_kind: "emoji",
+        icon_name: emoji,
+        icon_url: null,
+      });
+      onUpdated(updated);
+      toast({
+        title: "头像已更新",
+      });
+    } catch (error) {
+      console.error("Failed to update emoji:", error);
+      toast({
+        title: "更新头像失败",
+        description: "请稍后重试",
+        variant: "destructive",
+      });
+      throw error;
+    }
   };
 
   const nodeCount = getNodeCount(flow);

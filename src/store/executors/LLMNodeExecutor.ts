@@ -236,6 +236,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
 
         const decoder = new TextDecoder();
         let fullResponse = "";
+        let fullReasoning = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -251,32 +252,28 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
 
               try {
                 const parsed = JSON.parse(data);
+
+                // Handle reasoning
+                if (parsed.reasoning) {
+                  fullReasoning += String(parsed.reasoning);
+                  // For now, we don't have a UI for streaming reasoning, 
+                  // but we capture it for the final result.
+                }
+
                 if (parsed.content) {
-                  fullResponse += parsed.content;
+                  const contentStr = String(parsed.content);
+                  fullResponse += contentStr;
 
                   if (shouldStream) {
-                    // 根据流式模式选择不同的 action
-                    switch (streamMode) {
-                      case 'segmented':
-                        // merge 模式：追加到对应的分段
-                        appendToSegment(node.id, parsed.content);
-                        break;
-
-                      case 'select':
-                        // select 模式：尝试锁定，成功则追加
-                        if (tryLockSource(node.id)) {
-                          appendStreamingText(parsed.content);
-                        }
-                        // 如果锁定失败，忽略此 chunk
-                        break;
-
-                      case 'single':
-                      default:
-                        // direct 模式：正常追加
-                        appendStreamingText(parsed.content);
-                        break;
+                    // 极致打字机效果：将内容拆分为字符逐个显示
+                    const chars = Array.from(contentStr);
+                    for (const char of chars) {
+                      this.flushBuffer(char, streamMode, node.id, storeState);
+                      // 这里的速度可以根据积压程度动态调整，避免 UI 大幅落后于 API
+                      // 如果积压较多，缩短延迟甚至不延迟
+                      const delay = chars.length > 50 ? 2 : 5;
+                      await new Promise(resolve => setTimeout(resolve, delay));
                     }
-                    await new Promise(resolve => setTimeout(resolve, 30));
                   }
                 }
                 if (parsed.error) throw new Error(parsed.error);
@@ -303,11 +300,13 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
           this.incrementQuota();
         }
 
-        return { response: fullResponse };
+        return {
+          response: fullResponse,
+          reasoning: fullReasoning
+        };
 
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
-        console.error("LLM execution failed:", errorMessage);
 
         if (shouldStream) {
           if (streamMode === 'segmented') {
@@ -349,8 +348,6 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
           };
         }
       } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : String(e);
-        console.error("[LLMNodeExecutor] Quota check failed:", errorMsg);
         return {
           output: { error: "配额检查失败，请稍后重试或联系支持" },
           executionTime: 0,
@@ -419,7 +416,6 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
 
       return history;
     } catch (e) {
-      console.error("[LLMNodeExecutor] Memory fetch failed:", e);
       return [];
     }
   }
@@ -445,10 +441,13 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       );
       await llmMemoryService.trimHistory(flowId, memoryNodeId, sessionId, maxTurns);
     } catch (e) {
-      console.error("[LLMNodeExecutor] Memory save failed:", e);
+      // Silently handled
     }
   }
 
+  /**
+   * 扣除额度
+   */
   /**
    * 扣除额度
    */
@@ -458,17 +457,45 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       if (user) {
         const updated = await quotaService.incrementUsage(user.id, "llm_executions");
         if (!updated) {
-          console.warn("[LLMNodeExecutor] Failed to increment quota - quota service returned null");
+          // Quota increment failed silently
         } else {
           const { refreshQuota } = useQuotaStore.getState();
           await refreshQuota(user.id);
         }
       } else {
-        console.warn("[LLMNodeExecutor] Cannot increment quota - user not authenticated");
+        // User not authenticated - silently skip quota increment
       }
     } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : String(e);
-      console.error("[LLMNodeExecutor] Failed to increment quota:", errorMsg);
+      // Silently handled
+    }
+  }
+
+  /**
+   * 冲刷 buffer 到 store
+   */
+  private flushBuffer(
+    buffer: string,
+    streamMode: StreamingMode,
+    nodeId: string,
+    storeState: any
+  ) {
+    const { appendStreamingText, appendToSegment, tryLockSource } = storeState;
+
+    switch (streamMode) {
+      case "segmented":
+        appendToSegment(nodeId, buffer);
+        break;
+
+      case "select":
+        if (tryLockSource(nodeId)) {
+          appendStreamingText(buffer);
+        }
+        break;
+
+      case "single":
+      default:
+        appendStreamingText(buffer);
+        break;
     }
   }
 }

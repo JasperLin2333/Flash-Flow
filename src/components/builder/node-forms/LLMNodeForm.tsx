@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useWatch, type UseFormReturn } from "react-hook-form";
+import { useWatch } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,8 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
-import type { LLMNodeData } from "@/types/flow";
 import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
+import { showError } from "@/utils/errorNotify";
+import { NODE_FORM_STYLES, type BaseNodeFormProps } from "./shared";
 
 // ============ 配置常量 ============
 const LLM_CONFIG = {
@@ -25,36 +26,39 @@ const LLM_CONFIG = {
   MEMORY_MAX_TURNS: 20,
 } as const;
 
-// ============ 样式常量 ============
-const STYLES = {
-  LABEL: "text-[10px] font-bold uppercase tracking-wider text-gray-500",
-  INPUT: "bg-gray-50 border-gray-200 text-gray-900",
-} as const;
-
-interface LLMNodeFormProps {
-  // 父组件使用多态表单 schema，包含多种节点类型的字段，
-  // 因此此处使用 any 类型而非严格类型
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  form: UseFormReturn<any>;
-}
+// 使用共享样式
+const STYLES = NODE_FORM_STYLES;
 
 /**
  * LLM 节点配置表单
  * 包含：节点名称、模型选择、温度参数、系统提示词、对话记忆
  * 模型列表从 Supabase 动态加载
  */
-export function LLMNodeForm({ form }: LLMNodeFormProps) {
+export function LLMNodeForm({ form }: BaseNodeFormProps) {
   const [models, setModels] = useState<LLMModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string | null>(null);
 
   // 加载可用模型列表
-  useEffect(() => {
-    const loadModels = async () => {
-      setModelsLoading(true);
+  const loadModels = async () => {
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
       const data = await llmModelsAPI.listModels();
       setModels(data);
+      if (data.length === 0) {
+        setModelsError("暂无可用模型");
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "加载模型列表失败";
+      setModelsError(errorMsg);
+      showError("模型加载失败", errorMsg);
+    } finally {
       setModelsLoading(false);
-    };
+    }
+  };
+
+  useEffect(() => {
     loadModels();
   }, []);
 
@@ -90,24 +94,37 @@ export function LLMNodeForm({ form }: LLMNodeFormProps) {
         render={({ field }) => (
           <FormItem>
             <FormLabel className={STYLES.LABEL}>模型</FormLabel>
-            <Select
-              key={field.value}
-              onValueChange={field.onChange}
-              value={field.value}
-            >
-              <FormControl>
-                <SelectTrigger className={STYLES.INPUT} disabled={modelsLoading}>
-                  <SelectValue placeholder={modelsLoading ? "加载中..." : "选择模型"} />
-                </SelectTrigger>
-              </FormControl>
-              <SelectContent>
-                {models.map(model => (
-                  <SelectItem key={model.id} value={model.model_id}>
-                    {model.model_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {modelsError ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-red-500">{modelsError}</span>
+                <button
+                  type="button"
+                  onClick={loadModels}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  重试
+                </button>
+              </div>
+            ) : (
+              <Select
+                key={field.value}
+                onValueChange={field.onChange}
+                value={field.value}
+              >
+                <FormControl>
+                  <SelectTrigger className={STYLES.INPUT} disabled={modelsLoading}>
+                    <SelectValue placeholder={modelsLoading ? "加载中..." : "选择模型"} />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {models.map(model => (
+                    <SelectItem key={model.id} value={model.model_id}>
+                      {model.model_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <FormMessage />
           </FormItem>
         )}

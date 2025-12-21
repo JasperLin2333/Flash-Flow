@@ -3,17 +3,11 @@ import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TOOL_REGISTRY, getAllToolIds, getToolConfig, type ToolType } from "@/lib/tools/registry";
-import type { UseFormReturn } from "react-hook-form";
+import { NODE_FORM_STYLES, type BaseNodeFormProps } from "./shared";
 
-const LABEL_CLASS = "text-[10px] font-bold uppercase tracking-wider text-gray-500";
-const INPUT_CLASS = "bg-gray-50 border-gray-200 text-gray-900";
+const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS } = NODE_FORM_STYLES;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches LLMNodeForm pattern for multi-node-type form compatibility
-interface ToolNodeFormProps {
-    form: UseFormReturn<any>;
-}
-
-export function ToolNodeForm({ form }: ToolNodeFormProps) {
+export function ToolNodeForm({ form }: BaseNodeFormProps) {
     // Use form.watch to reactively update when toolType changes
     const watchedToolType = form.watch("toolType") as ToolType | undefined;
     // Only use web_search as fallback if watchedToolType is truly undefined/empty

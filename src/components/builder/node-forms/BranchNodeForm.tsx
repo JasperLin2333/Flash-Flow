@@ -1,17 +1,11 @@
 "use client";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { UseFormReturn } from "react-hook-form";
-import type { FormValues } from "../context-hud/constants";
+import { NODE_FORM_STYLES, type BaseNodeFormProps } from "./shared";
 
-const LABEL_CLASS = "text-[10px] font-bold uppercase tracking-wider text-gray-500";
-const INPUT_CLASS = "bg-gray-50 border-gray-200 text-gray-900";
+const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS } = NODE_FORM_STYLES;
 
-interface BranchNodeFormProps {
-    form: UseFormReturn<FormValues>;
-}
-
-export function BranchNodeForm({ form }: BranchNodeFormProps) {
+export function BranchNodeForm({ form }: BaseNodeFormProps) {
     return (
         <div className="space-y-4">
             <div className="space-y-4">

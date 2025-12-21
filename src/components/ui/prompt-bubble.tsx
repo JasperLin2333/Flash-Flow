@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "@/hooks/use-toast";
 import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
 
 interface PromptBubbleProps {
@@ -101,15 +102,35 @@ export default function PromptBubble(props: PromptBubbleProps) {
       return val !== undefined && val !== null && String(val).trim() !== '';
     }) : true;
 
-  // 发送按钮是否可用
+  // 发送按钮是否可用（必填字段已填）
   const canSend = !hasRequiredFields || allRequiredFilled;
 
-  // 计算是否可以发送（考虑非文本输入模式）
-  const hasContent = value.trim().length > 0 || selectedFiles.length > 0 || isFormFilled;
-  const canSubmit = !disabled && canSend && (enableTextInput ? hasContent : (selectedFiles.length > 0 || isFormFilled || !enableTextInput));
+  // 根据启用的模式判断是否有有效内容
+  const hasValidContent =
+    (enableTextInput && value.trim().length > 0) ||
+    (enableFileInput && selectedFiles.length > 0) ||
+    (enableStructuredForm && isFormFilled);
+  const canSubmit = !disabled && canSend && hasValidContent;
 
   // 需要高亮提示配置按钮（有必填字段但未填完）
   const needsFormAttention = hasRequiredFields && !allRequiredFilled;
+
+  // 根据配置组合生成友好的 placeholder 提示语
+  const getPlaceholder = (): string => {
+    if (!enableTextInput && enableFileInput && enableStructuredForm) {
+      return "📎 点击左下角上传文件，或点击 📖 填写表单后发送~";
+    }
+    if (!enableTextInput && enableFileInput) {
+      return "📎 点击左下角上传您的文件即可开始~";
+    }
+    if (!enableTextInput && enableStructuredForm) {
+      return "📖 点击左下角填写表单后即可开始~";
+    }
+    if (enableStructuredForm && formFields.some(f => f.required)) {
+      return "搜索、提问或者说明你的需求...（请不要忘记在下方 📖 按钮填写表单内容哦~）";
+    }
+    return placeholder;
+  };
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -128,13 +149,21 @@ export default function PromptBubble(props: PromptBubbleProps) {
     const currentCount = selectedFiles.length;
 
     if (currentCount + files.length > fileConfig.maxCount) {
-      alert(`最多只能上传 ${fileConfig.maxCount} 个文件，当前已上传 ${currentCount} 个`);
+      toast({
+        title: "文件数量超限",
+        description: `最多只能上传 ${fileConfig.maxCount} 个文件，当前已上传 ${currentCount} 个`,
+        variant: "destructive",
+      });
       return;
     }
 
     const oversizedFiles = files.filter(f => f.size > fileConfig.maxSizeMB * 1024 * 1024);
     if (oversizedFiles.length > 0) {
-      alert(`文件 "${oversizedFiles[0].name}" 超过最大体积 ${fileConfig.maxSizeMB}MB`);
+      toast({
+        title: "文件过大",
+        description: `文件 "${oversizedFiles[0].name}" 超过最大体积 ${fileConfig.maxSizeMB}MB`,
+        variant: "destructive",
+      });
       return;
     }
 
@@ -166,7 +195,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
             const Icon = getFileIcon(file.name);
             return (
               <div key={i} className="group relative flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 min-w-[200px] max-w-[240px] shrink-0">
-                <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center border border-gray-100 text-blue-500 shrink-0">
+                <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center border border-gray-100 text-gray-500 shrink-0">
                   <Icon className="w-6 h-6" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -194,10 +223,12 @@ export default function PromptBubble(props: PromptBubbleProps) {
           minRows={props.minRows ? props.minRows : (props.singleLine ? 1 : 3)}
           maxRows={12}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => enableTextInput && onChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          className="w-full resize-none border-0 bg-transparent text-[15px] leading-relaxed text-gray-900 placeholder-gray-400 outline-none px-1 py-1"
+          placeholder={getPlaceholder()}
+          disabled={!enableTextInput}
+          className={`w-full resize-none border-0 bg-transparent text-[15px] leading-relaxed placeholder-gray-400 outline-none px-1 py-1 ${enableTextInput ? 'text-gray-900 cursor-text' : 'text-gray-400 cursor-default'
+            }`}
         />
       </div>
 
@@ -232,12 +263,15 @@ export default function PromptBubble(props: PromptBubbleProps) {
                   <p className="font-semibold text-sm">上传附件</p>
                   <div className="text-xs space-y-1 text-gray-200">
                     {(() => {
-                      const validTypes = fileConfig.allowedTypes.filter(t => t !== "*/*" && t !== "*");
+                      const validTypes = fileConfig.allowedTypes
+                        .flatMap(t => t.split(','))
+                        .map(t => t.trim())
+                        .filter(t => t && t !== "*/*" && t !== "*");
                       return validTypes.length > 0 ? (
                         <p className="flex flex-wrap gap-1 items-center">
                           <span className="text-gray-400 shrink-0">支持格式：</span>
                           {validTypes.map((t, i) => (
-                            <span key={i} className="inline-block bg-gray-700 rounded px-1.5 py-0.5">{t}</span>
+                            <span key={i} className="inline-block bg-gray-700 rounded px-1.5 py-0.5">{t.replace(/^\./, "")}</span>
                           ))}
                         </p>
                       ) : null;
@@ -263,9 +297,9 @@ export default function PromptBubble(props: PromptBubbleProps) {
                       className={cn(
                         "h-8 w-8 rounded-lg transition-all duration-200",
                         needsFormAttention
-                          ? "text-blue-600 bg-blue-100 hover:bg-blue-200 ring-2 ring-blue-300 ring-offset-1 animate-pulse"
+                          ? "text-white bg-black hover:bg-black/90 ring-2 ring-gray-300 ring-offset-1 animate-pulse"
                           : isFormFilled
-                            ? "text-blue-600 bg-blue-50 hover:bg-blue-100"
+                            ? "text-gray-900 bg-gray-100 hover:bg-gray-200"
                             : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
                       )}
                     >
@@ -274,14 +308,14 @@ export default function PromptBubble(props: PromptBubbleProps) {
                   </PopoverTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="w-fit p-3 space-y-1.5">
-                  <p className="font-semibold text-sm">� 填写表单</p>
+                  <p className="font-semibold text-sm">填写表单</p>
                   <div className="text-xs text-gray-200">
                     <p className="text-gray-400 mb-1">点击填写以下信息：</p>
                     <div className="flex flex-wrap gap-1">
                       {formFields.map((field, i) => (
                         <span key={i} className={cn(
                           "inline-block rounded px-1.5 py-0.5",
-                          field.required ? "bg-blue-600" : "bg-gray-700"
+                          field.required ? "bg-black" : "bg-gray-700"
                         )}>
                           {field.label}{field.required && " *"}
                         </span>
@@ -398,7 +432,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
             canSubmit
               ? "bg-black text-white hover:bg-black/90 shadow-sm"
               : needsFormAttention
-                ? "bg-blue-100 text-blue-400 cursor-not-allowed"
+                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                 : "bg-gray-100 text-gray-400 hover:bg-gray-200"
           )}
         >

@@ -80,7 +80,6 @@ export const createNodeActions = (set: SetState, get: GetState) => ({
     updateNodeData: (id: string, data: Partial<AppNodeData>) => {
         const node = get().nodes.find((n: AppNode) => n.id === id);
         if (!node) {
-            console.error(`Node ${id} not found`);
             return;
         }
 
@@ -88,7 +87,6 @@ export const createNodeActions = (set: SetState, get: GetState) => ({
         if (node.type === 'llm' && 'temperature' in data) {
             const temp = data.temperature as number;
             if (typeof temp === 'number' && (temp < 0 || temp > 1)) {
-                console.error('Invalid temperature: must be between 0 and 1');
                 return;
             }
         }
@@ -96,7 +94,6 @@ export const createNodeActions = (set: SetState, get: GetState) => ({
         if (node.type === 'rag' && 'files' in data) {
             const files = data.files as unknown;
             if (files && !Array.isArray(files)) {
-                console.error('Invalid files: must be an array');
                 return;
             }
         }

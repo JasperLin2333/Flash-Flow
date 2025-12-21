@@ -29,7 +29,6 @@ export type PlanNodeData = Partial<AppNodeData> & {
     toolType?: string;
     inputs?: Record<string, unknown>;
     // RAG node configs
-    topK?: number;
     maxTokensPerChunk?: number;
     maxOverlapTokens?: number;
 };
@@ -63,7 +62,6 @@ export type PlanNode = {
     toolType?: string;
     inputs?: Record<string, unknown>;
     // Direct properties for RAG node
-    topK?: number;
     maxTokensPerChunk?: number;
     maxOverlapTokens?: number;
 };

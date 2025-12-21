@@ -14,7 +14,6 @@ export function getDefaultNodeData(type: NodeKind): Partial<AppNodeData> {
             uploadStatus: "idle",
             maxTokensPerChunk: 200,
             maxOverlapTokens: 20,
-            topK: 5,
             status: "idle"
         },
         output: { label: "输出", text: "", status: "idle" },

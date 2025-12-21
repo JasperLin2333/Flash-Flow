@@ -47,7 +47,6 @@ export const createCopilotActions = (set: any, get: any) => ({
             }
         } catch (e) {
             const errorMsg = e instanceof Error ? e.message : String(e);
-            console.error("[copilot] Quota check failed:", errorMsg);
 
             // Re-throw if it's a quota-related error
             if (errorMsg.includes("已用完") || errorMsg.includes("登录")) {
@@ -143,7 +142,7 @@ export const createCopilotActions = (set: any, get: any) => ({
                 if (user) {
                     const updated = await quotaService.incrementUsage(user.id, "flow_generations");
                     if (!updated) {
-                        console.warn("[copilot] Failed to increment quota - quota service returned null");
+                        // Quota increment failed silently
                     } else {
                         // Automatically refresh quota in UI
                         const { refreshQuota } = useQuotaStore.getState();
@@ -151,14 +150,11 @@ export const createCopilotActions = (set: any, get: any) => ({
                     }
                 }
             } catch (e) {
-                const errorMsg = e instanceof Error ? e.message : String(e);
-                console.error("[copilot] Failed to increment quota:", errorMsg);
                 // DEFENSIVE: We don't fail the flow generation here since it was successful
             }
 
             set({ copilotStatus: "completed" });
         } catch (error) {
-            console.error('Copilot generation failed:', error);
             set({ copilotStatus: "idle" });
         } finally {
             // CLEANUP: Remove copilot operation flag

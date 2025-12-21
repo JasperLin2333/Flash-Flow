@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Send, Paperclip, BookOpen, X } from "lucide-react";
 import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
+import { showWarning } from "@/utils/errorNotify";
 
 interface InputBarProps {
     inputNode: InputNodeData;
@@ -76,7 +77,7 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
 
         // Validate cumulative file count
         if (currentCount + files.length > fileConfig.maxCount) {
-            alert(`最多只能上传 ${fileConfig.maxCount} 个文件，当前已选择 ${currentCount} 个`);
+            showWarning("文件数量超限", `最多只能上传 ${fileConfig.maxCount} 个文件，当前已选择 ${currentCount} 个`);
             return;
         }
 
@@ -84,7 +85,7 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
         // Validate file size for new files
         const oversizedFiles = files.filter(f => f.size > fileConfig.maxSizeMB * 1024 * 1024);
         if (oversizedFiles.length > 0) {
-            alert(`文件 "${oversizedFiles[0].name}" 超过最大体积 ${fileConfig.maxSizeMB}MB`);
+            showWarning("文件过大", `文件 "${oversizedFiles[0].name}" 超过最大体积 ${fileConfig.maxSizeMB}MB`);
             return;
         }
 
@@ -102,7 +103,7 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
             });
 
             if (invalidTypeFiles.length > 0) {
-                alert(`不支持的文件类型: ${invalidTypeFiles[0].name}\n仅支持: ${allAllowed.join(", ")}`);
+                showWarning("文件类型不支持", `不支持的文件类型: ${invalidTypeFiles[0].name}，仅支持: ${allAllowed.join(", ")}`);
                 return;
             }
         }
@@ -125,20 +126,16 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
             return;
         }
 
-        if (disabled || !value.trim()) return;
-
-        // If structured form is enabled, validate required fields
-        if (enableStructuredForm && formFields.some(f => f.required)) {
-            if (!validateForm()) {
-                // Auto-open form popover to show errors
-                setFormPopoverOpen(true);
-                return;
-            }
-        }
+        // 统一发送条件：至少有一个启用的模式有内容
+        const hasValidContent =
+            (enableTextInput && value.trim().length > 0) ||
+            (enableFileInput && selectedFiles.length > 0) ||
+            (enableStructuredForm && Object.keys(formData).length > 0);
+        if (disabled || !hasValidContent) return;
 
         // Package all data and send
         onSend({
-            text: value,
+            text: enableTextInput ? value : "", // 如果关闭文本输入，传递空字符串
             files: enableFileInput && selectedFiles.length > 0 ? selectedFiles : undefined,
             formData: enableStructuredForm && Object.keys(formData).length > 0 ? formData : undefined,
         });
@@ -179,7 +176,7 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
                                 <p className="text-gray-400 mb-1">点击填写以下信息：</p>
                                 <div className="flex flex-wrap gap-1">
                                     {formFields.map((field, i) => (
-                                        <span key={i} className={`inline-block rounded px-1.5 py-0.5 ${field.required ? "bg-blue-600" : "bg-gray-700"}`}>
+                                        <span key={i} className={`inline-block rounded px-1.5 py-0.5 ${field.required ? "bg-black" : "bg-gray-700"}`}>
                                             {field.label}{field.required && " *"}
                                         </span>
                                     ))}
@@ -327,12 +324,15 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
                                 <p className="font-semibold text-sm">上传附件</p>
                                 <div className="text-xs space-y-1 text-gray-200">
                                     {(() => {
-                                        const validTypes = fileConfig.allowedTypes.filter(t => t !== "*/*" && t !== "*");
+                                        const validTypes = fileConfig.allowedTypes
+                                            .flatMap(t => t.split(','))
+                                            .map(t => t.trim())
+                                            .filter(t => t && t !== "*/*" && t !== "*");
                                         return validTypes.length > 0 ? (
                                             <p className="flex flex-wrap gap-1 items-center">
                                                 <span className="text-gray-400 shrink-0">支持格式：</span>
                                                 {validTypes.map((t, i) => (
-                                                    <span key={i} className="inline-block bg-gray-700 rounded px-1.5 py-0.5">{t}</span>
+                                                    <span key={i} className="inline-block bg-gray-700 rounded px-1.5 py-0.5">{t.replace(/^\./, "")}</span>
                                                 ))}
                                             </p>
                                         ) : null;

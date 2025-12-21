@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { FlowRecord } from "@/types/flow";
 import { IconDisplay } from "./IconDisplay";
 import React from "react";
+import { toast } from "@/hooks/use-toast";
 
 // ============ 常量 ============
 const DIALOG_STYLE = {
@@ -56,10 +57,40 @@ export function EditFlowDialog({
   }, [open, flow]);
 
   const handleSave = async () => {
+    // 表单验证
+    const trimmedName = formState.name.trim();
+    if (!trimmedName) {
+      toast({
+        title: "验证失败",
+        description: "名称不能为空",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (trimmedName.length > 50) {
+      toast({
+        title: "验证失败",
+        description: "名称不能超过 50 个字符",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (formState.description.length > 500) {
+      toast({
+        title: "验证失败",
+        description: "描述不能超过 500 个字符",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
-      await onSave(formState.name, formState.description);
+      await onSave(trimmedName, formState.description.trim());
       onOpenChange(false);
+    } catch (error) {
+      // 错误已在 FlowCard 的 handleSaveBasic 中处理，这里不关闭对话框
+      console.error("Save failed:", error);
     } finally {
       setIsSaving(false);
     }
@@ -90,7 +121,7 @@ export function EditFlowDialog({
 
           {/* 名称输入 */}
           <div>
-            <div className="text-xs font-medium text-gray-600 mb-1">名称</div>
+            <div className="text-xs font-medium text-gray-600 mb-1">名称 <span className="text-red-500">*</span></div>
             <Input
               value={formState.name}
               onChange={(e) =>
@@ -99,7 +130,10 @@ export function EditFlowDialog({
                   name: e.target.value,
                 }))
               }
+              maxLength={50}
+              placeholder="请输入流程名称"
             />
+            <div className="text-xs text-gray-400 mt-1 text-right">{formState.name.length}/50</div>
           </div>
 
           {/* 摘要输入 */}
@@ -114,7 +148,10 @@ export function EditFlowDialog({
                 }))
               }
               className="min-h-[100px]"
+              maxLength={500}
+              placeholder="简要描述这个流程的功能（可选）"
             />
+            <div className="text-xs text-gray-400 mt-1 text-right">{formState.description.length}/500</div>
           </div>
 
           {/* 按钮组 */}

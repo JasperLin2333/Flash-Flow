@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import { User, Copy, Check } from "lucide-react";
 import { AppIcon } from "./AppIcon";
 import { STYLES, getFileIcon, type FlowIconConfig, type Message, type Attachment } from "./constants";
@@ -11,6 +11,7 @@ interface MessageBubbleProps {
     attachments?: Attachment[];
     flowIcon?: FlowIconConfig;
     timestamp?: Date;
+    isStreaming?: boolean; // 新增：标识是否正在流式输出
 }
 
 /**
@@ -46,13 +47,13 @@ function formatTimestamp(date: Date): string {
  * 支持用户和助手两种角色
  * AI回复支持鼠标悬停显示时间戳和复制按钮
  */
-export function MessageBubble({ role, content, files, attachments, flowIcon, timestamp }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ role, content, files, attachments, flowIcon, timestamp, isStreaming }: MessageBubbleProps) {
     const isUser = role === "user";
     const [isHovered, setIsHovered] = useState(false);
     const [copied, setCopied] = useState(false);
 
     const bubbleStyle = isUser
-        ? "bg-blue-600 text-white border border-blue-600"
+        ? "bg-black text-white border border-black"
         : "bg-white text-gray-900 border border-gray-200";
 
     const handleCopy = useCallback(async () => {
@@ -114,7 +115,7 @@ export function MessageBubble({ role, content, files, attachments, flowIcon, tim
                         <div className="whitespace-pre-wrap">{content}</div>
                     ) : (
                         // 助手消息：渲染 Markdown
-                        <MarkdownRenderer content={content} />
+                        <MarkdownRenderer content={content} isStreaming={isStreaming} />
                     )}
                 </div>
                 {files && files.length > 0 && (
@@ -123,7 +124,7 @@ export function MessageBubble({ role, content, files, attachments, flowIcon, tim
                             const Icon = getFileIcon(file.name);
                             return (
                                 <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-150 min-w-[160px] max-w-[200px] shrink-0">
-                                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-blue-500 shrink-0">
+                                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-500 shrink-0">
                                         <Icon className="w-5 h-5" />
                                     </div>
                                     <div className="flex-1 min-w-0">
@@ -147,7 +148,7 @@ export function MessageBubble({ role, content, files, attachments, flowIcon, tim
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-2 px-3 py-2 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-150 min-w-[160px] max-w-[200px] shrink-0 no-underline cursor-pointer"
                                 >
-                                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-blue-500 shrink-0">
+                                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-500 shrink-0">
                                         <Icon className="w-5 h-5" />
                                     </div>
                                     <div className="flex-1 min-w-0">
@@ -166,4 +167,4 @@ export function MessageBubble({ role, content, files, attachments, flowIcon, tim
             </div>
         </div>
     );
-}
+});
