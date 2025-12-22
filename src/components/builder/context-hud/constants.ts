@@ -88,7 +88,8 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     datetime: {
         inputs: [
             { 
-                field: "operation", 
+                field: "operation",              
+                description: "操作类型：now(获取当前时间)、format(格式化)、diff(日期差)、add(日期加减)", 
                 required: false,
                 type: "enum" as const,
                 enumOptions: ["now（获取当前时间）", "format（日期格式化）", "diff（计算日期差）", "add（日期加减）"],
