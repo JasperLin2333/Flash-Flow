@@ -27,8 +27,19 @@ export interface ReferencedVariable {
 }
 
 // ============ 工具输入输出定义类型 ============
+export type ToolInputFieldType = 'text' | 'number' | 'enum';
+
+export interface ToolInputField {
+    field: string;
+    description: string;
+    required: boolean;
+    type?: ToolInputFieldType; // 字段类型，默认为 text
+    enumOptions?: string[]; // 当 type 为 enum 时的选项列表
+    dependsOn?: { field: string; value: string | string[] }; // 条件显示：依赖某个字段的值
+}
+
 export interface ToolIODefinition {
-    inputs: { field: string; description: string; required: boolean }[];
+    inputs: ToolInputField[];
     outputs: { field: string; description: string }[];
 }
 

@@ -147,7 +147,7 @@ export const TOOL_REGISTRY = {
     web_search: {
         id: "web_search" as const,
         name: "网页搜索",
-        description: "使用 Tavily 搜索引擎联网查找相关信息",
+        description: "在网上查找相关信息",
         icon: Search,
         schema: webSearchSchema,
         category: "search" as const,
@@ -155,7 +155,7 @@ export const TOOL_REGISTRY = {
     calculator: {
         id: "calculator" as const,
         name: "计算器",
-        description: "安全计算数学表达式",
+        description: "计算数学公式",
         icon: CalcIcon,
         schema: calculatorSchema,
         category: "math" as const,
@@ -163,7 +163,7 @@ export const TOOL_REGISTRY = {
     datetime: {
         id: "datetime" as const,
         name: "日期时间",
-        description: "获取当前时间、日期格式化、日期计算",
+        description: "获取当前时间 / 将日期格式化 / 计算日期",
         icon: Clock,
         schema: datetimeSchema,
         category: "utility" as const,

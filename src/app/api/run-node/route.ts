@@ -95,7 +95,9 @@ export async function POST(req: Request) {
             reasoning: reasoningText
         });
     } catch (error) {
-        console.error("Run node error:", error);
+        if (process.env.NODE_ENV === 'development') {
+            console.error("Run node error:", error);
+        }
         return NextResponse.json({ error: "Execution failed", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }

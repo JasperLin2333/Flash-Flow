@@ -61,9 +61,11 @@ function FlowMenu({
         <TooltipContent side="top">更多</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onEdit}>编辑信息</DropdownMenuItem>
+        <DropdownMenuItem onClick={onEdit} className="cursor-pointer">
+          编辑信息
+        </DropdownMenuItem>
         <DropdownMenuItem
-          className="text-red-600 focus:text-red-600 focus:bg-red-50 hover:text-red-700 hover:bg-red-50"
+          className="text-red-600 focus:text-red-600 focus:bg-red-50 hover:text-red-700 hover:bg-red-50 cursor-pointer"
           onClick={onDelete}
         >
           删除

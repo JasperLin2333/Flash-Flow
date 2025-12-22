@@ -41,7 +41,7 @@ export const ANIMATION = {
 export const UI_TEXT = {
     emptyState: "我是您的智能助手，请告诉我您的需求。",
     appTitle: "智能助手",
-    inputPlaceholder: "搜索、提问或者说明你的需求...（请不要忘记在下方'设置'按钮填写表单内容哦~）",
+    inputPlaceholder: "搜索、提问或者说明你的需求...",
     homeButton: "首页",
     closeButton: "关闭",
 } as const;

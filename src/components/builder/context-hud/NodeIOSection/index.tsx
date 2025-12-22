@@ -81,13 +81,15 @@ export function NodeIOSection({
                 <AvailableVarsSection upstreamVariables={upstreamVariables} />
             )}
 
-            {/* 4. 输出参数 */}
-            <OutputParamsSection
-                nodeLabel={nodeLabel}
-                outputFields={outputFields}
-                customOutputs={customOutputs}
-                onUpdateCustomOutputs={onUpdateCustomOutputs}
-            />
+            {/* 4. 输出参数（Output 节点隐藏此部分） */}
+            {nodeType !== 'output' && (
+                <OutputParamsSection
+                    nodeLabel={nodeLabel}
+                    outputFields={outputFields}
+                    customOutputs={customOutputs}
+                    onUpdateCustomOutputs={onUpdateCustomOutputs}
+                />
+            )}
         </div>
     );
 }

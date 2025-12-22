@@ -100,7 +100,9 @@ export async function executeCodeInterpreter(inputs: CodeInterpreterInputs): Pro
                     const content = await response.arrayBuffer();
                     await sbx.files.write(`/home/user/${file.name}`, content);
                 } catch (fileError) {
-                    console.error(`Error uploading file ${file.name}:`, fileError);
+                    if (process.env.NODE_ENV === 'development') {
+                        console.error(`Error uploading file ${file.name}:`, fileError);
+                    }
                     // Continue with other files, don't fail completely
                 }
             }
@@ -150,7 +152,9 @@ export async function executeCodeInterpreter(inputs: CodeInterpreterInputs): Pro
                         });
 
                     if (uploadError) {
-                        console.error("Supabase upload error:", uploadError);
+                        if (process.env.NODE_ENV === 'development') {
+                            console.error("Supabase upload error:", uploadError);
+                        }
                     } else {
                         const { data: urlData } = supabase.storage
                             .from('flow-files')
@@ -163,7 +167,9 @@ export async function executeCodeInterpreter(inputs: CodeInterpreterInputs): Pro
                         };
                     }
                 } else {
-                    console.warn("Supabase credentials not configured, cannot persist generated file");
+                    if (process.env.NODE_ENV === 'development') {
+                        console.warn("Supabase credentials not configured, cannot persist generated file");
+                    }
                     // 返回文件生成信息，但没有持久化URL
                     generatedFile = {
                         name: inputs.outputFileName,

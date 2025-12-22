@@ -77,7 +77,9 @@ export async function executeToolAction(input: ToolExecutionInput): Promise<Tool
                 };
         }
     } catch (error) {
-        console.error(`Tool execution error (${toolType}):`, error);
+        if (process.env.NODE_ENV === 'development') {
+            console.error(`Tool execution error (${toolType}):`, error);
+        }
         return {
             success: false,
             error: error instanceof Error ? error.message : "Tool execution failed",

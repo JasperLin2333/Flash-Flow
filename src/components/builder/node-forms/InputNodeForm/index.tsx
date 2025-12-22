@@ -158,9 +158,6 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                         <span>文本输入</span>
                     </div>
                 </div>
-                <p className="text-xs text-gray-500 pl-7">
-                    关闭后文本发送将被禁用
-                </p>
             </div>
 
             <Separator className="my-4" />
@@ -198,14 +195,11 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                         <FormControl>
                             <textarea
                                 {...field}
-                                placeholder="引导用户如何使用该助手..."
+                                placeholder="在APP页面显示，引导用户如何使用该助手..."
                                 rows={3}
                                 className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
                             />
                         </FormControl>
-                        <p className="text-xs text-gray-500">
-                            在对话页面的欢迎界面显示，引导用户如何使用
-                        </p>
                         <FormMessage />
                     </FormItem>
                 )}

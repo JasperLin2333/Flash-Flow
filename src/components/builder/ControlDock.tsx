@@ -116,7 +116,7 @@ function ZoomControls({
             <DropdownMenuItem
               key={pct}
               onClick={() => zoomTo(pct)}
-              className="justify-center"
+              className="justify-center cursor-pointer"
             >
               {pct}%
             </DropdownMenuItem>
@@ -220,7 +220,7 @@ function ClearCacheButton({
             <Trash2 className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="top">清除缓存</TooltipContent>
+        <TooltipContent side="top">清除运行记录</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

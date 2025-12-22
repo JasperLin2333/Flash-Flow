@@ -127,7 +127,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
       return "📖 点击左下角填写表单后即可开始~";
     }
     if (enableStructuredForm && formFields.some(f => f.required)) {
-      return "搜索、提问或者说明你的需求...（请不要忘记在下方 📖 按钮填写表单内容哦~）";
+      return "搜索、提问或者说明你的需求...";
     }
     return placeholder;
   };

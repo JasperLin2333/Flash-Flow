@@ -227,7 +227,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
             <label htmlFor="rag-file-input" className="cursor-pointer block">
               <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
               <div className="text-sm font-medium text-gray-600">
-                {isUploading ? `上传中... ${uploadProgress}% ` : '点击上传文件'}
+                {isUploading ? `上传中... ${uploadProgress}% ` : '点击上传文件（知识库）'}
               </div>
               <div className="text-xs text-gray-400 mt-1">
                 支持 PDF, TXT, MD, DOC, DOCX（最大 100MB）

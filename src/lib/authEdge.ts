@@ -17,7 +17,9 @@ export function createEdgeClient(request: Request) {
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!url || !anonKey) {
-        console.error("[authEdge] Missing Supabase environment variables!", { url: !!url, anonKey: !!anonKey });
+        if (process.env.NODE_ENV === 'development') {
+            console.error("[authEdge] Missing Supabase environment variables!", { url: !!url, anonKey: !!anonKey });
+        }
         throw new Error("Missing Supabase environment variables");
     }
 
@@ -28,7 +30,9 @@ export function createEdgeClient(request: Request) {
                 const cookies: { name: string; value: string }[] = [];
 
                 if (!cookieHeader) {
-                    console.warn("[authEdge] No cookie header found in request. User may not be logged in or cookies not sent.");
+                    if (process.env.NODE_ENV === 'development') {
+                        console.warn("[authEdge] No cookie header found in request. User may not be logged in or cookies not sent.");
+                    }
                 }
 
                 cookieHeader.split(";").forEach((cookie) => {
@@ -64,18 +68,24 @@ export async function getAuthenticatedUser(request: Request) {
         const { data: { user }, error } = await supabase.auth.getUser();
 
         if (error) {
-            console.error("[authEdge] getUser error:", error.message);
+            if (process.env.NODE_ENV === 'development') {
+                console.error("[authEdge] getUser error:", error.message);
+            }
             return null;
         }
 
         if (!user) {
-            console.warn("[authEdge] No user found in session (getUser returned null)");
+            if (process.env.NODE_ENV === 'development') {
+                console.warn("[authEdge] No user found in session (getUser returned null)");
+            }
             return null;
         }
 
         return user;
     } catch (e) {
-        console.error("[authEdge] getAuthenticatedUser exception:", e);
+        if (process.env.NODE_ENV === 'development') {
+            console.error("[authEdge] getAuthenticatedUser exception:", e);
+        }
         return null;
     }
 }

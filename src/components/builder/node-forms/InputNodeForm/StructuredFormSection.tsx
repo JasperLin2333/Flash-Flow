@@ -56,7 +56,7 @@ function FieldEditor({
                     <SelectContent>
                         <SelectItem value="select">下拉单选</SelectItem>
                         <SelectItem value="multi-select">下拉多选</SelectItem>
-                        <SelectItem value="text">文本字段</SelectItem>
+                        <SelectItem value="text">文本输入</SelectItem>
                     </SelectContent>
                 </Select>
             </div>

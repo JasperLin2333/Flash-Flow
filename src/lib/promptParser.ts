@@ -70,7 +70,9 @@ export function replaceVariables(
         const allVars = extractVariables(prompt);
         const missingVars = allVars.filter(varName => !usedVars.has(varName));
         if (missingVars.length > 0) {
-            console.warn(`[PromptParser] 未找到变量: ${missingVars.join(', ')}，已替换为空字符串`);
+            if (process.env.NODE_ENV === 'development') {
+                console.warn(`[PromptParser] 未找到变量: ${missingVars.join(', ')}，已替换为空字符串`);
+            }
         }
     }
 

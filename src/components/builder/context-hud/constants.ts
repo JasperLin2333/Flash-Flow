@@ -45,14 +45,14 @@ export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: 
     input: [
         { field: "user_input", description: "用户输入的文本内容" },
 
-        { field: "files", description: "上传的文件列表，可通过 files[n]获取单个文件" },
-        { field: "formData", description: "结构化表单对象，通过 formData.字段名 获取" },
+        { field: "files", description: "用户上传的文件列表，可通过 files[n] 获取单个文件" },
+        { field: "formData", description: "结构化表单，通过 formData.字段名 引用" },
     ],
     llm: [
-        { field: "response", description: "AI 生成的回复内容" },
+        { field: "response", description: "AI生成的回复内容" },
     ],
     rag: [
-        { field: "documents", description: "检索到的文档片段数组" },
+        { field: "documents", description: "文件中找到的相关内容" },
         { field: "citations", description: "引用信息" },
     ],
     tool: [], // 动态根据工具类型生成
@@ -60,7 +60,7 @@ export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: 
         { field: "conditionResult", description: "条件判断结果 (true/false)" },
     ],
     output: [
-        { field: "text", description: "最终输出文本" },
+        { field: "text", description: "最终输出的文本内容" },
     ],
 };
 
@@ -68,28 +68,62 @@ export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: 
 export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     web_search: {
         inputs: [
-            { field: "query", description: "搜索查询内容", required: true },
-            { field: "maxResults", description: "最大返回结果数", required: false },
+            { field: "query", description: "搜索内容", required: true },
+            { field: "maxResults", description: "最多找多少个网页", required: false },
         ],
         outputs: [
-            { field: "results", description: "搜索结果数组" },
-            { field: "count", description: "结果数量" },
+            { field: "results", description: "搜索的结果" },
+            { field: "count", description: "找了多少个网页" },
         ],
     },
     calculator: {
         inputs: [
-            { field: "expression", description: "数学表达式", required: true },
+            { field: "expression", description: "数学公式", required: true },
         ],
         outputs: [
-            { field: "expression", description: "计算表达式" },
+            { field: "expression", description: "数学公式" },
             { field: "result", description: "计算结果" },
         ],
     },
     datetime: {
         inputs: [
-            { field: "operation", description: "操作类型 (now/format/diff/add)", required: false },
-            { field: "date", description: "输入日期", required: false },
-            { field: "format", description: "输出格式", required: false },
+            { 
+                field: "operation", 
+                required: false,
+                type: "enum" as const,
+                enumOptions: ["now（获取当前时间）", "format（日期格式化）", "diff（计算日期差）", "add（日期加减）"],
+            },
+            { 
+                field: "date", 
+                description: "输入日期（ISO 格式或常见格式）", 
+                required: false,
+            },
+            { 
+                field: "format", 
+                description: "输出的日期格式（如 YYYY-MM-DD HH:mm:ss）", 
+                required: false,
+            },
+            { 
+                field: "targetDate", 
+                description: "目标日期（用于计算日期差）", 
+                required: false,
+                dependsOn: { field: "operation", value: "diff" },
+            },
+            { 
+                field: "amount", 
+                description: "增减数量（用于日期加减）", 
+                required: false,
+                type: "number" as const,
+                dependsOn: { field: "operation", value: "add" },
+            },
+            { 
+                field: "unit", 
+                description: "时间单位（用于日期加减）", 
+                required: false,
+                type: "enum" as const,
+                enumOptions: ["year", "month", "day", "hour", "minute", "second"],
+                dependsOn: { field: "operation", value: "add" },
+            },
         ],
         outputs: [
             { field: "formatted", description: "格式化后的日期时间" },
@@ -110,26 +144,26 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     // },
     url_reader: {
         inputs: [
-            { field: "url", description: "网页 URL", required: true },
-            { field: "maxLength", description: "最大返回字符数", required: false },
+            { field: "url", description: "想要读取的网页地址", required: true },
+            { field: "maxLength", description: "最多返回多少字", required: false },
         ],
         outputs: [
             { field: "url", description: "网页地址" },
-            { field: "title", description: "页面标题" },
-            { field: "content", description: "提取的正文内容" },
+            { field: "title", description: "网页标题" },
+            { field: "content", description: "提取的网页正文内容" },
         ],
     },
     code_interpreter: {
         inputs: [
             { field: "code", description: "要执行的 Python 代码", required: true },
-            { field: "inputFiles", description: "上传到沙箱的文件，如 {{输入节点.files}}", required: false },
+            { field: "inputFiles", description: "上传希望被处理的文件", required: false },
             { field: "outputFileName", description: "期望生成的输出文件名，如 output.csv", required: false },
         ],
         outputs: [
             { field: "logs", description: "代码执行的标准输出日志" },
             { field: "errors", description: "代码执行的错误输出" },
-            { field: "generatedFile", description: "生成的文件对象 {name, url, type}" },
-            { field: "result", description: "代码执行返回值" },
+            { field: "generatedFile", description: "生成的文件 {包含name, url, type}" },
+            { field: "result", description: "代码执行返回的内容" },
         ],
     },
 };
@@ -140,11 +174,11 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
 export const NODE_UPSTREAM_INPUTS: Record<NodeKind, { field: string; description: string; required: boolean }[]> = {
     input: [],  // 入口节点，无需上游输入
     llm: [
-        { field: "user_input", description: "用户消息内容（问答场景必填，图片识别等场景可选）", required: false },
+        { field: "user_input", description: "用户提示词", required: false },
     ],
     rag: [
-        { field: "query", description: "检索查询文本", required: true },
-        { field: "files", description: "动态文件引用（可选，如 {{输入节点.files}}）", required: false },
+        { field: "query", description: "想要从文件中找出什么", required: true },
+        { field: "files", description: "动态文件引用（APP页面上传的文件）", required: false },
     ],
     tool: [], // 动态根据工具类型生成
     branch: [],  // condition 表达式已说明数据来源

@@ -77,7 +77,9 @@ export function mapAuthError(errorMessage: string | null | undefined): string {
     }
 
     // Default fallback
-    console.warn("[mapAuthError] Unmapped error:", errorMessage);
+    if (process.env.NODE_ENV === 'development') {
+        console.warn("[mapAuthError] Unmapped error:", errorMessage);
+    }
     return "操作失败，请稍后重试";
 }
 

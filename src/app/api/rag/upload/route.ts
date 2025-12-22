@@ -106,7 +106,9 @@ export async function POST(req: Request) {
         });
 
     } catch (error) {
-        console.error("[RAG Upload API] Error:", error);
+        if (process.env.NODE_ENV === 'development') {
+            console.error("[RAG Upload API] Error:", error);
+        }
         return NextResponse.json(
             { error: error instanceof Error ? error.message : "上传失败" },
             { status: 500 }

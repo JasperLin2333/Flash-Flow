@@ -57,7 +57,9 @@ export async function POST(req: Request) {
         });
 
     } catch (error) {
-        console.error("[RAG Store API] Error:", error);
+        if (process.env.NODE_ENV === 'development') {
+            console.error("[RAG Store API] Error:", error);
+        }
         return NextResponse.json(
             { error: error instanceof Error ? error.message : "创建 Store 失败" },
             { status: 500 }

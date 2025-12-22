@@ -158,7 +158,9 @@ export async function POST(req: Request) {
                 try {
                     const response = await fetch(file.url);
                     if (!response.ok) {
-                        console.warn(`[RAG Search] Failed to fetch file: ${file.name}`);
+                        if (process.env.NODE_ENV === 'development') {
+                            console.warn(`[RAG Search] Failed to fetch file: ${file.name}`);
+                        }
                         continue;
                     }
 
@@ -174,7 +176,9 @@ export async function POST(req: Request) {
                         }
                     });
                 } catch (fetchError) {
-                    console.warn(`[RAG Search] Error fetching file ${file.name}:`, fetchError);
+                    if (process.env.NODE_ENV === 'development') {
+                        console.warn(`[RAG Search] Error fetching file ${file.name}:`, fetchError);
+                    }
                 }
             }
 
@@ -207,7 +211,9 @@ export async function POST(req: Request) {
         }
 
     } catch (error) {
-        console.error("[RAG Search API] Error:", error);
+        if (process.env.NODE_ENV === 'development') {
+            console.error("[RAG Search API] Error:", error);
+        }
         return NextResponse.json(
             { error: error instanceof Error ? error.message : "搜索失败" },
             { status: 500 }

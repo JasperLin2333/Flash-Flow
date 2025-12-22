@@ -108,7 +108,9 @@ export async function POST(req: Request) {
                     controller.enqueue(encoder.encode("data: [DONE]\n\n"));
                     controller.close();
                 } catch (error) {
-                    console.error("Streaming error:", error);
+                    if (process.env.NODE_ENV === 'development') {
+                        console.error("Streaming error:", error);
+                    }
                     controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : "Streaming failed" })}\n\n`)
                     );
@@ -125,7 +127,9 @@ export async function POST(req: Request) {
             },
         });
     } catch (error) {
-        console.error("Run node stream error:", error);
+        if (process.env.NODE_ENV === 'development') {
+            console.error("Run node stream error:", error);
+        }
         return new Response(
             JSON.stringify({ error: "Execution failed", details: error instanceof Error ? error.message : String(error) }),
             { status: 500, headers: { "Content-Type": "application/json" } }
