@@ -9,13 +9,22 @@
 - [edgeActions.ts](file://src/store/actions/edgeActions.ts)
 - [flowAPI.ts](file://src/services/flowAPI.ts)
 - [llmProvider.ts](file://src/lib/llmProvider.ts)
+- [workflow.ts](file://src/lib/schemas/workflow.ts)
+- [smartRules.ts](file://src/lib/prompts/smartRules.ts)
+- [efficiencyRules.ts](file://src/lib/prompts/efficiencyRules.ts)
+- [variableRules.ts](file://src/lib/prompts/variableRules.ts)
+- [nodeSpecs.ts](file://src/lib/prompts/nodeSpecs.ts)
+- [edgeRules.ts](file://src/lib/prompts/edgeRules.ts)
+- [checklists.ts](file://src/lib/prompts/checklists.ts)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 更新了接口概述、系统提示词和架构图部分，以反映从硬编码的SiliconFlow API客户端迁移到基于`getProviderForModel`函数的动态提供商路由机制
-- 新增了关于动态提供商路由机制的详细说明
-- 更新了架构图以反映新的动态路由流程
+- 更新了接口概述、系统提示词和架构图部分，以反映从返回结构化修改指令到生成完整工作流 JSON 的转变
+- 新增了关于规则提示词（SMART_RULES, EFFICIENCY_RULES 等）和工作流模式的详细说明
+- 更新了系统提示词内容，强调输出完整工作流而非指令对象
+- 调整了LLM响应解析逻辑，以适配新的输出格式
+- 更新了架构图以反映新的工作流模式
 
 ## 目录
 1. [简介](#简介)

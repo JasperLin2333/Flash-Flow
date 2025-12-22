@@ -10,27 +10,38 @@
 - [CopilotOverlay.tsx](file://src/components/flow/CopilotOverlay.tsx)
 - [builder/page.tsx](file://src/app/builder/page.tsx)
 - [package.json](file://package.json)
+- [smartRules.ts](file://src/lib/prompts/smartRules.ts)
+- [variableRules.ts](file://src/lib/prompts/variableRules.ts)
+- [nodeSpecs.ts](file://src/lib/prompts/nodeSpecs.ts)
+- [edgeRules.ts](file://src/lib/prompts/edgeRules.ts)
+- [scenarioRules.ts](file://src/lib/prompts/scenarioRules.ts)
+- [checklists.ts](file://src/lib/prompts/checklists.ts)
+- [efficiencyRules.ts](file://src/lib/prompts/efficiencyRules.ts)
+- [workflow.ts](file://src/lib/schemas/workflow.ts)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 新增了对流式响应的支持说明，包括 ReadableStream 的实现、Server-Sent Events 格式和客户端流式读取处理
-- 在“核心业务逻辑”部分增加了流式处理流程图
-- 在“前端应用场景”中更新了 Copilot 功能集成的序列图
-- 在“错误处理与容错机制”中增加了流式错误处理说明
+- 更新“核心业务逻辑”部分，反映使用规则提示词和工作流模式指导LLM生成有效工作流的新机制
+- 新增“规则提示词体系”章节，详细说明SMART_RULES、VARIABLE_RULES等规则模块
+- 更新“系统提示词构建”流程图，展示多规则模块的集成方式
+- 在“LLM集成与模型选择”中更新模型选择策略，包含备选模型与重试机制
+- 更新“输出结构与规范化”部分，反映Zod模式验证的使用
+- 更新“使用示例”中的系统提示词内容，体现规则提示词的实际应用
 
 ## 目录
 1. [简介](#简介)
 2. [接口概述](#接口概述)
 3. [输入验证与数据结构](#输入验证与数据结构)
 4. [核心业务逻辑](#核心业务逻辑)
-5. [LLM集成与模型选择](#llm集成与模型选择)
-6. [输出结构与规范化](#输出结构与规范化)
-7. [前端应用场景](#前端应用场景)
-8. [安全边界与认证](#安全边界与认证)
-9. [错误处理与容错机制](#错误处理与容错机制)
-10. [使用示例](#使用示例)
-11. [最佳实践建议](#最佳实践建议)
+5. [规则提示词体系](#规则提示词体系)
+6. [LLM集成与模型选择](#llm集成与模型选择)
+7. [输出结构与规范化](#输出结构与规范化)
+8. [前端应用场景](#前端应用场景)
+9. [安全边界与认证](#安全边界与认证)
+10. [错误处理与容错机制](#错误处理与容错机制)
+11. [使用示例](#使用示例)
+12. [最佳实践建议](#最佳实践建议)
 
 ## 简介
 
@@ -42,7 +53,7 @@
 - **端点路径**: `/api/plan`
 - **HTTP方法**: `POST`
 - **内容类型**: `application/json`
-- **认证要求**: 无（匿名访问）
+- **认证要求**: 有（基于用户身份验证）
 
 ### 请求结构
 
@@ -81,7 +92,7 @@ PlanResponse --> Edge : "包含"
 - [flow.ts](file://src/types/flow.ts#L46-L51)
 
 **节来源**
-- [route.ts](file://src/app/api/plan/route.ts#L1-L123)
+- [route.ts](file://src/app/api/plan/route.ts#L1-L297)
 - [validation.ts](file://src/utils/validation.ts#L1-L28)
 
 ## 输入验证与数据结构
@@ -97,7 +108,7 @@ PlanResponse --> Edge : "包含"
 
 ### 节点类型限制
 
-系统支持以下五种标准化节点类型：
+系统支持以下标准化节点类型：
 
 | 节点类型 | 功能描述 | 主要属性 |
 |----------|----------|----------|
@@ -106,10 +117,13 @@ PlanResponse --> Edge : "包含"
 | rag | 检索增强生成节点 | files |
 | http | HTTP请求节点 | method, url |
 | output | 数据输出节点 | label, text |
+| branch | 分支节点 | condition |
+| tool | 工具节点 | toolType, inputs |
 
 **节来源**
 - [validation.ts](file://src/utils/validation.ts#L3-L6)
 - [flow.ts](file://src/types/flow.ts#L3-L9)
+- [nodeSpecs.ts](file://src/lib/prompts/nodeSpecs.ts#L1-L192)
 
 ## 核心业务逻辑
 
@@ -122,52 +136,113 @@ Validate --> ValidCheck{"验证成功?"}
 ValidCheck --> |否| ReturnError["返回400错误"]
 ValidCheck --> |是| CheckPrompt{"提示词为空?"}
 CheckPrompt --> |是| ReturnEmpty["返回空节点集"]
-CheckPrompt --> |否| SelectProvider["选择LLM提供商"]
-SelectProvider --> BuildSystem["构建系统提示词"]
+CheckPrompt --> |否| AuthCheck["用户身份验证"]
+AuthCheck --> QuotaCheck["配额检查"]
+QuotaCheck --> BuildSystem["构建系统提示词"]
 BuildSystem --> CallLLM["调用LLM API"]
 CallLLM --> ExtractJSON["提取JSON内容"]
 ExtractJSON --> ParseJSON["解析JSON"]
-ParseJSON --> Normalize["规范化输出"]
-Normalize --> ReturnResponse["返回标准化结果"]
+ParseJSON --> ValidateSchema["Zod模式验证"]
+ValidateSchema --> ReturnResponse["返回标准化结果"]
 ReturnError --> End([结束])
 ReturnEmpty --> End
 ReturnResponse --> End
 ```
 
 **图表来源**
-- [route.ts](file://src/app/api/plan/route.ts#L6-L123)
-
-### 流式处理流程图
-
-```mermaid
-flowchart TD
-Start([开始流式响应]) --> CreateStream["创建ReadableStream"]
-CreateStream --> LLMCall["调用LLM流式API"]
-LLMCall --> ReceiveChunk["接收数据块"]
-ReceiveChunk --> ProcessChunk["处理数据块并发送进度"]
-ProcessChunk --> CollectContent["收集完整内容"]
-CollectContent --> ParseJSON["解析JSON内容"]
-ParseJSON --> SendResult["发送最终结果"]
-SendResult --> SendDone["发送[DONE]标记"]
-SendDone --> CloseStream["关闭流"]
-CloseStream --> End([结束])
-```
-
-**节来源**
-- [route.ts](file://src/app/api/plan/route.ts#L374-L457)
+- [route.ts](file://src/app/api/plan/route.ts#L43-L297)
 
 ### 关键处理步骤
 
 1. **输入验证**: 使用 `PlanRequestSchema` 验证请求体结构
 2. **空值检查**: 如果提示词为空，直接返回空的工作流结构
-3. **LLM提供商选择**: 支持 OpenAI 和 Doubao 两种提供商
-4. **系统提示词构建**: 根据节点类型和约束条件生成详细的指导语
-5. **JSON提取机制**: 从LLM响应中提取有效的JSON片段
-6. **输出规范化**: 将原始JSON转换为标准化的节点和边结构
-7. **流式响应**: 使用 ReadableStream 实现 Server-Sent Events 格式的流式响应
+3. **用户认证**: 通过 `getAuthenticatedUser` 验证用户身份
+4. **配额检查**: 使用 `checkQuotaOnServer` 检查用户配额
+5. **系统提示词构建**: 集成多模块规则提示词指导LLM生成
+6. **LLM调用**: 支持重试机制和备选模型切换
+7. **JSON提取与解析**: 从LLM响应中提取并解析JSON内容
+8. **模式验证**: 使用 `WorkflowZodSchema` 验证生成的JSON结构
+9. **结果返回**: 返回标准化的工作流结构并增加配额计数
 
 **节来源**
-- [route.ts](file://src/app/api/plan/route.ts#L6-L123)
+- [route.ts](file://src/app/api/plan/route.ts#L43-L297)
+
+## 规则提示词体系
+
+### 规则模块集成
+
+```mermaid
+flowchart TD
+SystemPrompt["系统提示词"] --> CorePrinciples["核心原则"]
+SystemPrompt --> EfficiencyRules["效率规则"]
+SystemPrompt --> SmartRules["智能规则"]
+SystemPrompt --> ScenarioRules["场景规则"]
+SystemPrompt --> VariableRules["变量规则"]
+SystemPrompt --> NodeSpecs["节点参数"]
+SystemPrompt --> EdgeRules["连接规则"]
+SystemPrompt --> Checklists["检查清单"]
+CorePrinciples --> LogicDepth["逻辑深度"]
+CorePrinciples --> ScenarioAdaptation["场景适配"]
+CorePrinciples --> Fallback["模糊兜底"]
+EfficiencyRules --> Parallel["并行优先"]
+EfficiencyRules --> CostSensitive["成本敏感"]
+SmartRules --> Vision["视觉能力感知"]
+SmartRules --> TimeAware["时间感知"]
+SmartRules --> FileRisk["大文本风控"]
+ScenarioRules --> Document["文档理解"]
+ScenarioRules --> QA["知识问答"]
+ScenarioRules --> Creation["内容创作"]
+VariableRules --> Format["双大括号格式"]
+VariableRules --> LabelMatch["标签精确匹配"]
+NodeSpecs --> InputConfig["输入配置"]
+NodeSpecs --> LLMConfig["LLM配置"]
+NodeSpecs --> ToolConfig["工具配置"]
+```
+
+**图表来源**
+- [route.ts](file://src/app/api/plan/route.ts#L89-L138)
+- [smartRules.ts](file://src/lib/prompts/smartRules.ts#L1-L23)
+- [variableRules.ts](file://src/lib/prompts/variableRules.ts#L1-L21)
+- [nodeSpecs.ts](file://src/lib/prompts/nodeSpecs.ts#L1-L192)
+- [scenarioRules.ts](file://src/lib/prompts/scenarioRules.ts#L1-L26)
+
+### 核心规则模块
+
+#### 智能规则 (SMART_RULES)
+- **视觉与文档能力感知**: 涉及图片/文档处理时必须使用视觉模型（如 `deepseek-ai/DeepSeek-OCR`）
+- **时间/环境感知**: 涉及时间相关需求时必须连接 `datetime` 工具节点
+- **大文本风控**: 使用 `url_reader` 后建议接摘要LLM节点
+- **代码/文件输出**: `code_interpreter` 生成的文件需在Output节点配置 `attachments` 字段
+
+#### 变量引用规则 (VARIABLE_RULES)
+- **必须包含双大括号**: 所有引用必须用 `{{ }}` 包裹
+- **必须精确匹配标签**: 变量前缀必须与来源节点的 `data.label` 字段完全一致
+- **严禁无前缀引用**: 禁止写成 `{{user_input}}` 或 `files`
+- **严禁使用ID/Slug**: 必须使用节点标签而非ID进行引用
+
+#### 节点参数规范 (NODE_SPECS)
+- **Input节点**: 根据需求配置 `enableTextInput`、`enableFileInput`、`enableStructuredForm`
+- **LLM节点**: 选择合适的模型，配置 `temperature` 和 `systemPrompt`
+- **Tool节点**: 严格匹配 `registry.ts` 中的参数定义
+- **Branch节点**: 配置 `condition` 表达式，支持字符串包含、相等比较等
+- **Output节点**: 根据场景选择 `direct`、`select`、`merge` 或 `template` 模式
+
+#### 场景识别规则 (SCENARIO_RULES)
+| 用户描述 | 识别场景 | 默认节点组合 |
+|---------|---------|------------|
+| "看看这个文件/帮我读一下" | 文档理解 | Input(file) → LLM(摘要提取) |
+| "做个客服/问答机器人" | 知识问答 | Input(text) → RAG → LLM(memory=true) |
+| "帮我写XX/生成XX" | 内容创作 | Input(text+form) → LLM(temp=0.8) |
+| "分析数据/做个图表" | 数据分析 | Input(file) → LLM(coder) → code_interpreter |
+| "搜一下/查查/帮我找" | 信息检索 | Tool(web_search) → LLM(总结) |
+| "识别图片/看看图里有啥" | 图像识别 | Input(img) → LLM(视觉模型) |
+
+**节来源**
+- [smartRules.ts](file://src/lib/prompts/smartRules.ts#L1-L23)
+- [variableRules.ts](file://src/lib/prompts/variableRules.ts#L1-L21)
+- [nodeSpecs.ts](file://src/lib/prompts/nodeSpecs.ts#L1-L192)
+- [scenarioRules.ts](file://src/lib/prompts/scenarioRules.ts#L1-L26)
+- [checklists.ts](file://src/lib/prompts/checklists.ts#L1-L10)
 
 ## LLM集成与模型选择
 
@@ -175,52 +250,86 @@ CloseStream --> End([结束])
 
 | 提供商 | 默认模型 | API端点 | 认证方式 |
 |--------|----------|---------|----------|
-| OpenAI | gpt-4o-mini | OpenAI API | API密钥 |
-| Doubao | doubao-pro-128k | Volcengine API | Bearer Token |
+| SiliconFlow | deepseek-ai/DeepSeek-V3.2 | api.siliconflow.cn | API密钥 |
+| Volcengine | deepseek-v3-2-251201 | open.volcengineapi.com | API密钥 |
+| Gemini | gemini-3-flash-preview | gemini.google.com | API密钥 |
 
-### 模型选择策略
+### 模型选择与容错策略
 
 ```mermaid
 flowchart TD
-CheckProvider{"LLM_PROVIDER?"}
-CheckProvider --> |doubao| UseDoubao["使用 Doubao 模型"]
-CheckProvider --> |其他| UseOpenAI["使用 OpenAI 模型"]
-UseDoubao --> SetDoubaoModel["设置 DOUBAO_MODEL<br/>默认: doubao-pro-128k"]
-UseOpenAI --> SetOpenAIModel["设置 OpenAI 模型<br/>固定: gpt-4o-mini"]
-SetDoubaoModel --> ConfigureDoubao["配置 Doubao API<br/>端点: ark.cn-beijing.volces.com"]
-SetOpenAIModel --> ConfigureOpenAI["配置 OpenAI API<br/>端点: api.openai.com"]
-ConfigureDoubao --> SetTemperature["设置温度值: 0.2"]
-ConfigureOpenAI --> SetTemperature
+CheckProvider{"首选模型?"}
+CheckProvider --> |可用| UsePreferred["使用首选模型"]
+CheckProvider --> |不可用| UseFallback["使用备选模型"]
+UsePreferred --> CallLLM["调用LLM API"]
+CallLLM --> Success{"调用成功?"}
+Success --> |是| ReturnResult["返回结果"]
+Success --> |否| CheckError{"错误类型?"}
+CheckError --> |可恢复| Retry["重试当前模型"]
+CheckError --> |不可恢复| SwitchModel["切换到备选模型"]
+Retry --> CallLLM
+SwitchModel --> CallLLM
+ReturnResult --> End([结束])
 ```
 
 **图表来源**
-- [route.ts](file://src/app/api/plan/route.ts#L51-L108)
+- [route.ts](file://src/app/api/plan/route.ts#L84-L85)
+- [route.ts](file://src/app/api/plan/route.ts#L157-L164)
 
-### 温度值设置
+### 模型配置参数
 
+- **首选模型**: 由环境变量 `DEFAULT_LLM_MODEL` 配置，默认为 `deepseek-ai/DeepSeek-V3.2`
+- **备选模型**: `gemini-3-flash-preview`（支持视觉和文本处理）
+- **最大重试次数**: 2次
+- **重试延迟**: 1000毫秒
 - **温度值**: 0.2（低随机性，高一致性）
-- **选择理由**: 为了确保生成的工作流结构稳定可靠，避免不必要的随机变化
-- **适用场景**: 工作流规划需要精确的结构化输出
+- **响应格式**: `json_object`（确保返回结构化JSON）
 
-### JSON提取机制
+### 容错机制
 
-接口实现了智能的JSON提取算法：
+接口实现了多层次的容错机制：
 
-```typescript
-// JSON提取逻辑
-const match = content.match(/\{[\s\S]*\}/);
-if (match) jsonText = match[0];
-```
-
-该正则表达式能够：
-- 匹配最外层的大括号包裹的JSON对象
-- 忽略LLM响应中的额外文本和注释
-- 提取完整的JSON结构
+1. **重试机制**: 对于可恢复性错误（超时、速率限制等），在当前模型上重试
+2. **模型切换**: 对于不可恢复性错误（模型不可用、500错误等），切换到备选模型
+3. **进度通知**: 在流式响应中发送重试和模型切换的进度事件
+4. **兜底策略**: 所有尝试失败后返回空工作流结构
 
 **节来源**
-- [route.ts](file://src/app/api/plan/route.ts#L51-L108)
+- [route.ts](file://src/app/api/plan/route.ts#L11-L13)
+- [route.ts](file://src/app/api/plan/route.ts#L157-L164)
+- [route.ts](file://src/app/api/plan/route.ts#L172-L178)
 
 ## 输出结构与规范化
+
+### Zod模式验证
+
+```mermaid
+classDiagram
+class WorkflowZodSchema {
++string title
++NodeSchema[] nodes
++EdgeSchema[] edges
++validate() boolean
+}
+class NodeSchema {
++string id
++enum type
++record data
++object position
+}
+class EdgeSchema {
++string id
++string source
++string target
++string sourceHandle
++string targetHandle
+}
+WorkflowZodSchema --> NodeSchema : "包含"
+WorkflowZodSchema --> EdgeSchema : "包含"
+```
+
+**图表来源**
+- [workflow.ts](file://src/lib/schemas/workflow.ts#L1-L38)
 
 ### 标准化输出结构
 
@@ -266,7 +375,7 @@ AppNode --> AppNodeData : "包含"
 | 节点类型 | 默认属性 | 规范化处理 |
 |----------|----------|------------|
 | input | text: "" | 保留用户输入文本 |
-| llm | model: "doubao-seed-1-6-flash-250828"<br/>temperature: 0.7<br/>systemPrompt: 自动生成 | 使用用户指定的配置 |
+| llm | model: "deepseek-ai/DeepSeek-V3.2"<br/>temperature: 0.2<br/>systemPrompt: 自动生成 | 使用用户指定的配置 |
 | rag | files: [] | 将文件名列表转换为标准格式 |
 | http | method: "GET"<br/>url: "" | 保留用户指定的URL和方法 |
 | output | text: "" | 保留输出文本 |
@@ -295,6 +404,7 @@ end
 **节来源**
 - [planNormalizer.ts](file://src/store/utils/planNormalizer.ts#L1-L130)
 - [flow.ts](file://src/types/flow.ts#L1-L153)
+- [workflow.ts](file://src/lib/schemas/workflow.ts#L1-L38)
 
 ## 前端应用场景
 
@@ -341,35 +451,32 @@ Frontend->>User : 显示生成的工作流
 
 ### 当前安全状况
 
-**重要警告**: `/api/plan` 接口目前处于无认证状态，存在以下安全风险：
+**安全改进**: `/api/plan` 接口现在需要用户身份验证，并实施配额控制：
 
-1. **匿名访问**: 任何客户端都可以直接调用该接口
-2. **资源滥用**: 可能导致LLM API费用的意外消耗
-3. **内容过滤缺失**: 缺少对恶意输入的防护机制
-4. **速率限制缺失**: 无法有效防止DDoS攻击
+1. **用户认证**: 使用 `getAuthenticatedUser` 验证用户身份
+2. **配额控制**: 使用 `checkQuotaOnServer` 和 `incrementQuotaOnServer` 控制使用频率
+3. **输入验证**: 通过Zod模式确保输入结构正确
+4. **速率限制**: 通过配额系统间接实现速率限制
 
-### 建议的安全改进
+### 认证与配额流程
 
 ```mermaid
 flowchart TD
-CurrentState["当前状态:<br/>无认证, 匿名访问"] --> SecurityAudit["安全审计"]
-SecurityAudit --> RateLimit["实施速率限制"]
-RateLimit --> AuthRequired["要求认证"]
-AuthRequired --> ContentFilter["内容过滤"]
-ContentFilter --> Monitoring["监控与日志"]
-Monitoring --> ProductionReady["生产就绪"]
+CurrentState["当前状态:<br/>需要认证, 配额控制"] --> AuthCheck["用户身份验证"]
+AuthCheck --> |失败| ReturnUnauthorized["返回401错误"]
+AuthCheck --> |成功| QuotaCheck["配额检查"]
+QuotaCheck --> |超出| ReturnQuotaExceeded["返回配额超限"]
+QuotaCheck --> |允许| ProcessRequest["处理请求"]
+ProcessRequest --> IncrementQuota["增加配额计数"]
+IncrementQuota --> ReturnSuccess["返回结果"]
+ReturnUnauthorized --> End([结束])
+ReturnQuotaExceeded --> End
+ReturnSuccess --> End
 ```
 
-### 临时安全措施
-
-当前代码中实现了基本的输入验证作为第一道防线：
-
-- **Zod验证**: 确保输入结构正确
-- **空值检查**: 防止空提示词导致的无效调用
-- **长度限制**: 限制输入长度防止过长请求
-
 **节来源**
-- [route.ts](file://src/app/api/plan/route.ts#L18-L49)
+- [route.ts](file://src/app/api/plan/route.ts#L49-L58)
+- [route.ts](file://src/app/api/plan/route.ts#L243)
 
 ## 错误处理与容错机制
 
@@ -379,57 +486,40 @@ Monitoring --> ProductionReady["生产就绪"]
 flowchart TD
 Request[请求处理] --> InputValidation{输入验证}
 InputValidation --> |失败| ValidationError["返回400错误<br/>包含详细错误信息"]
-InputValidation --> |成功| LLMCall[调用LLM]
+InputValidation --> |成功| AuthCheck[用户认证]
+AuthCheck --> |失败| Unauthorized["返回401错误"]
+AuthCheck --> |成功| QuotaCheck[配额检查]
+QuotaCheck --> |超出| QuotaExceeded["返回429错误"]
+QuotaCheck --> |允许| LLMCall[调用LLM]
 LLMCall --> LLMResponse{响应状态}
-LLMResponse --> |失败| LLMError["记录错误日志<br/>返回空工作流"]
+LLMResponse --> |失败| LLMError["记录错误日志<br/>尝试重试或切换模型"]
 LLMResponse --> |成功| JSONExtraction[JSON提取]
 JSONExtraction --> JSONParse{JSON解析}
 JSONParse --> |失败| ParseError["捕获解析异常<br/>返回空节点集"]
-JSONParse --> |成功| Normalization[规范化处理]
-Normalization --> FinalValidation{最终验证}
-FinalValidation --> |失败| Fallback["降级处理<br/>返回基础结构"]
-FinalValidation --> |成功| Success["返回标准化结果"]
+JSONParse --> |成功| SchemaValidation[模式验证]
+SchemaValidation --> |失败| SchemaError["返回空工作流"]
+SchemaValidation --> |成功| Success["返回标准化结果"]
 ValidationError --> End[结束]
-LLMError --> End
+Unauthorized --> End
+QuotaExceeded --> End
 ParseError --> End
-Fallback --> End
+SchemaError --> End
 Success --> End
 ```
 
 **图表来源**
-- [route.ts](file://src/app/api/plan/route.ts#L119-L122)
-
-### 流式错误处理
-
-在流式响应中，错误处理机制如下：
-
-```mermaid
-flowchart TD
-Start([流式处理开始]) --> TryBlock["try块中处理"]
-TryBlock --> LLMCall["调用LLM流式API"]
-LLMCall --> SuccessPath["成功路径"]
-SuccessPath --> SendResult["发送结果"]
-SuccessPath --> SendDone["发送[DONE]"]
-SuccessPath --> CloseStream["关闭流"]
-TryBlock --> CatchBlock["catch块中处理错误"]
-CatchBlock --> LogError["记录错误日志"]
-CatchBlock --> SendError["发送错误事件"]
-CatchBlock --> SendEmpty["发送空结果"]
-CatchBlock --> SendDone["发送[DONE]"]
-CatchBlock --> CloseStream["关闭流"]
-```
-
-**节来源**
-- [route.ts](file://src/app/api/plan/route.ts#L433-L438)
+- [route.ts](file://src/app/api/plan/route.ts#L266-L272)
 
 ### 错误类型与处理策略
 
 | 错误类型 | HTTP状态码 | 处理策略 | 用户体验 |
 |----------|------------|----------|----------|
 | 输入验证失败 | 400 | 返回详细错误信息 | 明确的错误提示 |
+| 用户未认证 | 401 | 返回未授权错误 | 引导用户登录 |
+| 配额超限 | 429 | 返回配额超限信息 | 提示升级套餐 |
 | LLM调用失败 | 200 | 返回空工作流 | 静默降级 |
 | JSON解析失败 | 200 | 返回空节点集 | 继续工作流编辑 |
-| 系统异常 | 200 | 返回空工作流 | 保持界面响应 |
+| 模式验证失败 | 200 | 返回空工作流 | 保持界面响应 |
 
 ### 容错设计原则
 
@@ -439,7 +529,7 @@ CatchBlock --> CloseStream["关闭流"]
 4. **调试支持**: 记录详细的错误日志便于问题排查
 
 **节来源**
-- [route.ts](file://src/app/api/plan/route.ts#L119-L122)
+- [route.ts](file://src/app/api/plan/route.ts#L266-L272)
 
 ## 使用示例
 
@@ -454,6 +544,74 @@ CatchBlock --> CloseStream["关闭流"]
 }
 ```
 
+**系统提示词片段**:
+```
+你是工作流编排专家。根据用户需求描述，智能生成完整的 JSON 工作流。
+
+# 🧠 核心原则
+
+1. **逻辑深度**: LLM SystemPrompt 必须包含具体的核心业务逻辑（角色/目标/约束），拒绝空洞内容。
+2. **场景适配**: 根据需求精准选择节点组合和参数。
+3. **模糊兜底**: 需求不明确时，优先生成 Input → LLM → Output 三节点直链，在 LLM 的 systemPrompt 中引导用户补充信息。
+
+# 🚀 效率与成本原则
+1.  **避免冗余串联**: 除非逻辑上严格依赖，否则禁止将多个 LLM 节点串联（如 A -> B -> C）。
+2.  **并行优先**: 多个独立任务应使用 Branch 节点并行处理，减少总耗时。
+3.  **成本敏感**: "如无必要，勿增实体"。如果一个 LLM 节点能解决，不要拆成两个。
+4.  **反馈速度**: 尽早让用户看到结果。对于复杂任务，优先输出概览，避免让用户长时间等待。
+
+# ⚠️ 智能规则（必读）
+### 1. 🖼️ 视觉与文档能力感知
+需求涉及 **图片/文档处理**（分析/识别/OCR/看图/PDF/结构化提炼）时的**铁律**：
+- **必须**在 LLM 节点使用视觉模型，**首选** `deepseek-ai/DeepSeek-OCR` (除非不可用则选 `gemini-3-flash-preview`, `doubao-seed-1-6-251015`, `zai-org/GLM-4.6V`)
+- ❌ 普通文本模型（deepseek-chat/deepseek-ai/DeepSeek-V3.2/Doubao-pro）**无法处理图片或文件**
+- LLM Prompt 中若需引用图片文件，请引用 `{{InputNode.files}}`
+
+# 📌 变量引用铁律 (Ref Strategy)
+> 🔴 **变量引用格式铁律 - 必须精确匹配！**
+> - **必须包含双大括号**: 所有引用必须用 `{{ }}` 包裹。❌ **严禁写成** `Node.field`。
+> - **必须精确匹配 Label**: 变量的前缀必须与来源节点的 `data.label` 字段**完全一致**（包括空格和大小写）。
+> - ✅ 正确格式: `{{节点名.属性名}}` (如 `{{用户输入.user_input}}`)
+> - ❌ **严禁无前缀**: `{{user_input}}` / `{{files}}`
+> - ❌ **严禁用ID/Slug**: 如果节点名称是"小红书改写"，严禁用 `{{xhs_writer.response}}`。必须用 `{{小红书改写.response}}`。
+> - ❌ **严禁用点号直连**: 严禁写成 `input_node.formData.type`，必须是 `{{xx.xx}}`。
+
+# 📦 节点参数详解 (Strict Code-Grounding)
+## 1. Input 节点
+### 1.0 参数表
+| 参数 | 类型 | 默认值 | 取值范围/说明 |
+|------|------|-------|-------------|
+| `enableTextInput` | boolean | `true` | 启用文本输入框 |
+| `enableFileInput` | boolean | `false` | 启用文件上传 |
+| `enableStructuredForm` | boolean | `false` | 启用结构化表单：预置配置参数（选项/数值），运行时自动弹窗采集，供下游分支判断或 LLM 引用 |
+| `greeting` | string | `"我是您的智能助手，请告诉我您的需求。"` | 招呼语，引导用户如何使用该助手 |
+| `fileConfig.allowedTypes` | string[] | `["*/*"]` | 允许的文件类型 |
+| `fileConfig.maxSizeMB` | number | `100` | 单文件最大体积 (MB) |
+| `fileConfig.maxCount` | number | `10` | 最大文件数量 |
+
+# 🔗 连接规则
+```json
+{"source": "src_id", "target": "tgt_id", "sourceHandle": "handle_id"}
+```
+- Branch 节点 SourceHandle: `"true"` 或 `"false"`。
+- 其他节点: `null` 或不传。
+- **DAG 验证**: 禁止环路，Branch 必须接双路。
+
+# ✅ 核心检查清单 (TOP 6)
+1. ⚠️ **FormData引用**: 必须是 `{{节点.formData.name}}`
+2. ⚠️ **LLM文件引用**: 必须引用 `{{节点.files}}` (勿用下标)
+3. 🖼️ **视觉场景**: 必须用视觉模型 (`deepseek-ai/DeepSeek-OCR` / `doubao-seed-1-6-251015` / `gemini-3-flash-preview` / `zai-org/GLM-4.6V`)
+4. 🕐 **时间场景**: 必须加 `datetime` 工具
+5. 🔀 **分支场景**: Branch 必须配双路径，Output 必须用 `select` 模式
+6. 🔴 **user_input 二选一**: 若 systemPrompt 已引用 `{{xx.user_input}}`，则**禁止**配置 `inputMappings.user_input`
+
+# 输出格式
+纯 JSON：
+```json
+{"title": "...", "nodes": [...], "edges": [...]}
+```
+```
+
 **预期响应**:
 ```json
 {
@@ -463,7 +621,7 @@ CatchBlock --> CloseStream["关闭流"]
       "id": "input-abc123",
       "type": "input",
       "position": { "x": 100, "y": 200 },
-      "data": { "label": "读取CSV文件", "text": "上传CSV文件" }
+      "data": { "label": "读取CSV文件", "enableFileInput": true, "fileConfig": {"allowedTypes": [".csv", ".xlsx"]}}
     },
     {
       "id": "llm-def456",
@@ -471,77 +629,28 @@ CatchBlock --> CloseStream["关闭流"]
       "position": { "x": 400, "y": 200 },
       "data": {
         "label": "数据清洗",
-        "model": "gpt-4o-mini",
+        "model": "deepseek-ai/DeepSeek-V3.2",
         "temperature": 0.2,
-        "systemPrompt": "去除重复行、填充缺失值、转换日期格式"
+        "systemPrompt": "分析 {{读取CSV文件.files}}，执行数据清洗任务：去除重复行、填充缺失值、转换日期格式"
       }
     },
     {
       "id": "output-ghi789",
       "type": "output",
       "position": { "x": 700, "y": 200 },
-      "data": { "label": "保存结果", "text": "保存为CSV文件" }
+      "data": { "label": "保存结果", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{数据清洗.response}}"}]}}
     }
   ],
   "edges": [
     {
-      "id": "e-input-llm-def456-xyz1",
       "source": "input-abc123",
       "target": "llm-def456"
     },
     {
-      "id": "e-llm-output-ghi789-xyz2",
       "source": "llm-def456",
       "target": "output-ghi789"
     }
   ]
-}
-```
-
-### 高级使用示例
-
-#### API集成工作流
-
-**请求示例**:
-```json
-{
-  "prompt": "构建一个API集成流程，从外部API获取产品数据，进行价格比较分析，然后发送邮件通知给销售团队"
-}
-```
-
-**响应结构**:
-- **输入节点**: 外部API凭据配置
-- **HTTP节点**: 外部API调用
-- **LLM节点**: 价格分析和报告生成
-- **HTTP节点**: 邮件发送API调用
-- **输出节点**: 邮件发送确认
-
-### 前端集成示例
-
-```typescript
-// 在前端组件中使用
-async function generateWorkflow(prompt: string) {
-  try {
-    const response = await fetch('/api/plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
-    });
-    
-    if (!response.ok) {
-      throw new Error('工作流生成失败');
-    }
-    
-    const result = await response.json();
-    // 更新画布状态
-    updateFlowCanvas(result.nodes, result.edges);
-    setFlowTitle(result.title);
-    
-  } catch (error) {
-    console.error('生成工作流时出错:', error);
-    // 显示错误提示
-    showErrorNotification('无法生成工作流，请稍后重试');
-  }
 }
 ```
 
