@@ -279,10 +279,22 @@ export const createExecutionActions = (
                         const branchOutput = result.output as Record<string, unknown>;
                         const conditionResult = !!branchOutput?.conditionResult;
                         const notTakenHandle = conditionResult ? 'false' : 'true';
+                        const takenHandle = conditionResult ? 'true' : 'false';
 
-                        // 获取未选中分支的所有下游节点并阻塞
-                        const blockedDescendants = getDescendants(nodeId, edges, notTakenHandle);
-                        blockedDescendants.forEach(id => blockedNodes.add(id));
+                        // 获取未选中分支的所有下游节点
+                        const notTakenDescendants = getDescendants(nodeId, edges, notTakenHandle);
+
+                        // FIX: 获取选中分支可达的所有节点（这些节点不应被阻塞）
+                        // 场景：当两条分支路径最终汇合到同一个下游节点时，
+                        // 该节点不应该因为"未选中路径也能到达它"而被阻塞
+                        const takenDescendants = getDescendants(nodeId, edges, takenHandle);
+
+                        // 只阻塞那些【仅】从未选中路径可达的节点
+                        notTakenDescendants.forEach(id => {
+                            if (!takenDescendants.has(id)) {
+                                blockedNodes.add(id);
+                            }
+                        });
                     }
                 };
 

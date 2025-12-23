@@ -77,9 +77,17 @@ export function useChatSession({ flowId }: UseChatSessionProps) {
 
             const msgs: ChatMessage[] = [];
             history.forEach((record, index) => {
-                msgs.push({ role: "user", content: record.user_message });
+                msgs.push({
+                    role: "user",
+                    content: record.user_message,
+                    attachments: record.user_attachments as any[] || []
+                });
                 if (record.assistant_message) {
-                    msgs.push({ role: "assistant", content: record.assistant_message });
+                    msgs.push({
+                        role: "assistant",
+                        content: record.assistant_message,
+                        attachments: record.assistant_attachments as any[] || []
+                    });
                 } else if (index === history.length - 1) {
                     msgs.push({ role: "assistant", content: "(上次执行被中断，请重新发送消息)" });
                 }

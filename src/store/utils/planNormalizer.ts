@@ -222,6 +222,58 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
         edges.push(...createDefaultEdges(nodes));
     }
 
+    // 问题3修复: 检测孤立节点（没有入边的非-input节点），自动连接到最近的上游节点
+    const inputNode = nodes.find(n => n.type === 'input');
+    if (inputNode && edges.length > 0) {
+        const nodesWithIncoming = new Set(edges.map(e => e.target));
+        const orphanNodes = nodes.filter(n => n.type !== 'input' && !nodesWithIncoming.has(n.id));
+        
+        for (const orphan of orphanNodes) {
+            // 找到最合适的上游节点（优先级: input > llm > rag > tool > branch）
+            const priorityOrder: NodeKind[] = ['input', 'rag', 'tool', 'llm', 'branch'];
+            let bestSource = inputNode.id;
+            
+            for (const priority of priorityOrder) {
+                const candidate = nodes.find(n => n.type === priority && n.id !== orphan.id);
+                if (candidate) {
+                    bestSource = candidate.id;
+                    break;
+                }
+            }
+            
+            edges.push({
+                id: `e-${bestSource}-${orphan.id}-${nanoid(4)}`,
+                source: bestSource,
+                target: orphan.id,
+            });
+        }
+    }
+
+    // 问题4修复: 根据 prompt 智能推断 input 节点的 enableFileInput
+    const promptLower = prompt.toLowerCase();
+    const fileKeywords = ['上传', '文档', '文件', '图片', '截图', 'pdf', '财报', '报告', '合同', '表格', 'excel', 'word', '照片', '图像', '附件'];
+    const needsFileInput = fileKeywords.some(kw => promptLower.includes(kw));
+    
+    if (needsFileInput) {
+        for (const node of nodes) {
+            if (node.type === 'input') {
+                const inputData = node.data as Record<string, unknown>;
+                // 只有当 AI 没有显式设置时才补充
+                if (inputData.enableFileInput !== true) {
+                    inputData.enableFileInput = true;
+                    // 确保有默认的 fileConfig
+                    if (!inputData.fileConfig) {
+                        inputData.fileConfig = {
+                            allowedTypes: ['image/*', '.pdf', '.doc', '.docx', '.txt', '.md', '.csv', '.xlsx'],
+                            maxFileSize: 50,
+                            maxFileCount: 10,
+                        };
+                    }
+                }
+            }
+        }
+    }
+
     return { nodes, edges };
 }
 

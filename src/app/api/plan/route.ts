@@ -124,8 +124,8 @@ ${EDGE_RULES}
   {"id": "br", "type": "branch", "data": {"label": "策略分流", "condition": "投资偏好.formData.risk === '保守型'"}},
   {"id": "t_bond", "type": "tool", "data": {"label": "查询国债", "toolType": "web_search", "inputs": {"query": "2024年国债利率 最新收益率"}}},
   {"id": "t_stock", "type": "tool", "data": {"label": "查询美股", "toolType": "web_search", "inputs": {"query": "纳斯达克 科技股 本周涨幅榜"}}},
-  {"id": "llm_safe", "type": "llm", "data": {"label": "稳健方案", "temperature": 0.3, "systemPrompt": "# 角色\\n你是 CFA 认证的保守型理财顾问，专注本金安全。\\n\\n# 任务\\n基于国债信息 {{查询国债.results}} 制定理财方案。\\n\\n# 输出要求\\n1. **推荐产品**: 2-3个低风险产品及预期年化\\n2. **配置建议**: 如 国债60%+货基40%\\n3. **风险提示**: 本金波动范围\\n\\n# 约束\\n- 年化不超5%\\n- 禁止推荐股票期货\\"}},
-  {"id": "llm_risk", "type": "llm", "data": {"label": "激进方案", "temperature": 0.7, "systemPrompt": "# 角色\\n你是专注成长股的激进型投资顾问。\\n\\n# 任务\\n基于美股信息 {{查询美股.results}} 制定投资方案。\\n\\n# 输出要求\\n1. **推荐标的**: 3-5只高潜力股及理由\\n2. **仓位策略**: 分批建仓计划\\n3. **止损策略**: 明确止损点位(-15%)\\n\\n# 约束\\n- 必须包含风险警示\\n- 单只仓位≤20%\\"}},
+  {"id": "llm_safe", "type": "llm", "data": {"label": "稳健方案", "temperature": 0.3, "systemPrompt": "# 角色\n你是 CFA 认证的保守型理财顾问，专注本金安全。\n\n# 任务\n基于国债信息 {{查询国债.results}} 制定理财方案。\n\n# 输出要求\n1. **推荐产品**: 2-3个低风险产品及预期年化\n2. **配置建议**: 如 国债60%+货基40%\n3. **风险提示**: 本金波动范围\n\n# 约束\n- 年化不超5%\n- 禁止推荐股票期货\"}},
+  {"id": "llm_risk", "type": "llm", "data": {"label": "激进方案", "temperature": 0.7, "systemPrompt": "# 角色\n你是专注成长股的激进型投资顾问。\n\n# 任务\n基于美股信息 {{查询美股.results}} 制定投资方案。\n\n# 输出要求\n1. **推荐标的**: 3-5只高潜力股及理由\n2. **仓位策略**: 分批建仓计划\n3. **止损策略**: 明确止损点位(-15%)\n\n# 约束\n- 必须包含风险警示\n- 单只仓位≤20%\"}},
   {"id": "out", "type": "output", "data": {"label": "投资方案", "inputMappings": {"mode": "select", "sources": [{"type": "variable", "value": "{{稳健方案.response}}"}, {"type": "variable", "value": "{{激进方案.response}}"}]}}}
 ], "edges": [
   {"source": "in", "target": "br"},

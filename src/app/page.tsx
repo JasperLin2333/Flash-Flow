@@ -73,7 +73,7 @@ export default function Home() {
               value={prompt}
               onChange={setPrompt}
               onSubmit={handleGenerateFlow}
-              placeholder="请告诉我们你想要什么…"
+              placeholder="有想法，尽管说~"
             />
           </div>
 

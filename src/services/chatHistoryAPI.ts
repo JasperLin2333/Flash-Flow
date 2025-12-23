@@ -7,6 +7,8 @@ export interface ChatHistory {
     session_id: string | null; // Added session_id
     user_message: string;
     assistant_message: string | null;
+    user_attachments: any[] | null;
+    assistant_attachments: any[] | null;
     created_at: string;
     updated_at: string;
 }
@@ -69,8 +71,9 @@ export const chatHistoryAPI = {
     async addMessage(
         flowId: string,
         userMessage: string,
-        sessionId: string, // Required sessionId
-        assistantMessage: string | null = null
+        sessionId: string,
+        assistantMessage: string | null = null,
+        userAttachments: any[] | null = null
     ): Promise<ChatHistory | null> {
         const { data, error } = await supabase
             .from("chat_history")
@@ -79,6 +82,7 @@ export const chatHistoryAPI = {
                 session_id: sessionId,
                 user_message: userMessage,
                 assistant_message: assistantMessage,
+                user_attachments: userAttachments,
             })
             .select()
             .single();
@@ -95,11 +99,16 @@ export const chatHistoryAPI = {
      */
     async updateAssistantMessage(
         id: string,
-        assistantMessage: string
+        assistantMessage: string,
+        assistantAttachments: any[] | null = null
     ): Promise<boolean> {
         const { error } = await supabase
             .from("chat_history")
-            .update({ assistant_message: assistantMessage, updated_at: new Date().toISOString() })
+            .update({
+                assistant_message: assistantMessage,
+                assistant_attachments: assistantAttachments,
+                updated_at: new Date().toISOString()
+            })
             .eq("id", id);
 
         if (error) {

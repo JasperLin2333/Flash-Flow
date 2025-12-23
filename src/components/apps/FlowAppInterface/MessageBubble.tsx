@@ -53,7 +53,7 @@ export const MessageBubble = memo(function MessageBubble({ role, content, files,
     const [copied, setCopied] = useState(false);
 
     const bubbleStyle = isUser
-        ? "bg-black text-white border border-black"
+        ? "bg-blue-100 text-gray-900 border border-blue-200"
         : "bg-white text-gray-900 border border-gray-200";
 
     const handleCopy = useCallback(async () => {

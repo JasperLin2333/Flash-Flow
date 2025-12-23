@@ -32,13 +32,21 @@ export function UpstreamInputsSection({
     const toolDef = toolType ? TOOL_IO_DEFINITIONS[toolType] : undefined;
     const currentInputs = (nodeData?.inputs as Record<string, unknown>) || {};
 
+    // datetime 工具的 operation 默认值
+    const DATETIME_OPERATION_DEFAULT = "now";
+
     // 判断字段是否应该显示（根据 dependsOn 条件）
     const shouldShowField = (fieldDef: ToolInputField | undefined): boolean => {
         if (!fieldDef?.dependsOn) return true; // 没有依赖条件，始终显示
-        
+
         const { field: dependField, value: dependValue } = fieldDef.dependsOn;
-        const currentValue = currentInputs[dependField];
-        
+        let currentValue = currentInputs[dependField];
+
+        // 特殊处理：如果是 datetime 工具且 operation 未设置，使用默认值 "now"
+        if (toolType === 'datetime' && dependField === 'operation' && !currentValue) {
+            currentValue = DATETIME_OPERATION_DEFAULT;
+        }
+
         if (Array.isArray(dependValue)) {
             return dependValue.includes(currentValue as string);
         }
@@ -54,6 +62,7 @@ export function UpstreamInputsSection({
     const renderInputControl = (input: UpstreamInputState, fieldDef: ToolInputField | undefined) => {
         const fieldType = fieldDef?.type || 'text';
         const enumOptions = fieldDef?.enumOptions || [];
+        const enumLabels = fieldDef?.enumLabels || {};
         const configuredValue = input.configuredValue || '';
 
         const handleChange = (newValue: string) => {
@@ -87,7 +96,7 @@ export function UpstreamInputsSection({
                     <SelectContent>
                         {enumOptions.map((option) => (
                             <SelectItem key={option} value={option} className="text-[10px]">
-                                {option}
+                                {enumLabels[option] || option}
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -117,7 +126,7 @@ export function UpstreamInputsSection({
             <div className="space-y-1.5">
                 {upstreamInputs.map((input, idx) => {
                     const fieldDef = getFieldDef(input.field);
-                    
+
                     // 根据条件判断是否显示
                     if (!shouldShowField(fieldDef)) {
                         return null;

@@ -28,7 +28,7 @@ const CONFIG = {
         generate: {
             label: "全量生成",
             icon: Sparkles,
-            placeholder: "请告诉我们你想要什么…",
+            placeholder: "有想法，尽管说~",
             loadingText: "正在生成流程…",
         },
         modify: {

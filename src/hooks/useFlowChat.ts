@@ -55,7 +55,13 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
 
 
     // ============ Actions ============
-    const sendMessage = async () => {
+    const sendMessage = async (files?: File[]) => {
+        // RACE CONDITION FIX: 立即清除旧的流式状态
+        // WHY: 防止旧的 streamingText 在 useMemo 中被识别为新的 AI 回复
+        // TIMING: 必须在 setIsLoading(true) 和添加新消息到 messages 之前调用
+        // 否则 page.tsx 中的 useMemo 会将旧的 streamingText 显示为新回复
+        useFlowStore.getState().clearStreaming();
+
         // 1. Validate Input
         const inputNodes = nodes.filter(n => n.type === "input");
         const inputNode = inputNodes[0];
@@ -65,7 +71,7 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         const enableStructuredForm = inputNodeData?.enableStructuredForm === true;
 
         const hasText = input.trim().length > 0;
-        const hasFiles = (inputNodeData?.files?.length ?? 0) > 0;
+        const hasFiles = (files?.length ?? 0) > 0;
         const hasFormData = enableStructuredForm && inputNodeData?.formFields?.length;
 
         // 统一验证：根据启用的模式判断是否可发送
@@ -76,15 +82,17 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         if (!hasValidContent) return;
         if (isLoading || !flowId) return;
 
+        let currentUser: any = null;
+
         // 2. Validate Quota
         try {
-            const user = await authService.getCurrentUser();
-            if (!user) {
+            currentUser = await authService.getCurrentUser();
+            if (!currentUser) {
                 setMessages(prev => [...prev, { role: "assistant", content: "请先登录以使用 APP 功能。", timestamp: new Date() }]);
                 return;
             }
 
-            const quotaCheck = await quotaService.checkQuota(user.id, "app_usages");
+            const quotaCheck = await quotaService.checkQuota(currentUser.id, "app_usages");
             if (!quotaCheck.allowed) {
                 setMessages(prev => [...prev, {
                     role: "assistant",
@@ -111,7 +119,14 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         }
 
         // 4. Optimistic Update
-        const newMessages = [...messages, { role: "user" as const, content: userMsg }];
+        const newMessages = [
+            ...messages,
+            {
+                role: "user" as const,
+                content: userMsg,
+                files: files // 保存原始文件对象以便立即显示
+            }
+        ];
         setMessages(newMessages);
         setInput("");
         setIsLoading(true);
@@ -121,8 +136,19 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         let currentMessageId: string | null = null;
 
         try {
-            // 5. Persist User Message
-            const chatRecord = await chatHistoryAPI.addMessage(flowId, userMsg, activeSessionId);
+            // 6. Handle File Uploads (if any)
+            let uploadedFiles: any[] = [];
+            if (hasFiles && inputNode) {
+                const { fileUploadService } = await import("@/services/fileUploadService");
+                const uploadPromises = files!.map(file =>
+                    fileUploadService.completeUpload(file, inputNode.id, flowId, currentUser?.id)
+                );
+                const results = await Promise.all(uploadPromises);
+                uploadedFiles = results.filter(f => f !== null);
+            }
+
+            // 5. Persist User Message (Now with uploaded attachments)
+            const chatRecord = await chatHistoryAPI.addMessage(flowId, userMsg, activeSessionId, null, uploadedFiles.length > 0 ? uploadedFiles : null);
             if (activeSessionIdRef.current !== activeSessionId) return;
 
             if (chatRecord) {
@@ -130,14 +156,15 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 setRefreshTrigger(prev => prev + 1);
             }
 
-            // 6. Update Inputs & Run Flow
+            // 7. Update Inputs & Run Flow
             if (inputNodes.length > 0) {
                 for (const n of inputNodes) {
                     const nodeData = n.data as import("@/types/flow").InputNodeData;
-                    // 传递 formData（如果启用了结构化表单）
+                    // 传递 formData（如果启用了结构化表单）和已上传的文件
                     updateNodeData(n.id, {
                         text: userMsg,
                         formData: nodeData?.formData,
+                        files: uploadedFiles.length > 0 ? uploadedFiles : undefined
                     });
                 }
             }
@@ -145,7 +172,7 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
             await runFlow(activeSessionId);
             if (activeSessionIdRef.current !== activeSessionId) return;
 
-            // 7. Handle Result
+            // 8. Handle Result
             const freshState = useFlowStore.getState();
             let responseText = "";
             let responseAttachments: import("@/components/apps/FlowAppInterface/constants").Attachment[] = [];
@@ -158,7 +185,7 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 responseText = MESSAGES.ERROR_EXECUTION;
             }
 
-            // 8. Update UI
+            // 9. Update UI
             useFlowStore.getState().clearStreaming();
             setIsLoading(false);
 
@@ -176,20 +203,19 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
             setMessages(updatedMessages);
             updateSessionCache(activeSessionId, updatedMessages, false);
 
-            // 9. Increment Quota & Persist Response
+            // 10. Increment Quota & Persist Response
             try {
-                const user = await authService.getCurrentUser();
-                if (user) {
-                    await quotaService.incrementUsage(user.id, "app_usages");
+                if (currentUser) {
+                    await quotaService.incrementUsage(currentUser.id, "app_usages");
                     const { refreshQuota } = await import("@/store/quotaStore").then(m => m.useQuotaStore.getState());
-                    await refreshQuota(user.id);
+                    await refreshQuota(currentUser.id);
                 }
             } catch (e) {
                 console.error("Quota increment failed:", e);
             }
 
             if (currentMessageId) {
-                chatHistoryAPI.updateAssistantMessage(currentMessageId, responseText)
+                chatHistoryAPI.updateAssistantMessage(currentMessageId, responseText, responseAttachments)
                     .catch(e => console.error("Failed to persist response:", e));
             }
 

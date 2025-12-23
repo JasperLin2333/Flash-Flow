@@ -52,6 +52,7 @@ export default function ContextHUD() {
             enableMemory: false,
             memoryMaxTurns: 10,
             greeting: "",  // 招呼语默认值
+            condition: "",  // Branch 节点条件默认值
         },
     });
 

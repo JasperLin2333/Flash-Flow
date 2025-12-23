@@ -35,6 +35,7 @@ export interface ToolInputField {
     required: boolean;
     type?: ToolInputFieldType; // 字段类型，默认为 text
     enumOptions?: string[]; // 当 type 为 enum 时的选项列表
+    enumLabels?: Record<string, string>; // 枚举值的友好显示名称映射
     dependsOn?: { field: string; value: string | string[] }; // 条件显示：依赖某个字段的值
 }
 

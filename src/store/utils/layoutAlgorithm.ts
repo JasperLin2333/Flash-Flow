@@ -13,34 +13,56 @@ export function calculateOptimalLayout(nodes: AppNode[], edges: AppEdge[]): AppN
     if (nodes.length === 0) return nodes;
 
     // 创建一个新的有向图
-    const g = new dagre.graphlib.Graph();
+    const g = new dagre.graphlib.Graph({ compound: true });
 
     // 设置图的默认配置
     g.setGraph({
         rankdir: 'LR',      // 从左到右布局 (Left to Right)
-        align: 'UL',        // 对齐方式：上左对齐
-        nodesep: 80,        // 同一层级节点之间的间距
-        edgesep: 40,        // 边之间的间距
-        ranksep: 200,       // 不同层级之间的间距
+        align: undefined,   // 不强制对齐，让Dagre自动优化
+        nodesep: 120,       // 增加同一层级节点之间的间距，避免交叉
+        edgesep: 80,        // 增加边之间的间距，减少交叉
+        ranksep: 250,       // 增加不同层级之间的间距
         marginx: 50,        // 图的左右边距
         marginy: 50,        // 图的上下边距
+        ranker: 'longest-path',  // 使用最长路径算法，优化层级分配
     });
 
     // 设置默认的节点配置
     g.setDefaultNodeLabel(() => ({}));
     g.setDefaultEdgeLabel(() => ({}));
 
+    // 识别所有的 Branch 节点
+    const branchNodes = nodes.filter(node => node.type === 'branch');
+    const branchNodeIds = new Set(branchNodes.map(n => n.id));
+
     // 添加所有节点到图中
     nodes.forEach((node) => {
+        // Branch 节点需要更大的高度，因为它有两个输出端口
+        const isBranch = node.type === 'branch';
         g.setNode(node.id, {
             width: 260,     // 节点宽度（与CustomNode的min-w-[240px]匹配）
-            height: 120,    // 节点高度的估算值
+            height: isBranch ? 140 : 120,    // Branch 节点高度更大
         });
     });
 
-    // 添加所有边到图中
+    // 为 Branch 节点的边设置优先级，避免交叉
     edges.forEach((edge) => {
-        g.setEdge(edge.source, edge.target);
+        const isBranchSource = branchNodeIds.has(edge.source);
+        
+        if (isBranchSource) {
+            // Branch 节点的 true 分支优先级更高（权重更大），会被放在上方
+            // false 分支优先级较低，会被放在下方
+            const weight = edge.sourceHandle === 'true' ? 2 : 1;
+            g.setEdge(edge.source, edge.target, { 
+                weight,
+                minlen: 1  // 最小边长，确保节点不会太近
+            });
+        } else {
+            g.setEdge(edge.source, edge.target, {
+                weight: 1,
+                minlen: 1
+            });
+        }
     });
 
     // 运行Dagre布局算法

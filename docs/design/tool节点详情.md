@@ -86,13 +86,15 @@
 
 *   **ID**: `datetime`
 *   **分类**: `utility`
-*   **输入参数**:
-    *   `operation` (enum, 选填): `now` (默认), `format`, `diff`, `add`（操作类型：now(获取当前时间)、format(格式化)、diff(日期差)、add(日期加减)）。
-    *   `format` (string, 选填): 输出格式（如 YYYY-MM-DD、HH:mm:ss 等，默认 `YYYY-MM-DD HH:mm:ss`）。
-    *   `date` (string, 选填): 输入日期（ISO 格式或常见格式，留空则使用当前时间）。
-    *   `targetDate` (string, 选填): 目标日期（用于计算日期差）。
-    *   `amount` (number, 选填): 增减数量（用于日期加减）。
-    *   `unit` (enum, 选填): 时间单位（year, month, day, hour, minute, second，用于日期加减）。
+*   **输入参数**（按操作类型）:
+
+    | 操作 | 参数 |
+    |:-----|:----|
+    | `now` (默认) | `format` |
+    | `format` | `date`, `format` |
+    | `diff` | `date`, `targetDate` |
+    | `add` | `date`, `format`, `amount`, `unit` |
+
 *   **输出示例**:
     ```json
     {

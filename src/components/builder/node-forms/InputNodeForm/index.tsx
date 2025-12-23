@@ -47,23 +47,35 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
     };
 
     // Sync local state with form values when node changes
+    // 使用 form.watch 监听字段变化，确保在 form.reset 完成后同步
     useEffect(() => {
-        const currentEnableText = form.getValues("enableTextInput");
-        const currentEnableFile = form.getValues("enableFileInput");
-        const currentEnableForm = form.getValues("enableStructuredForm");
-        const currentFileConfig = form.getValues("fileConfig");
-        const currentFormFields = form.getValues("formFields");
+        // 初始同步
+        const syncFromForm = () => {
+            const currentEnableText = form.getValues("enableTextInput");
+            const currentEnableFile = form.getValues("enableFileInput");
+            const currentEnableForm = form.getValues("enableStructuredForm");
+            const currentFileConfig = form.getValues("fileConfig");
+            const currentFormFields = form.getValues("formFields");
 
-        setEnableTextInput(currentEnableText !== false); // Default true
-        setEnableFileInput(currentEnableFile || false);
-        setEnableStructuredForm(currentEnableForm || false);
+            setEnableTextInput(currentEnableText !== false); // Default true
+            setEnableFileInput(currentEnableFile || false);
+            setEnableStructuredForm(currentEnableForm || false);
 
-        if (currentFileConfig) {
-            setFileConfig(currentFileConfig);
-        }
-        if (currentFormFields) {
-            setFormFields(currentFormFields);
-        }
+            if (currentFileConfig) {
+                setFileConfig(currentFileConfig);
+            } else {
+                setFileConfig(DEFAULT_FILE_CONFIG);
+            }
+            if (currentFormFields && Array.isArray(currentFormFields)) {
+                setFormFields(currentFormFields);
+            } else {
+                setFormFields([]);
+            }
+        };
+
+        // 延迟同步，等待 ContextHUD 中的 form.reset 完成
+        const timer = setTimeout(syncFromForm, 10);
+        return () => clearTimeout(timer);
     }, [selectedNodeId, form]);
 
     // ============ Toggle Handlers ============

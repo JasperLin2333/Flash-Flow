@@ -33,14 +33,19 @@ export const PROVIDER_CONFIG: Record<string, ProviderInfo> = {
         prefixes: ["gemini-", "google/"],
     },
     dashscope: {
-        baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", // 国内端点：对国内用户访问更稳定 (BGP 优化)
         getApiKey: () => process.env.DASHSCOPE_API_KEY || "",
-        prefixes: ["qwen"], // qwen- (dashscope official usually doesn't have slash)
+        prefixes: ["qwen"],
+    },
+    groq: {
+        baseURL: "https://api.groq.com/openai/v1",
+        getApiKey: () => process.env.GROQ_API_KEY || "",
+        prefixes: ["llama", "mixtral", "gemma"], // Groq common models
     },
     siliconflow: {
-        baseURL: "https://api.siliconflow.cn/v1",
+        baseURL: "https://api.siliconflow.cn/v1", // GTM enabled for global optimization
         getApiKey: () => process.env.SILICONFLOW_API_KEY || "",
-        prefixes: ["deepseek-ai/", "Qwen/", "internlm/", "THUDM/"], // More specific SF prefixes
+        prefixes: ["deepseek-ai/", "Qwen/", "internlm/", "THUDM/"],
     },
 } as const;
 

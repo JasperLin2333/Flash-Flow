@@ -60,6 +60,8 @@ export interface Database {
                     flow_id: string
                     user_message: string
                     assistant_message: string | null
+                    user_attachments: Json | null
+                    assistant_attachments: Json | null
                     created_at: string
                     updated_at: string
                 }
@@ -68,14 +70,18 @@ export interface Database {
                     flow_id: string
                     user_message: string
                     assistant_message?: string | null
+                    user_attachments?: Json | null
+                    assistant_attachments?: Json | null
                     created_at?: string
                     updated_at?: string
                 }
                 Update: {
                     id?: string
                     flow_id?: string
-                    user_message?: string
+                    user_message?: string | null
                     assistant_message?: string | null
+                    user_attachments?: Json | null
+                    assistant_attachments?: Json | null
                     created_at?: string
                     updated_at?: string
                 }

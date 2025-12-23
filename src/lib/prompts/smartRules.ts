@@ -1,11 +1,11 @@
 export const SMART_RULES = `
 ## ⚠️ 智能规则（必读）
 
-### 1. 🖼️ 视觉与文档能力感知
+### 1. 🖼️ 文件/图片处理能力感知
 需求涉及 **图片/文档处理**（分析/识别/OCR/看图/PDF/结构化提炼）时的**铁律**：
-- **必须**在 LLM 节点使用视觉模型，**首选** \`deepseek-ai/DeepSeek-OCR\` (除非不可用则选 \`gemini-3-flash-preview\`, \`doubao-seed-1-6-251015\`, \`zai-org/GLM-4.6V\`)
-- ❌ 普通文本模型（deepseek-chat/deepseek-ai/DeepSeek-V3.2/Doubao-pro）**无法处理图片或文件**
-- LLM Prompt 中若需引用图片文件，请引用 \`{{InputNode.files}}\`
+- **必须**使用 RAG 节点处理文件/图片，LLM 节点无法直接读取文件内容
+- ✅ 正确流程: Input(上传文件) → RAG(配置 \`inputMappings.files\`) → LLM(引用 \`{{RAG.documents}}\`)
+- ❌ **禁止**直接将 \`{{xx.files}}\` 传给 LLM 节点
 
 ### 2. 🕐 时间/环境感知
 需求涉及 \`/今天|现在|当前|本周|这个?月|最新|实时|刚才|最近|时刻|几点/\` 等时间词时：

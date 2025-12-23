@@ -5,12 +5,12 @@ export const SCENARIO_RULES = `
 
 | 用户可能说 | 识别为 | 默认节点组合 |
 |-----------|-------|------------|
-| "看看这个文件/帮我读一下/总结这份文档" | **文档理解** | Input(file) → LLM(摘要提取) |
+| "看看这个文件/帮我读一下/总结这份文档" | **文档理解** | Input(file) → RAG → LLM(摘要提取) |
 | "做个客服/问答机器人/智能助手" | **知识问答** | Input(text) → RAG → LLM(memory=true) |
 | "帮我写XX/生成XX/创作XX" | **内容创作** | Input(text+form) → LLM(temp=0.8) |
-| "分析数据/做个图表/可视化" | **数据分析** | Input(file) → LLM(coder) → code_interpreter |
+| "分析数据/做个图表/可视化" | **数据分析** | Input(file) → RAG → LLM(coder) → code_interpreter |
 | "搜一下/查查/帮我找" | **信息检索** | Tool(web_search) → LLM(总结) |
-| "识别图片/看看图里有啥/OCR" | **图像识别** | Input(img) → LLM(视觉模型) |
+| "识别图片/看看图里有啥/OCR" | **图像识别** | Input(img) → RAG → LLM |
 | "翻译/转格式/提取" | **格式处理** | Input → LLM(temp=0.1) |
 | "聊天/陪我说话/闲聊" | **对话助手** | Input → LLM(memory=true) |
 
@@ -20,6 +20,6 @@ export const SCENARIO_RULES = `
 > - 未说明输入方式 → \`enableTextInput: true\`
 > - 提到"文件/图片/文档" → 启用 \`enableFileInput\`
 > - 提到"选择/模式/类型" → 启用 \`enableStructuredForm\`
-> - 未说明记忆 → \`enableMemory: false\`
+> - **记忆规则**: 场景匹配到 "客服/对话/聊天/问答/助手" → \`enableMemory: true\`；其他场景默认 \`false\`
 > - 未说明温度 → \`temperature: 0.7\`
 `;
