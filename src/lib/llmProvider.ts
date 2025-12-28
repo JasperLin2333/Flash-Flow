@@ -47,6 +47,11 @@ export const PROVIDER_CONFIG: Record<string, ProviderInfo> = {
         getApiKey: () => process.env.SILICONFLOW_API_KEY || "",
         prefixes: ["deepseek-ai/", "Qwen/", "internlm/", "THUDM/"],
     },
+    xiaomi: {
+        baseURL: "https://api.xiaomimimo.com/v1",
+        getApiKey: () => process.env.XIAOMI_API_KEY || "",
+        prefixes: ["xiaomi-", "mimo-"],
+    },
 } as const;
 
 export type LLMProvider = keyof typeof PROVIDER_CONFIG;

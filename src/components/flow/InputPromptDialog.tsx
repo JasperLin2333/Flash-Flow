@@ -52,11 +52,20 @@ export default function InputPromptDialog() {
     const nodes = useFlowStore((s: FlowState) => s.nodes);
     const updateNodeData = useFlowStore((s: FlowState) => s.updateNodeData);
     const currentFlowId = useFlowStore((s: FlowState) => s.currentFlowId);
+    const targetNodeId = useFlowStore((s: FlowState) => s.inputPromptTargetNodeId);
+    const runNode = useFlowStore((s: FlowState) => s.runNode);
 
     const [isUploading, setIsUploading] = useState(false);
 
-    // Get all input nodes
-    const inputNodes = nodes.filter((n: AppNode) => n.type === 'input');
+    // 根据 targetNodeId 过滤要显示的 Input 节点
+    // targetNodeId 为 null 时显示所有 Input 节点（运行全流程）
+    // targetNodeId 有值时只显示指定节点（测试单个节点）
+    const inputNodes = nodes.filter((n: AppNode) =>
+        n.type === 'input' && (!targetNodeId || n.id === targetNodeId)
+    );
+
+    // 是否为单节点测试模式
+    const isSingleNodeMode = !!targetNodeId;
 
     const handleConfirm = async () => {
         // 1. Validation
@@ -65,11 +74,7 @@ export default function InputPromptDialog() {
             const enableText = data.enableTextInput !== false;
             const enableForm = data.enableStructuredForm === true;
 
-            // Validate Text
-            if (enableText && (!data.text || !data.text.trim())) {
-                showWarning("输入不完整", `请为节点 "${data.label || 'Input'}" 填写文本内容`);
-                return;
-            }
+            // Text field is now optional - no validation needed
 
             // Validate Form
             if (enableForm && data.formFields) {
@@ -130,7 +135,22 @@ export default function InputPromptDialog() {
                 }
             }
 
-            await confirmRun();
+            // 根据模式选择执行方式
+            if (isSingleNodeMode && targetNodeId) {
+                // 单节点测试模式：只运行指定节点
+                const targetNode = inputNodes[0];
+                if (targetNode) {
+                    const data = targetNode.data as InputNodeData;
+                    close();  // 先关闭弹窗
+                    await runNode(targetNodeId, {
+                        user_input: data.text || '',
+                        formData: data.formData || {},
+                    });
+                }
+            } else {
+                // 全流程模式：运行整个 flow
+                await confirmRun();
+            }
         } catch (e: any) {
             console.error(e);
             showError("运行失败", e.message || "未知错误");
@@ -224,14 +244,14 @@ export default function InputPromptDialog() {
                                     <div className="space-y-1">
                                         <div className="flex justify-between items-center mb-1">
                                             <span className="text-xs font-medium text-gray-500">
-                                                文本内容 <span className="text-red-500">*</span>
+                                                文本内容
                                             </span>
                                         </div>
                                         <Textarea
                                             placeholder="请输入文本数据..."
                                             value={data.text || ''}
                                             onChange={(e) => updateNodeData(node.id, { text: e.target.value })}
-                                            className="min-h-[80px] text-sm resize-none focus-visible:ring-1"
+                                            className="min-h-[80px] text-sm placeholder:text-sm placeholder:text-gray-400 resize-none focus-visible:ring-1"
                                             disabled={isUploading}
                                         />
                                     </div>
@@ -315,12 +335,12 @@ export default function InputPromptDialog() {
                                                                 }}
                                                                 disabled={isUploading}
                                                             >
-                                                                <SelectTrigger className="h-8 text-xs bg-white">
+                                                                <SelectTrigger className="h-8 text-sm bg-white">
                                                                     <SelectValue placeholder="请选择" />
                                                                 </SelectTrigger>
                                                                 <SelectContent>
                                                                     {(field as SelectFieldConfig).options.map(opt => (
-                                                                        <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
+                                                                        <SelectItem key={opt} value={opt} className="text-sm">{opt}</SelectItem>
                                                                     ))}
                                                                 </SelectContent>
                                                             </Select>
@@ -352,7 +372,7 @@ export default function InputPromptDialog() {
                                                             </div>
                                                         ) : (
                                                             <Input
-                                                                className="h-8 text-xs bg-white"
+                                                                className="h-8 text-sm bg-white placeholder:text-sm placeholder:text-gray-400"
                                                                 placeholder={field.type === 'text' ? (field.placeholder || "请输入") : "请输入"}
                                                                 value={(formData[field.name] as string) || ""}
                                                                 onChange={(e) => {

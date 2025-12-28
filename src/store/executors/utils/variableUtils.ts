@@ -1,4 +1,4 @@
-import type { AppNode, FlowContext, BaseNodeData } from "@/types/flow";
+import type { AppNode, FlowContext } from "@/types/flow";
 
 /**
  * 递归展开对象，将嵌套字段平铺为可引用的变量
@@ -77,7 +77,6 @@ export const collectVariables = (
 
         const node = allNodes.find(n => n.id === nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
-        const customOutputs = (node?.data as BaseNodeData)?.customOutputs;
 
         if (typeof nodeOutput === 'object' && nodeOutput !== null) {
             flattenObject(nodeOutput, allVariables);
@@ -86,17 +85,6 @@ export const collectVariables = (
             }
             flattenObject(nodeOutput, allVariables, nodeId);
         }
-
-        // 添加用户自定义的输出变量
-        if (customOutputs && customOutputs.length > 0) {
-            customOutputs.forEach(cv => {
-                allVariables[cv.name] = cv.value;
-                if (nodeLabel) {
-                    allVariables[`${nodeLabel}.${cv.name}`] = cv.value;
-                }
-                allVariables[`${nodeId}.${cv.name}`] = cv.value;
-            });
-        }
     }
 
     // 3. 最后从直接上游 context 中提取变量（会覆盖全局中的同名变量）
@@ -104,12 +92,13 @@ export const collectVariables = (
     for (const [nodeId, nodeOutput] of Object.entries(context)) {
         if (nodeId.startsWith('_')) continue;
 
-        // 查找对应节点以获取 label 和 customOutputs
+        // 查找对应节点以获取 label 和 config
         const node = allNodes.find(n => n.id === nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
-        const customOutputs = (node?.data as BaseNodeData)?.customOutputs;
 
         if (typeof nodeOutput === 'object' && nodeOutput !== null) {
+            const outputObj = nodeOutput as Record<string, unknown>;
+
             // 展开节点输出的所有字段（无前缀，直接使用字段名）
             flattenObject(nodeOutput, allVariables);
 
@@ -120,19 +109,225 @@ export const collectVariables = (
 
             // 也支持用节点 ID 作为前缀（如 {{tool_xxx.formatted}}）
             flattenObject(nodeOutput, allVariables, nodeId);
-        }
 
-        // 添加用户自定义的输出变量
-        if (customOutputs && customOutputs.length > 0) {
-            customOutputs.forEach(cv => {
-                allVariables[cv.name] = cv.value;
-                if (nodeLabel) {
-                    allVariables[`${nodeLabel}.${cv.name}`] = cv.value;
+            // 特殊处理：Input 节点的 formData，支持通过 label 引用
+            // 例如：{{Input.formData.标签名}} -> 值
+            if (node?.type === 'input') {
+                const nodeData = node.data as Record<string, unknown>;
+                const enableStructuredForm = nodeData?.enableStructuredForm as boolean | undefined;
+                const formFields = nodeData?.formFields as Array<{ name: string; label: string }> | undefined;
+
+                if (enableStructuredForm && formFields && formFields.length > 0 && outputObj.formData) {
+                    const formData = outputObj.formData as Record<string, unknown>;
+
+                    formFields.forEach(field => {
+                        // 如果 formData 中有该字段的值
+                        if (Object.prototype.hasOwnProperty.call(formData, field.name)) {
+                            const value = formData[field.name];
+                            const strValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+
+                            // 1. 支持 {{formData.标签名}} (直接引用)
+                            allVariables[`formData.${field.label}`] = strValue;
+
+                            // 2. 支持 {{节点名.formData.标签名}}
+                            if (nodeLabel) {
+                                allVariables[`${nodeLabel}.formData.${field.label}`] = strValue;
+                            }
+
+                            // 3. 支持 {{节点ID.formData.标签名}}
+                            allVariables[`${nodeId}.formData.${field.label}`] = strValue;
+                        }
+                    });
                 }
-                allVariables[`${nodeId}.${cv.name}`] = cv.value;
-            });
+            }
         }
     }
 
     return allVariables;
+};
+
+/**
+ * 收集所有可用变量（保留原始类型）
+ * 用于需要保留原始类型的场景（如附件解析、文件引用）
+ * 
+ * 注意：同时生成扁平化的嵌套路径变量，支持如 {{节点名.formData.fieldName}}
+ * 
+ * @param context 当前直连上下文
+ * @param globalFlowContext 全局流程上下文
+ * @param allNodes 所有节点
+ */
+export const collectVariablesRaw = (
+    context: FlowContext,
+    globalFlowContext: FlowContext,
+    allNodes: AppNode[]
+): Record<string, unknown> => {
+    const variables: Record<string, unknown> = {};
+
+    // 使用 Map 优化节点查找性能
+    const nodeMap = new Map(allNodes.map(n => [n.id, n]));
+
+    /**
+     * 递归展开对象并添加到变量集合
+     * @param obj 要展开的对象
+     * @param prefix 键前缀
+     */
+    const flattenAndAdd = (obj: unknown, prefix: string): void => {
+        if (obj === null || obj === undefined) {
+            variables[prefix] = obj;
+            return;
+        }
+
+        if (typeof obj !== 'object') {
+            variables[prefix] = obj;
+            return;
+        }
+
+        if (Array.isArray(obj)) {
+            // 数组保留原始类型
+            variables[prefix] = obj;
+            return;
+        }
+
+        // 对象：保留整体引用，同时递归展开
+        variables[prefix] = obj;
+        const record = obj as Record<string, unknown>;
+        for (const [key, value] of Object.entries(record)) {
+            if (key.startsWith('_')) continue;
+            flattenAndAdd(value, `${prefix}.${key}`);
+        }
+    };
+
+    // 1. 先从全局 flowContext 中收集（较早执行的节点）
+    for (const [nodeId, nodeOutput] of Object.entries(globalFlowContext)) {
+        if (nodeId.startsWith('_')) continue;
+        // 跳过直接上游节点（后面会处理，以确保它们优先级更高）
+        if (context[nodeId]) continue;
+
+        const node = nodeMap.get(nodeId);
+        const nodeLabel = node?.data?.label as string | undefined;
+
+        if (typeof nodeOutput === 'object' && nodeOutput !== null) {
+            const record = nodeOutput as Record<string, unknown>;
+            for (const [key, value] of Object.entries(record)) {
+                if (key.startsWith('_')) continue;
+
+                // 顶级字段
+                variables[key] = value;
+                // 递归展开嵌套对象
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    flattenAndAdd(value, key);
+                }
+
+                // 带节点标签前缀
+                if (nodeLabel) {
+                    variables[`${nodeLabel}.${key}`] = value;
+                    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                        flattenAndAdd(value, `${nodeLabel}.${key}`);
+                    }
+                }
+
+                // 带节点 ID 前缀
+                variables[`${nodeId}.${key}`] = value;
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    flattenAndAdd(value, `${nodeId}.${key}`);
+                }
+            }
+        }
+    }
+
+    // 2. 然后从直接上游 context 中收集（会覆盖全局中的同名变量）
+    for (const [nodeId, nodeOutput] of Object.entries(context)) {
+        if (nodeId.startsWith('_')) continue;
+
+        const node = nodeMap.get(nodeId);
+        const nodeLabel = node?.data?.label as string | undefined;
+
+        if (typeof nodeOutput === 'object' && nodeOutput !== null) {
+            const record = nodeOutput as Record<string, unknown>;
+            for (const [key, value] of Object.entries(record)) {
+                if (key.startsWith('_')) continue;
+
+                // 顶级字段
+                variables[key] = value;
+                // 递归展开嵌套对象
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    flattenAndAdd(value, key);
+                }
+
+                // 带节点标签前缀
+                if (nodeLabel) {
+                    variables[`${nodeLabel}.${key}`] = value;
+                    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                        flattenAndAdd(value, `${nodeLabel}.${key}`);
+                    }
+                }
+
+                // 带节点 ID 前缀
+                variables[`${nodeId}.${key}`] = value;
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    flattenAndAdd(value, `${nodeId}.${key}`);
+                }
+            }
+        }
+    }
+
+    return variables;
+};
+
+
+/**
+ * 构建全局节点查找 Map
+ * 用于 Branch 条件表达式的节点数据查找
+ * 
+ * @param context 当前直连上下文
+ * @param globalFlowContext 全局流程上下文
+ * @param allNodes 所有节点（用于获取 label）
+ */
+export const buildGlobalNodeLookupMap = (
+    context: FlowContext,
+    globalFlowContext: FlowContext,
+    allNodes: AppNode[]
+): Map<string, unknown> => {
+    const lookupMap = new Map<string, unknown>();
+
+    // 使用 Map 优化节点查找性能
+    const nodeMap = new Map(allNodes.map(n => [n.id, n]));
+
+    // 1. 先添加全局 flowContext 中的节点
+    for (const [nodeId, nodeOutput] of Object.entries(globalFlowContext)) {
+        if (nodeId.startsWith('_')) continue;
+        if (typeof nodeOutput !== 'object' || nodeOutput === null) continue;
+
+        const node = nodeMap.get(nodeId);
+        const nodeLabel = node?.data?.label as string | undefined;
+
+        // Add by nodeId (exact and lowercase)
+        lookupMap.set(nodeId, nodeOutput);
+        lookupMap.set(nodeId.toLowerCase(), nodeOutput);
+
+        // Add by label if available
+        if (nodeLabel) {
+            lookupMap.set(nodeLabel, nodeOutput);
+            lookupMap.set(nodeLabel.toLowerCase(), nodeOutput);
+        }
+    }
+
+    // 2. 然后添加直接上游 context（会覆盖全局中的同名节点）
+    for (const [nodeId, nodeOutput] of Object.entries(context)) {
+        if (nodeId.startsWith('_')) continue;
+        if (typeof nodeOutput !== 'object' || nodeOutput === null) continue;
+
+        const node = nodeMap.get(nodeId);
+        const nodeLabel = node?.data?.label as string | undefined;
+
+        lookupMap.set(nodeId, nodeOutput);
+        lookupMap.set(nodeId.toLowerCase(), nodeOutput);
+
+        if (nodeLabel) {
+            lookupMap.set(nodeLabel, nodeOutput);
+            lookupMap.set(nodeLabel.toLowerCase(), nodeOutput);
+        }
+    }
+
+    return lookupMap;
 };

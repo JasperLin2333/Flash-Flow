@@ -1,6 +1,8 @@
 import type { AppNode, FlowContext, BranchNodeData } from "@/types/flow";
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { getUpstreamData } from "./contextUtils";
+import { useFlowStore } from "@/store/flowStore";
+import { buildGlobalNodeLookupMap } from "./utils/variableUtils";
 
 // ============ Pre-compiled Regex Patterns ============
 // Pre-compile at module level to avoid recreation on each call
@@ -13,38 +15,19 @@ const NOT_EQUAL_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s
 const COMPARISON_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*(>=|<=|>|<)\s*(-?\d+\.?\d*)$/;
 
 /**
+ * (已废弃，使用公共的 buildGlobalNodeLookupMap 代替)
  * 构建节点查找 Map，用于 O(1) 查找
  * Map key 可以是 nodeId 或 label（支持大小写不敏感）
  */
-function buildNodeLookupMap(context: FlowContext): Map<string, unknown> {
-    const lookupMap = new Map<string, unknown>();
-    const meta = context._meta as Record<string, unknown> | undefined;
-    const nodeLabels = (meta?.nodeLabels as Record<string, string>) || {};
-
-    for (const [nodeId, nodeOutput] of Object.entries(context)) {
-        if (nodeId.startsWith('_')) continue;
-        if (typeof nodeOutput !== 'object' || nodeOutput === null) continue;
-
-        // Add by nodeId (exact and lowercase)
-        lookupMap.set(nodeId, nodeOutput);
-        lookupMap.set(nodeId.toLowerCase(), nodeOutput);
-
-        // Add by label if available
-        const label = nodeLabels[nodeId];
-        if (label) {
-            lookupMap.set(label, nodeOutput);
-            lookupMap.set(label.toLowerCase(), nodeOutput);
-        }
-    }
-
-    return lookupMap;
-}
+// 保留旧函数以便向后兼容，但实际上已经不再使用
 
 /**
  * 安全表达式求值器
  * 只允许特定的操作，防止代码注入攻击
  * 
- * 支持的表达式格式 (nodeName 为上游节点名称):
+ * 支持引用任意已执行节点的输出（不限于直连上游）
+ * 
+ * 支持的表达式格式 (nodeName 为节点名称):
  * - nodeName.response.includes('关键词')
  * - nodeName.text.startsWith('前缀')
  * - nodeName.text.endsWith('后缀')
@@ -55,14 +38,41 @@ function buildNodeLookupMap(context: FlowContext): Map<string, unknown> {
  * - nodeName.status === 'active'
  * - nodeName.status !== 'deleted'
  * - nodeName.text.length > 5
+ * 
+ * 逻辑组合支持:
+ * - 条件1 && 条件2 (AND 逻辑)
+ * - 条件1 || 条件2 (OR 逻辑)
  */
-function safeEvaluateCondition(condition: string, context: FlowContext): boolean {
+function safeEvaluateCondition(
+    condition: string,
+    context: FlowContext,
+    lookupMap: Map<string, unknown>
+): boolean {
     if (!condition) return false;
 
     const trimmed = condition.trim();
 
-    // Build lookup map once per evaluation (O(n) build, then O(1) lookups)
-    const lookupMap = buildNodeLookupMap(context);
+    // ===== 逻辑运算符处理 (递归求值) =====
+    // 优先处理 OR (||)，因为 OR 优先级低于 AND
+    // 使用 ' || ' 带空格避免误匹配字符串中的 ||
+    if (trimmed.includes(' || ')) {
+        const parts = trimmed.split(' || ').map(p => p.trim()).filter(p => p);
+        if (parts.length > 1) {
+            return parts.some(part => safeEvaluateCondition(part, context, lookupMap));
+        }
+    }
+
+    // 处理 AND (&&)
+    // 使用 ' && ' 带空格避免误匹配字符串中的 &&
+    if (trimmed.includes(' && ')) {
+        const parts = trimmed.split(' && ').map(p => p.trim()).filter(p => p);
+        if (parts.length > 1) {
+            return parts.every(part => safeEvaluateCondition(part, context, lookupMap));
+        }
+    }
+
+    // ===== 单一条件求值 =====
+    // lookupMap 已经在外部构建好，直接使用
 
     // 使用 lookup map 进行 O(1) 查找
     const extractNodeAndPath = (expr: string): { nodeData: unknown; path: string } | null => {
@@ -222,13 +232,18 @@ export class BranchNodeExecutor extends BaseNodeExecutor {
             if (!condition || !condition.trim()) {
                 return {
                     passed: true,
+                    condition: condition || '',
                     conditionResult: true,
                     ...(typeof upstreamData === 'object' ? upstreamData : { value: upstreamData })
                 };
             }
 
-            // 使用安全表达式求值器（传入完整 context 以支持节点名称解析）
-            const conditionResult = safeEvaluateCondition(condition, context);
+            // 使用公共函数构建全局节点查找 Map（支持引用任意已执行节点）
+            const { nodes: allNodes, flowContext: globalFlowContext } = useFlowStore.getState();
+            const lookupMap = buildGlobalNodeLookupMap(context, globalFlowContext, allNodes);
+
+            // 使用安全表达式求值器
+            const conditionResult = safeEvaluateCondition(condition, context, lookupMap);
 
             // FIX P2: 透传上游节点的数据时，过滤敏感字段（如 _meta）
             const filteredData = typeof upstreamData === 'object' && upstreamData !== null
@@ -240,6 +255,7 @@ export class BranchNodeExecutor extends BaseNodeExecutor {
             // 透传过滤后的上游节点数据，并附加 conditionResult
             return {
                 passed: true,
+                condition,
                 conditionResult,
                 ...filteredData
             };

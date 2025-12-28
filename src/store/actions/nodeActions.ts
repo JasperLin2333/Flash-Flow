@@ -62,12 +62,19 @@ export const createNodeActions = (set: SetState, get: GetState) => ({
 
 
         // 创建节点并使用最终位置
+        // 使用 getDefaultNodeData 获取节点类型的默认值，然后与传入的 data 合并
         const id = `${type}-${nanoid(8)}`;
+        const defaults = getDefaultNodeData(type);
         const node: AppNode = {
             id,
             type,
             position: finalPosition,
-            data: { label: type.toUpperCase(), status: "idle", ...(data || {}) }
+            data: {
+                ...defaults,
+                label: (data?.label as string) || defaults.label || type.toUpperCase(),
+                status: "idle",
+                ...(data || {})
+            }
         };
         set({ nodes: [...get().nodes, node] });
         set({ selectedNodeId: id });

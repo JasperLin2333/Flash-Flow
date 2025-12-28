@@ -41,6 +41,7 @@ const CONFIG = {
     nodeTypes: [
         { label: "输入", type: "input" as NodeKind },
         { label: "LLM 生成", type: "llm" as NodeKind },
+        { label: "图片生成", type: "imagegen" as NodeKind },
         { label: "RAG 检索", type: "rag" as NodeKind },
         { label: "通用工具", type: "tool" as NodeKind },
         { label: "逻辑分支", type: "branch" as NodeKind },

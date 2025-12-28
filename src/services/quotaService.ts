@@ -19,11 +19,36 @@ export const quotaService = {
                 .single();
 
             if (error) {
+                console.error("[quotaService] getUserQuota error:", error);
                 return null;
             }
 
-            return data;
+            // Debug: log raw data to see what Supabase returns
+            console.log("[quotaService] Raw quota data:", JSON.stringify(data, null, 2));
+
+            // Cast to Record to access potentially new fields that aren't in generated types yet
+            const rawData = data as Record<string, unknown>;
+
+            // Type assertion with fallback for new fields
+            // This handles the case where Supabase types haven't been regenerated after migration
+            const quota: UserQuota = {
+                id: rawData.id as string,
+                user_id: rawData.user_id as string,
+                llm_executions_used: rawData.llm_executions_used as number,
+                llm_executions_limit: rawData.llm_executions_limit as number,
+                flow_generations_used: rawData.flow_generations_used as number,
+                flow_generations_limit: rawData.flow_generations_limit as number,
+                app_usages_used: rawData.app_usages_used as number,
+                app_usages_limit: rawData.app_usages_limit as number,
+                image_gen_executions_used: (rawData.image_gen_executions_used as number) ?? 0,
+                image_gen_executions_limit: (rawData.image_gen_executions_limit as number) ?? 20,
+                created_at: rawData.created_at as string,
+                updated_at: rawData.updated_at as string,
+            };
+
+            return quota;
         } catch (e) {
+            console.error("[quotaService] getUserQuota exception:", e);
             return null;
         }
     },
@@ -68,6 +93,8 @@ export const quotaService = {
                 return { used: quota.flow_generations_used, limit: quota.flow_generations_limit };
             case 'app_usages':
                 return { used: quota.app_usages_used, limit: quota.app_usages_limit };
+            case 'image_gen_executions':
+                return { used: quota.image_gen_executions_used, limit: quota.image_gen_executions_limit };
         }
     },
 
@@ -116,7 +143,23 @@ export const quotaService = {
                 .single();
 
             if (!error && data) {
-                return data;
+                // Cast to UserQuota with fallback for new fields
+                const rawData = data as Record<string, unknown>;
+                const result: UserQuota = {
+                    id: rawData.id as string,
+                    user_id: rawData.user_id as string,
+                    llm_executions_used: rawData.llm_executions_used as number,
+                    llm_executions_limit: rawData.llm_executions_limit as number,
+                    flow_generations_used: rawData.flow_generations_used as number,
+                    flow_generations_limit: rawData.flow_generations_limit as number,
+                    app_usages_used: rawData.app_usages_used as number,
+                    app_usages_limit: rawData.app_usages_limit as number,
+                    image_gen_executions_used: (rawData.image_gen_executions_used as number) ?? 0,
+                    image_gen_executions_limit: (rawData.image_gen_executions_limit as number) ?? 20,
+                    created_at: rawData.created_at as string,
+                    updated_at: rawData.updated_at as string,
+                };
+                return result;
             }
 
             // If update failed due to concurrent modification, retry
@@ -139,6 +182,8 @@ export const quotaService = {
                 return { flow_generations_used: newValue };
             case 'app_usages':
                 return { app_usages_used: newValue };
+            case 'image_gen_executions':
+                return { image_gen_executions_used: newValue };
         }
     },
 
@@ -176,6 +221,7 @@ export const quotaService = {
                     llm_executions_used: 0,
                     flow_generations_used: 0,
                     app_usages_used: 0,
+                    image_gen_executions_used: 0,
                 })
                 .eq("user_id", userId);
 

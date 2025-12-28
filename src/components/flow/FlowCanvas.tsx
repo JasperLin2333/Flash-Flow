@@ -8,6 +8,7 @@ import LLMDebugDialog from "./LLMDebugDialog";
 import RAGDebugDialog from "./RAGDebugDialog";
 import ToolDebugDialog from "./ToolDebugDialog";
 import InputPromptDialog from "./InputPromptDialog";
+import OutputDebugDialog from "./OutputDebugDialog";
 import type { NodeKind } from "@/types/flow";
 
 // FIX (Bug 3): Move nodeTypes outside component to prevent recreation on every render
@@ -20,6 +21,7 @@ const nodeTypes = {
   rag: CustomNode,
   tool: ToolNode,
   branch: CustomNode,
+  imagegen: CustomNode,
 };
 
 /**
@@ -57,8 +59,16 @@ function FlowCanvasComponent() {
         return;
       }
 
-      // Cmd/Ctrl + C: 复制节点
+      // 检查是否有文本被选中
+      const selection = window.getSelection();
+      const hasTextSelected = selection && selection.toString().trim().length > 0;
+
+      // Cmd/Ctrl + C: 复制节点（仅在没有选中文本时）
       if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+        if (hasTextSelected) {
+          // 有文本被选中，让浏览器处理默认的复制行为
+          return;
+        }
         e.preventDefault();
         copyNode();
       }
@@ -97,6 +107,7 @@ function FlowCanvasComponent() {
       type: 'smoothstep',
       animated: true,
       style: { stroke: '#E5E5E5', strokeWidth: 1.5 },
+      interactionWidth: 20,
     }),
     []
   );
@@ -139,6 +150,7 @@ function FlowCanvasComponent() {
       <RAGDebugDialog />
       <ToolDebugDialog />
       <InputPromptDialog />
+      <OutputDebugDialog />
     </div>
   );
 }

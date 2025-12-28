@@ -1,13 +1,14 @@
 "use client";
 import { FileText } from "lucide-react";
-import type { AppNode, FlowContext, OutputNodeData } from "@/types/flow";
+import type { AppNode, FlowContext } from "@/types/flow";
 
 export default function RunOutputs({ outputNodes, flowContext }: { outputNodes: AppNode[]; flowContext: FlowContext }) {
   return (
     <>
       {outputNodes.map((node) => {
-        const outputData = flowContext[node.id];
-        const textData = (node.data as OutputNodeData).text;
+        const outputData = flowContext[node.id] as { text?: string } | undefined;
+        // Read text from flowContext (single source of truth)
+        const textData = outputData?.text;
         return (
           <div key={node.id} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm space-y-2 transition-all duration-200">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">

@@ -26,9 +26,11 @@ export interface UserQuota {
     llm_executions_used: number;
     flow_generations_used: number;
     app_usages_used: number;
+    image_gen_executions_used: number;
     llm_executions_limit: number;
     flow_generations_limit: number;
     app_usages_limit: number;
+    image_gen_executions_limit: number;
     created_at: string;
     updated_at: string;
 }
@@ -36,7 +38,7 @@ export interface UserQuota {
 /**
  * Quota Type Enum
  */
-export type QuotaType = "llm_executions" | "flow_generations" | "app_usages";
+export type QuotaType = "llm_executions" | "flow_generations" | "app_usages" | "image_gen_executions";
 
 /**
  * Auth State

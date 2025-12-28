@@ -6,6 +6,7 @@ import { RAGNodeExecutor } from "./RAGNodeExecutor";
 import { OutputNodeExecutor } from "./OutputNodeExecutor";
 import { BranchNodeExecutor } from "./BranchNodeExecutor";
 import { ToolNodeExecutor } from "./ToolNodeExecutor";
+import { ImageGenNodeExecutor } from "./ImageGenNodeExecutor";
 
 export class NodeExecutorFactory {
   private static executors: Record<NodeKind, NodeExecutor> = {
@@ -15,6 +16,7 @@ export class NodeExecutorFactory {
     output: new OutputNodeExecutor(),
     branch: new BranchNodeExecutor(),
     tool: new ToolNodeExecutor(),
+    imagegen: new ImageGenNodeExecutor(),
   };
 
   static getExecutor(nodeType: NodeKind): NodeExecutor {

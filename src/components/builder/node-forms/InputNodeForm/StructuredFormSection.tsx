@@ -8,6 +8,18 @@ import type { FormFieldConfig, SelectFieldConfig, MultiSelectFieldConfig } from 
 import { INPUT_CLASS, SECTION_TITLE_CLASS, type StructuredFormSectionProps } from "./constants";
 
 /**
+ * Utility to convert label to a safe variable name slug
+ */
+const toVariableSlug = (label: string) => {
+    return label
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '_') // Only allow alphanumeric and underscore
+        .replace(/_+/g, '_')        // Consolidate underscores
+        .replace(/^_+|_+$/g, '');   // Trim underscores
+};
+
+/**
  * FieldEditor - 单个表单字段编辑器
  */
 function FieldEditor({
@@ -24,90 +36,108 @@ function FieldEditor({
     onTypeChange: (index: number, newType: "select" | "text" | "multi-select") => void;
 }) {
     return (
-        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <GripVertical className="w-4 h-4 text-gray-400" />
-                    <span className="text-xs font-semibold text-gray-700">字段 {index + 1}</span>
+        <div className="p-3 bg-white hover:bg-gray-50/80 transition-colors rounded-xl border border-gray-100 shadow-sm space-y-4 group">
+            <div className="flex items-center justify-between text-gray-400">
+                <div className="flex items-center gap-2.5">
+                    <div className="flex items-center justify-center w-5 h-5 bg-gray-100 rounded text-[10px] font-bold text-gray-500 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+                        {index + 1}
+                    </div>
+                    <span className="text-[11px] font-bold text-gray-700">字段配置</span>
+                    <div className="flex items-center gap-1.5 ml-2 pl-2 border-l border-gray-100">
+                        <Switch
+                            id={`req-${field.name}`}
+                            checked={field.required}
+                            onCheckedChange={(checked) => onUpdate(index, { required: checked })}
+                            className="scale-75"
+                        />
+                        <label htmlFor={`req-${field.name}`} className="text-[9px] font-bold uppercase tracking-tight cursor-pointer">必填</label>
+                    </div>
                 </div>
                 <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     onClick={() => onDelete(index)}
-                    className="h-6 w-6 p-0 hover:bg-red-100 hover:text-red-600"
+                    className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 hover:text-red-500"
                 >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                 </Button>
             </div>
 
-            {/* Field Type Selector */}
-            <div className="space-y-1">
-                <label className="text-[10px] font-medium text-gray-500">字段类型</label>
-                <Select
-                    value={field.type}
-                    onValueChange={(value: "select" | "text" | "multi-select") =>
-                        onTypeChange(index, value)
-                    }
-                >
-                    <SelectTrigger className={`${INPUT_CLASS} h-8`}>
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="select">下拉单选</SelectItem>
-                        <SelectItem value="multi-select">下拉多选</SelectItem>
-                        <SelectItem value="text">文本输入</SelectItem>
-                    </SelectContent>
-                </Select>
+            <div className="grid grid-cols-2 gap-3">
+                {/* Field Label */}
+                <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">字段显示名称</label>
+                    <Input
+                        value={field.label}
+                        onChange={(e) => {
+                            const newLabel = e.target.value;
+                            const updates: Partial<FormFieldConfig> = { label: newLabel };
+                            // If name is still identifying as a default/generic one, sync it
+                            if (field.name.startsWith('field_') || field.name === '') {
+                                const slug = toVariableSlug(newLabel);
+                                if (slug) {
+                                    updates.name = `${slug}_${Date.now().toString().slice(-4)}`;
+                                }
+                            }
+                            onUpdate(index, updates);
+                        }}
+                        placeholder="例如：姓名"
+                        className={`${INPUT_CLASS} h-8 text-xs`}
+                    />
+                </div>
+
+                {/* Field Type Selector */}
+                <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">输入类型</label>
+                    <Select
+                        value={field.type}
+                        onValueChange={(value: "select" | "text" | "multi-select") =>
+                            onTypeChange(index, value)
+                        }
+                    >
+                        <SelectTrigger className={`${INPUT_CLASS} h-8 text-xs`}>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="select">下拉单选</SelectItem>
+                            <SelectItem value="multi-select">下拉多选</SelectItem>
+                            <SelectItem value="text">纯文本</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
 
-            {/* Field Name - Editable variable name */}
-            <div className="space-y-1">
-                <label className="text-[10px] font-medium text-gray-500">变量名</label>
+            {/* Field Name - Variable Identity */}
+            <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">变量标识 (ID)</label>
+                    <span className="text-[9px] text-gray-400 italic">用于逻辑引用，建议仅用小写字母和下划线</span>
+                </div>
                 <Input
                     value={field.name}
                     onChange={(e) => onUpdate(index, { name: e.target.value })}
                     placeholder="field_name"
-                    className={`${INPUT_CLASS} h-8`}
-                />
-            </div>
-
-            {/* Field Label */}
-            <div className="space-y-1">
-                <label className="text-[10px] font-medium text-gray-500">字段名</label>
-                <Input
-                    value={field.label}
-                    onChange={(e) => onUpdate(index, { label: e.target.value })}
-                    placeholder="字段名"
-                    className={`${INPUT_CLASS} h-8`}
+                    className={`${INPUT_CLASS} h-8 font-mono text-[11px] text-blue-600 bg-blue-50/20 border-blue-100 hover:border-blue-200 focus:border-blue-300 transition-colors`}
                 />
             </div>
 
             {/* Type-specific fields */}
             {(field.type === "select" || field.type === "multi-select") && (
-                <div className="space-y-1">
-                    <label className="text-[10px] font-medium text-gray-500">选项 (逗号分隔)</label>
+                <div className="space-y-1.5 animate-in fade-in zoom-in-95 duration-200 pt-1 border-t border-gray-100 border-dashed">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">候选项 (中/英逗号分隔)</label>
                     <Input
                         value={(field as SelectFieldConfig | MultiSelectFieldConfig).options.join(", ")}
                         onChange={(e) =>
                             onUpdate(index, {
-                                options: e.target.value.split(",").map((s) => s.trim()),
+                                options: e.target.value.split(/[,,，，]/).map((s) => s.trim()).filter(Boolean),
                             })
                         }
-                        placeholder="选项1, 选项2, 选项3"
-                        className={`${INPUT_CLASS} h-8`}
+                        placeholder="选项1, 选项2..."
+                        className={`${INPUT_CLASS} h-8 text-xs`}
                     />
                 </div>
             )}
-
-            {/* Required Checkbox */}
-            <div className="flex items-center gap-2">
-                <Switch
-                    checked={field.required}
-                    onCheckedChange={(checked) => onUpdate(index, { required: checked })}
-                />
-                <label className="text-xs font-medium text-gray-600">必填</label>
-            </div>
         </div>
     );
 }
@@ -123,39 +153,45 @@ export function StructuredFormSection({
     onDeleteField,
     onFieldUpdate,
     onFieldTypeChange,
+    isHeaderHidden = false,
 }: StructuredFormSectionProps) {
+    if (!enabled && isHeaderHidden) return null;
+
     return (
-        <div className="space-y-3">
-            <div className="flex items-center justify-between">
-                <div className={SECTION_TITLE_CLASS}>
-                    <Switch checked={enabled} onCheckedChange={onToggle} />
-                    <span>结构化表单</span>
+        <div className="space-y-4">
+            {!isHeaderHidden && (
+                <div className="flex items-center justify-between">
+                    <div className={SECTION_TITLE_CLASS}>
+                        <Switch checked={enabled} onCheckedChange={onToggle} />
+                        <span>结构化表单</span>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {enabled && (
-                <div className="pl-7 space-y-3 border-l-2 border-gray-200">
-                    {formFields.map((field, index) => (
-                        <FieldEditor
-                            key={field.name}
-                            field={field}
-                            index={index}
-                            onUpdate={onFieldUpdate}
-                            onDelete={onDeleteField}
-                            onTypeChange={onFieldTypeChange}
-                        />
-                    ))}
+                <div className="space-y-4">
+                    <div className="space-y-3">
+                        {formFields.map((field, index) => (
+                            <FieldEditor
+                                key={field.name || index}
+                                field={field}
+                                index={index}
+                                onUpdate={onFieldUpdate}
+                                onDelete={onDeleteField}
+                                onTypeChange={onFieldTypeChange}
+                            />
+                        ))}
+                    </div>
 
-                    {/* Add Field Button - CRITICAL: type="button" to prevent form submission */}
                     <Button
                         type="button"
                         variant="outline"
                         size="sm"
                         onClick={onAddField}
-                        className="w-full border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+                        className="w-full h-9 border-dashed border-gray-300 hover:border-blue-300 hover:bg-blue-50/30 hover:text-blue-600 transition-all rounded-xl text-xs"
                     >
-                        <Plus className="w-3 h-3 mr-1" />
-                        添加字段
+                        <Plus className="w-3.5 h-3.5 mr-1.5" />
+                        添加表单字段
                     </Button>
                 </div>
             )}

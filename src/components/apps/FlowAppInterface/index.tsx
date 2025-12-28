@@ -18,7 +18,10 @@ export default memo(function FlowAppInterface({
     flowIcon,
     messages,
     isLoading,
-    isStreaming, // 新增
+    isStreaming,
+    streamingText,
+    streamingReasoning,
+    isStreamingReasoning,
     input,
     onInputChange,
     onSend,
@@ -69,7 +72,10 @@ export default memo(function FlowAppInterface({
                 <ChatArea
                     messages={messages}
                     isLoading={isLoading}
-                    isStreaming={isStreaming} // 新增
+                    isStreaming={isStreaming}
+                    streamingText={streamingText}
+                    streamingReasoning={streamingReasoning}
+                    isStreamingReasoning={isStreamingReasoning}
                     flowIcon={flowIcon}
                     inputNodeData={inputNodeData}
                     flowTitle={flowTitle}

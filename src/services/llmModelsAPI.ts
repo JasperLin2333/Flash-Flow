@@ -7,6 +7,13 @@ import { supabase } from "@/lib/supabase";
 import { getProviderForModel } from "@/lib/llmProvider";
 
 // ============ Types ============
+export interface ModelCapabilities {
+    hasReasoning: boolean;
+    hasReasoningEffort: boolean;
+    supportsJsonMode: boolean;
+    supportsStreamingReasoning: boolean;
+}
+
 export interface LLMModel {
     id: string;
     model_id: string;
@@ -14,10 +21,25 @@ export interface LLMModel {
     provider: string;
     is_active: boolean;
     display_order: number;
+    capabilities: ModelCapabilities;
 }
 
 // ============ Default Fallback Models ============
 // Uses environment variable for easy configuration
+const DEFAULT_CAPABILITIES: ModelCapabilities = {
+    hasReasoning: false,
+    hasReasoningEffort: false,
+    supportsJsonMode: true,
+    supportsStreamingReasoning: false,
+};
+
+const REASONING_CAPABILITIES: ModelCapabilities = {
+    hasReasoning: true,
+    hasReasoningEffort: false,
+    supportsJsonMode: true,
+    supportsStreamingReasoning: true,
+};
+
 const getDefaultModels = (): LLMModel[] => {
     const defaultModel = process.env.DEFAULT_LLM_MODEL || process.env.NEXT_PUBLIC_DEFAULT_LLM_MODEL || "deepseek-ai/DeepSeek-V3.2";
     const modelName = defaultModel.split("/").pop() || "DeepSeek-V3.2";
@@ -30,6 +52,7 @@ const getDefaultModels = (): LLMModel[] => {
             provider: getProviderForModel(defaultModel),
             is_active: true,
             display_order: 1,
+            capabilities: DEFAULT_CAPABILITIES,
         },
         {
             id: "ds-chat",
@@ -38,6 +61,7 @@ const getDefaultModels = (): LLMModel[] => {
             provider: "deepseek",
             is_active: true,
             display_order: 2,
+            capabilities: DEFAULT_CAPABILITIES,
         },
         {
             id: "ds-reasoner",
@@ -46,6 +70,7 @@ const getDefaultModels = (): LLMModel[] => {
             provider: "deepseek",
             is_active: true,
             display_order: 3,
+            capabilities: REASONING_CAPABILITIES,
         },
     ];
 };
@@ -89,7 +114,7 @@ export const llmModelsAPI = {
                 return getDefaultModels();
             }
 
-            const models = data as LLMModel[];
+            const models = data as unknown as LLMModel[];
 
             // Update cache
             modelsCache = models;
@@ -128,7 +153,7 @@ export const llmModelsAPI = {
                 return null;
             }
 
-            return data as LLMModel;
+            return data as unknown as LLMModel;
         } catch (e) {
             console.error(`[llmModelsAPI] getModelByModelId exception for ${modelId}:`, e);
             return null;

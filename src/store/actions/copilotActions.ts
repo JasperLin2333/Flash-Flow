@@ -135,22 +135,16 @@ export const createCopilotActions = (set: any, get: any) => ({
             // ASYNC CHAIN: Wait for save to complete and get the ID
             await get().flushSave();
 
-            // ✅ BUG FIX #3: Track AND refresh quota after successful flow generation
-            // DEFENSIVE: Comprehensive error handling with user feedback
+            // ✅ PERF FIX: Server-side already incremented quota in /api/plan
+            // Only refresh the UI to reflect the updated quota (no duplicate increment)
+            // This eliminates cross-border Supabase request that caused conflicts
             try {
-                // Reuse validated user from quota check (no need to fetch again)
                 if (user) {
-                    const updated = await quotaService.incrementUsage(user.id, "flow_generations");
-                    if (!updated) {
-                        // Quota increment failed silently
-                    } else {
-                        // Automatically refresh quota in UI
-                        const { refreshQuota } = useQuotaStore.getState();
-                        await refreshQuota(user.id);
-                    }
+                    const { refreshQuota } = useQuotaStore.getState();
+                    await refreshQuota(user.id);
                 }
             } catch (e) {
-                // DEFENSIVE: We don't fail the flow generation here since it was successful
+                // Quota UI refresh failed - non-critical
             }
 
             set({ copilotStatus: "completed" });

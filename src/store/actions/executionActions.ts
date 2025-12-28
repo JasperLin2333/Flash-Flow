@@ -24,7 +24,7 @@ export const createExecutionActions = (
 
         if (!node) throw new Error(`Node ${nodeId} not found during execution`);
 
-        if (isDebugRunner && (node.type === 'input' || node.type === 'output')) {
+        if (isDebugRunner && node.type === 'input') {
             return null;
         }
 
@@ -58,7 +58,6 @@ export const createExecutionActions = (
             }
 
             const outputObj = output as Record<string, unknown>;
-            const outputText = typeof outputObj['text'] === 'string' ? (outputObj['text'] as string) : undefined;
 
             set((state: FlowState) => ({
                 nodes: state.nodes.map((n: AppNode) => n.id === nodeId ? {
@@ -68,7 +67,8 @@ export const createExecutionActions = (
                         status: "completed",
                         executionTime: executionTime,
                         output: output,
-                        ...(n.type === 'output' && outputText ? { text: outputText } : {})
+                        // NOTE: Output node text is now only stored in flowContext
+                        // to prevent double-write inconsistency issues
                     }
                 } : n)
             }));
@@ -89,13 +89,14 @@ export const createExecutionActions = (
     return {
         /**
          * 重置执行状态
+         * @param clearInputs 是否清除输入节点的用户数据
          */
-        resetExecution: () => {
+        resetExecution: (clearInputs: boolean = false) => {
             set((state: FlowState) => ({
                 executionStatus: "idle",
                 executionError: null,
                 flowContext: {},
-                nodes: resetAllNodesStatus(state.nodes),
+                nodes: resetAllNodesStatus(state.nodes, clearInputs),
                 // Reset streaming state
                 streamingText: "",
                 isStreaming: false,
@@ -134,14 +135,11 @@ export const createExecutionActions = (
             const invokeInputPrompt = inputNodes.some((n: AppNode) => {
                 const data = n.data as InputNodeData;
 
-                // Check Text
-                const isTextEnabled = data.enableTextInput !== false; // default true
-                const isTextMissing = isTextEnabled && (!data.text || !data.text.trim());
+                // Text field is now optional - no validation needed
+                const isTextMissing = false;
 
-                // Check File
-                // If file input is enabled but no files are selected, we prompt
-                const isFileEnabled = data.enableFileInput === true;
-                const isFileMissing = isFileEnabled && (!data.files || data.files.length === 0);
+                // File field is now optional - no validation needed
+                const isFileMissing = false;
 
                 // Check Form
                 // If form is enabled, check if any REQUIRED field is missing
@@ -355,7 +353,7 @@ export const createExecutionActions = (
         runNode: async (nodeId: string, mockInputData?: Record<string, unknown>) => {
             const node = get().nodes.find((n: AppNode) => n.id === nodeId);
             if (!node || !node.type) return;
-            if (node.type === "input" || node.type === "output") return;
+            if (node.type === "input") return;
 
             // Check if there are incoming connections
             const incomingEdges = get().edges.filter((e: AppEdge) => e.target === nodeId);

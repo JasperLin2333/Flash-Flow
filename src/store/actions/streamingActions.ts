@@ -15,6 +15,7 @@ export interface StreamingActions {
     // Legacy single-stream actions (backward compatible)
     setStreamingText: (text: string) => void;
     appendStreamingText: (chunk: string) => void;
+    appendStreamingReasoning: (chunk: string) => void;
     clearStreaming: () => void;
     abortStreaming: () => void;
     resetStreamingAbort: () => void;
@@ -55,13 +56,27 @@ export const createStreamingActions: StateCreator<
         return {
             streamingText: state.streamingText + chunk,
             isStreaming: true,
+            isStreamingReasoning: false,
         };
+    }),
+
+    appendStreamingReasoning: (chunk: string) => set((state: FlowState) => {
+        if ((state as any)._streamingAborted) {
+            return state;
+        }
+        return {
+            streamingReasoning: ((state as any).streamingReasoning || "") + chunk,
+            isStreaming: true,
+            isStreamingReasoning: true,
+        } as any;
     }),
 
     // 正常清理 streaming（开始新的 streaming 前调用）
     clearStreaming: () => set({
         streamingText: "",
+        streamingReasoning: "",
         isStreaming: false,
+        isStreamingReasoning: false,
         streamingMode: 'single',
         streamingSegments: [],
         lockedSourceId: null,
@@ -71,7 +86,9 @@ export const createStreamingActions: StateCreator<
     // 主动中断 streaming（用户点击新建对话时调用）
     abortStreaming: () => set({
         streamingText: "",
+        streamingReasoning: "",
         isStreaming: false,
+        isStreamingReasoning: false,
         _streamingAborted: true,
         streamingMode: 'single',
         streamingSegments: [],

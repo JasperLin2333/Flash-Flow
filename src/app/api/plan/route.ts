@@ -193,7 +193,7 @@ ${CORE_CHECKLIST}
                   { role: "user", content: userMsg },
                 ],
                 stream: true,
-                response_format: { type: "json_object" }, // Added response_format
+                response_format: { type: "json_object" },
               });
 
               let fullContent = "";

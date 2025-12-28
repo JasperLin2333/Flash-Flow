@@ -3,7 +3,7 @@ import React, { useCallback } from "react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { User, Brain, Download, Search, Clock, CheckCircle2, Loader2, AlertCircle, Play, Wrench, GitBranch } from "lucide-react";
+import { User, Brain, Download, Search, Clock, CheckCircle2, Loader2, AlertCircle, Play, Wrench, GitBranch, Image } from "lucide-react";
 import type { LLMNodeData, RAGNodeData, InputNodeData, ExecutionStatus, AppNode } from "@/types/flow";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -19,6 +19,7 @@ const ICON: Record<string, React.ReactNode> = {
   rag: <Search className="w-4 h-4 text-foreground" />,
   tool: <Wrench className="w-4 h-4 text-foreground" />,
   branch: <GitBranch className="w-4 h-4 text-foreground" />,
+  imagegen: <Image className="w-4 h-4 text-foreground" />,
 };
 
 const STATUS_ICON: Record<ExecutionStatus, React.ReactNode> = {
@@ -28,11 +29,12 @@ const STATUS_ICON: Record<ExecutionStatus, React.ReactNode> = {
   error: <AlertCircle className="w-3 h-3 text-destructive" />,
 };
 
-const HIDE_DEBUG_NODE_TYPES = ["input", "output", "branch"];
+const HIDE_DEBUG_NODE_TYPES = ["branch"];
 // 统一使用 Tool 节点的字体样式
 const METADATA_LABEL_STYLE = "text-xs text-gray-500 font-semibold";
 const METADATA_VALUE_STYLE = "text-xs text-gray-500";
-const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 transition-all duration-150 hover:scale-125";
+// 统一 Handle 样式：包含 z-index 和扩展点击区域
+const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 transition-all duration-150 hover:scale-125 z-50 after:content-[''] after:absolute after:-inset-4 after:rounded-full";
 
 // PERFORMANCE FIX: Wrap with React.memo to prevent unnecessary re-renders
 // When one node updates, all other nodes won't re-render
@@ -109,12 +111,14 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   // PERFORMANCE FIX: Use useShallow for batched store subscriptions
   // NOTE: edges and nodes are NOT subscribed here to avoid re-renders on every node/edge change
   // They are fetched on-demand in handleTestNode using getState()
-  const { runNode, openLLMDebugDialog, openRAGDebugDialog, openToolDebugDialog } = useFlowStore(
+  const { runNode, openLLMDebugDialog, openRAGDebugDialog, openToolDebugDialog, openInputPrompt, openOutputDebugDialog } = useFlowStore(
     useShallow((s) => ({
       runNode: s.runNode,
       openLLMDebugDialog: s.openLLMDebugDialog,
       openRAGDebugDialog: s.openRAGDebugDialog,
       openToolDebugDialog: s.openToolDebugDialog,
+      openInputPrompt: s.openInputPrompt,
+      openOutputDebugDialog: s.openOutputDebugDialog,
     }))
   );
 
@@ -220,6 +224,60 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
       );
     }
 
+    // ===== ImageGen 节点 =====
+    if (type === "imagegen") {
+      const imageGenData = data as import("@/types/flow").ImageGenNodeData;
+      const model = imageGenData?.model;
+      const imageSize = imageGenData?.imageSize;
+
+      // 模型名称映射：显示中文名（与数据库 model_name 保持一致）
+      const MODEL_NAMES: Record<string, string> = {
+        "Kwai-Kolors/Kolors": "可灵",
+        "Qwen/Qwen-Image": "千问-文生图",
+        "Qwen/Qwen-Image-Edit-2509": "千问-图生图",
+        "black-forest-labs/FLUX.1-schnell": "FLUX.1 快速",
+        "stabilityai/stable-diffusion-3-5-large-turbo": "SD 3.5 Turbo",
+      };
+      const modelName = model ? (MODEL_NAMES[model] || model.split('/').pop()) : "可灵";
+
+      // 图片比例映射
+      const SIZE_NAMES: Record<string, string> = {
+        // Kolors / Common
+        "1024x1024": "1:1",
+        "960x1280": "3:4",
+        "768x1024": "3:4",
+        "720x1440": "1:2",
+        "720x1280": "9:16",
+        "1024x768": "4:3",
+        "1024x512": "2:1",
+        "512x1024": "1:2",
+        // Qwen
+        "1328x1328": "1:1",
+        "1664x928": "16:9",
+        "928x1664": "9:16",
+        "1472x1140": "4:3",
+        "1140x1472": "3:4",
+        "1584x1056": "3:2",
+        "1056x1584": "2:3",
+      };
+      const sizeName = imageSize ? (SIZE_NAMES[imageSize] || imageSize) : "1:1";
+
+      return (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className={METADATA_LABEL_STYLE}>模型</span>
+            <span className={METADATA_VALUE_STYLE}>{modelName}</span>
+          </div>
+          {imageSize && (
+            <div className="flex items-center gap-2">
+              <span className={METADATA_LABEL_STYLE}>比例</span>
+              <span className={METADATA_VALUE_STYLE}>{sizeName}</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return null;
   };
 
@@ -227,6 +285,18 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
     // PERFORMANCE: Fetch nodes/edges on-demand instead of subscribing
     // This prevents re-renders when any node/edge changes
     const { nodes, edges } = useFlowStore.getState();
+
+    // Input 节点：用户需要填写测试数据（复用 InputPromptDialog）
+    if (type === 'input') {
+      openInputPrompt(id as string);  // 传入 nodeId 表示单节点测试模式
+      return;
+    }
+
+    // Output 节点：打开 OutputDebugDialog 填写 mock 变量
+    if (type === 'output') {
+      openOutputDebugDialog(id as string);
+      return;
+    }
 
     // LLM 节点：检查 inputMappings.user_input 是否已配置
     if (type === 'llm') {
@@ -276,6 +346,20 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
       return;
     }
 
+    // ImageGen 节点：如果已配置 prompt，直接运行
+    if (type === 'imagegen') {
+      const imageGenData = data as import("@/types/flow").ImageGenNodeData;
+      const prompt = imageGenData?.prompt;
+
+      if (prompt && prompt.trim()) {
+        runNode(id as string);
+      } else {
+        // 提示用户需要配置 prompt
+        console.warn('[ImageGen] Prompt is required for image generation');
+      }
+      return;
+    }
+
     // Check upstream dependencies
     const incomingEdges = edges.filter(e => e.target === id);
     if (incomingEdges.length === 0) {
@@ -294,14 +378,13 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
       className={cn(
         "group relative min-w-[240px] border bg-white transition-all duration-200 outline-none",
         "border-gray-200 shadow-md",
-        // Shape differentiation
-        type === "input" || type === "output" ? "rounded-[20px]" : "rounded-2xl",
-        type === "branch" ? "rounded-xl" : "",
+        // 统一圆角设计：所有节点使用相同的圆角
+        "rounded-2xl",
         selected ? "ring-2 ring-black border-transparent shadow-lg" : "hover:border-gray-300 hover:shadow-lg"
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-150">
+      <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-200">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-gray-100 rounded-lg border border-gray-200">
             {ICON[type || "llm"]}
@@ -339,7 +422,7 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
 
       {/* Footer (Optional) */}
       {executionTime && (
-        <CardFooter className="px-4 py-2 bg-gray-50 border-t border-gray-150 rounded-b-2xl flex items-center gap-2">
+        <CardFooter className="px-4 py-2 bg-gray-50 border-t border-gray-200 rounded-b-xl flex items-center gap-2">
           <Clock className="w-3 h-3 text-gray-500" />
           <span className="text-[10px] font-mono text-gray-600">{(executionTime / 1000).toFixed(2)}s</span>
         </CardFooter>

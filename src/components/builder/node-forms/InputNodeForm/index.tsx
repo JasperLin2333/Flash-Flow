@@ -1,9 +1,9 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
+import { useWatch } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import type { FormFieldConfig, FileInputConfig } from "@/types/flow";
 import {
     LABEL_CLASS,
@@ -20,86 +20,59 @@ import { StructuredFormSection } from "./StructuredFormSection";
 /**
  * InputNodeForm - Input 节点配置表单
  * 支持文本输入、文件上传、结构化表单三种输入方式
+ * 
+ * 使用 form.watch 替代 useState 来避免双重状态管理
  */
 export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNodeFormProps) {
-    const [enableTextInput, setEnableTextInput] = useState<boolean>(
-        form.getValues("enableTextInput") !== false // Default true
+    // 使用 useWatch 获取状态（会订阅变化并触发重渲染）
+    const watchedEnableTextInput = useWatch({ control: form.control, name: "enableTextInput" });
+    const watchedEnableFileInput = useWatch({ control: form.control, name: "enableFileInput" });
+    const watchedEnableStructuredForm = useWatch({ control: form.control, name: "enableStructuredForm" });
+    const watchedFormFields = useWatch({ control: form.control, name: "formFields" });
+    const watchedFileConfig = useWatch({ control: form.control, name: "fileConfig" });
+
+    // 计算派生状态
+    const enableTextInput = watchedEnableTextInput !== false; // Default true
+    const enableFileInput = watchedEnableFileInput === true;
+    const enableStructuredForm = watchedEnableStructuredForm === true;
+
+    // formFields 和 fileConfig 需要 memoize 以避免不必要的重渲染
+    const formFields = useMemo(() =>
+        Array.isArray(watchedFormFields) ? watchedFormFields : [],
+        [watchedFormFields]
     );
-    const [enableFileInput, setEnableFileInput] = useState<boolean>(
-        form.getValues("enableFileInput") || false
-    );
-    const [enableStructuredForm, setEnableStructuredForm] = useState<boolean>(
-        form.getValues("enableStructuredForm") || false
-    );
-    const [formFields, setFormFields] = useState<FormFieldConfig[]>(
-        form.getValues("formFields") || []
-    );
-    const [fileConfig, setFileConfig] = useState<FileInputConfig>(
-        form.getValues("fileConfig") || DEFAULT_FILE_CONFIG
+    const fileConfig = useMemo(() =>
+        watchedFileConfig || DEFAULT_FILE_CONFIG,
+        [watchedFileConfig]
     );
 
-    // Update form values when state changes
+    // Update form values and sync to store
+    // 注意：需要 shouldDirty: true 来触发 form.watch 的订阅更新
     const updateFormValue = (key: string, value: any) => {
-        form.setValue(key, value);
+        form.setValue(key, value, { shouldDirty: true });
         if (selectedNodeId && updateNodeData) {
             updateNodeData(selectedNodeId, { [key]: value });
         }
     };
 
-    // Sync local state with form values when node changes
-    // 使用 form.watch 监听字段变化，确保在 form.reset 完成后同步
-    useEffect(() => {
-        // 初始同步
-        const syncFromForm = () => {
-            const currentEnableText = form.getValues("enableTextInput");
-            const currentEnableFile = form.getValues("enableFileInput");
-            const currentEnableForm = form.getValues("enableStructuredForm");
-            const currentFileConfig = form.getValues("fileConfig");
-            const currentFormFields = form.getValues("formFields");
-
-            setEnableTextInput(currentEnableText !== false); // Default true
-            setEnableFileInput(currentEnableFile || false);
-            setEnableStructuredForm(currentEnableForm || false);
-
-            if (currentFileConfig) {
-                setFileConfig(currentFileConfig);
-            } else {
-                setFileConfig(DEFAULT_FILE_CONFIG);
-            }
-            if (currentFormFields && Array.isArray(currentFormFields)) {
-                setFormFields(currentFormFields);
-            } else {
-                setFormFields([]);
-            }
-        };
-
-        // 延迟同步，等待 ContextHUD 中的 form.reset 完成
-        const timer = setTimeout(syncFromForm, 10);
-        return () => clearTimeout(timer);
-    }, [selectedNodeId, form]);
-
     // ============ Toggle Handlers ============
     const handleTextInputToggle = (checked: boolean) => {
-        setEnableTextInput(checked);
         updateFormValue("enableTextInput", checked);
     };
 
     const handleFileInputToggle = (checked: boolean) => {
-        setEnableFileInput(checked);
         updateFormValue("enableFileInput", checked);
         if (checked && !form.getValues("fileConfig")) {
-            updateFormValue("fileConfig", fileConfig);
+            updateFormValue("fileConfig", DEFAULT_FILE_CONFIG);
         }
     };
 
     const handleStructuredFormToggle = (checked: boolean) => {
-        setEnableStructuredForm(checked);
         updateFormValue("enableStructuredForm", checked);
         if (checked && formFields.length === 0) {
             updateFormValue("formFields", []);
         } else if (!checked) {
             // 关闭结构化表单时，清空字段配置和表单数据
-            setFormFields([]);
             updateFormValue("formFields", []);
             updateFormValue("formData", undefined);
         }
@@ -108,7 +81,6 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
     // ============ File Config Handlers ============
     const handleFileConfigChange = (updates: Partial<FileInputConfig>) => {
         const updatedConfig = { ...fileConfig, ...updates };
-        setFileConfig(updatedConfig);
         updateFormValue("fileConfig", updatedConfig);
     };
 
@@ -116,13 +88,11 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
     const handleAddField = () => {
         const newField = createNewTextField();
         const updatedFields = [...formFields, newField];
-        setFormFields(updatedFields);
         updateFormValue("formFields", updatedFields);
     };
 
     const handleDeleteField = (index: number) => {
         const updatedFields = formFields.filter((_, i) => i !== index);
-        setFormFields(updatedFields);
         updateFormValue("formFields", updatedFields);
     };
 
@@ -131,7 +101,6 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
             if (i !== index) return field;
             return { ...field, ...updates } as FormFieldConfig;
         });
-        setFormFields(updatedFields);
         updateFormValue("formFields", updatedFields);
     };
 
@@ -139,7 +108,6 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
         const currentField = formFields[index];
         const newField = createFieldOfType(currentField, newType);
         const updatedFields = formFields.map((field, i) => (i === index ? newField : field));
-        setFormFields(updatedFields);
         updateFormValue("formFields", updatedFields);
     };
 
@@ -160,42 +128,80 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                 )}
             />
 
-            <Separator className="my-4" />
+            {/* 分隔线 */}
+            <div className="border-t border-gray-100 my-4" />
 
-            {/* Text Input (Toggleable) */}
-            <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                    <div className={SECTION_TITLE_CLASS}>
+            {/* Input Capabilities Section */}
+            <div className="space-y-3">
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">输入能力配置</div>
+                <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100 space-y-3">
+                    {/* Text Input Toggle */}
+                    <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-gray-700">自由文本输入</span>
+                            <span className="text-[10px] text-gray-500">允许用户输入任意文本内容</span>
+                        </div>
                         <Switch checked={enableTextInput} onCheckedChange={handleTextInputToggle} />
-                        <span>文本输入</span>
+                    </div>
+
+                    {/* File Input Toggle */}
+                    <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+                        <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-gray-700">文件/图像上传</span>
+                            <span className="text-[10px] text-gray-500">支持图片、文档等各类文件上传</span>
+                        </div>
+                        <Switch checked={enableFileInput} onCheckedChange={handleFileInputToggle} />
+                    </div>
+
+                    {/* Structured Form Toggle */}
+                    <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+                        <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-gray-700">结构化表单</span>
+                            <span className="text-[10px] text-gray-500">定义特定字段（如下拉框、单选）</span>
+                        </div>
+                        <Switch checked={enableStructuredForm} onCheckedChange={handleStructuredFormToggle} />
                     </div>
                 </div>
             </div>
 
-            <Separator className="my-4" />
+            {/* Conditional Configuration Sections */}
+            {(enableFileInput || enableStructuredForm) && (
+                <div className="space-y-6 mt-6">
+                    {/* File/Image Configuration */}
+                    {enableFileInput && (
+                        <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">文件上传设置</div>
+                            <FileInputSection
+                                enabled={true}
+                                onToggle={() => { }} // Toggle handled by parent
+                                fileConfig={fileConfig}
+                                onConfigChange={handleFileConfigChange}
+                                isHeaderHidden={true}
+                            />
+                        </div>
+                    )}
 
-            {/* File/Image Input */}
-            <FileInputSection
-                enabled={enableFileInput}
-                onToggle={handleFileInputToggle}
-                fileConfig={fileConfig}
-                onConfigChange={handleFileConfigChange}
-            />
+                    {/* Structured Form Configuration */}
+                    {enableStructuredForm && (
+                        <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">表单字段配置</div>
+                            <StructuredFormSection
+                                enabled={true}
+                                onToggle={() => { }} // Toggle handled by parent
+                                formFields={formFields}
+                                onAddField={handleAddField}
+                                onDeleteField={handleDeleteField}
+                                onFieldUpdate={handleFieldUpdate}
+                                onFieldTypeChange={handleFieldTypeChange}
+                                isHeaderHidden={true}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
 
-            <Separator className="my-4" />
-
-            {/* Structured Form */}
-            <StructuredFormSection
-                enabled={enableStructuredForm}
-                onToggle={handleStructuredFormToggle}
-                formFields={formFields}
-                onAddField={handleAddField}
-                onDeleteField={handleDeleteField}
-                onFieldUpdate={handleFieldUpdate}
-                onFieldTypeChange={handleFieldTypeChange}
-            />
-
-            <Separator className="my-4" />
+            {/* 分隔线 */}
+            <div className="border-t border-gray-100 my-4" />
 
             {/* 招呼语配置 */}
             <FormField

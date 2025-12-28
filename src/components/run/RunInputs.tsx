@@ -59,6 +59,7 @@ export default function RunInputs({ inputNodes }: { inputNodes: AppNode[] }) {
               value={inputData.text || ""}
               onChange={(value) => updateNodeData(node.id, { text: value })}
               onSend={(data) => handleInputSend(node.id, data)}
+              onFormDataChange={(formData) => updateNodeData(node.id, { formData })}
             />
           </div>
         );

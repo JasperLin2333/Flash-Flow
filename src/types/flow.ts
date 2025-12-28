@@ -6,7 +6,8 @@ export type NodeKind =
   | "rag"
   | "output"
   | "branch"
-  | "tool";
+  | "tool"
+  | "imagegen";
 
 export type ExecutionStatus = "idle" | "running" | "completed" | "error";
 
@@ -15,8 +16,6 @@ export interface BaseNodeData {
   status?: ExecutionStatus;
   executionTime?: number;
   output?: Record<string, unknown>;
-  // 用户自定义的输出变量
-  customOutputs?: { name: string; value: string }[];
   [key: string]: unknown;
 }
 
@@ -27,6 +26,8 @@ export interface LLMNodeData extends BaseNodeData {
   // 对话记忆配置
   enableMemory?: boolean;           // 是否启用记忆，默认 false
   memoryMaxTurns?: number;          // 最大记忆轮数，默认 10
+  // 高级输出配置
+  responseFormat?: 'text' | 'json_object'; // 响应格式（已实现 UI）
 }
 
 export interface RAGNodeData extends BaseNodeData {
@@ -44,8 +45,8 @@ export interface RAGNodeData extends BaseNodeData {
   maxOverlapTokens?: number;     // 块之间的重叠 token 数，默认 20
 
   // 执行结果
-  searchQuery?: string;          // 最后一次搜索的查询
-  foundDocuments?: string[];     // 找到的文档块
+  query?: string;                // 最后一次搜索的查询
+  documents?: string[];          // 找到的文档块
 }
 
 // ============ Input Node Form Field Types ============
@@ -146,7 +147,29 @@ export interface BranchNodeData extends BaseNodeData {
   condition: string; // JavaScript expression, e.g., "input.text.length > 10"
 }
 
-export type AppNodeData = BaseNodeData | LLMNodeData | RAGNodeData | InputNodeData | OutputNodeData | ToolNodeData | BranchNodeData;
+// ============ ImageGen Node Types ============
+
+export interface ImageGenNodeData extends BaseNodeData {
+  model?: string;           // "black-forest-labs/FLUX.1-schnell" | "Kwai-Kolors/Kolors"
+  prompt: string;           // 支持 {{变量}} 语法
+  negativePrompt?: string;  // 负向提示词 (仅部分模型支持)
+  imageSize?: string;       // "1024x1024" | "512x1024" | "1024x512" 等
+  cfg?: number;             // 统一 CFG 值 (前端使用，后端根据 cfgParam 转换)
+  // 新增字段 - 动态显示
+  guidanceScale?: number;        // 引导系数 (CFG)，仅 Kolors/SD 模型支持 (兼容旧数据)
+  numInferenceSteps?: number;    // 推理步数
+
+  // 参考图配置 (图生图)
+  referenceImageMode?: 'variable' | 'static';  // 默认 'static'
+  referenceImageUrl?: string;                   // 静态上传 URL
+  referenceImageUrl2?: string;                  // 静态上传 URL 2
+  referenceImageUrl3?: string;                  // 静态上传 URL 3
+  referenceImageVariable?: string;              // 变量引用 image ({{xx.imageUrl}})
+  referenceImage2Variable?: string;             // 变量引用 image2 (仅 Edit-2509)
+  referenceImage3Variable?: string;             // 变量引用 image3 (仅 Edit-2509)
+}
+
+export type AppNodeData = BaseNodeData | LLMNodeData | RAGNodeData | InputNodeData | OutputNodeData | ToolNodeData | BranchNodeData | ImageGenNodeData;
 
 export type AppNode = Node<AppNodeData> & { type: NodeKind }; // Made type required
 export type AppEdge = Edge & {
@@ -227,7 +250,9 @@ export type FlowState = {
 
   // Streaming state for real-time AI response
   streamingText: string;
+  streamingReasoning: string;
   isStreaming: boolean;
+  isStreamingReasoning: boolean;
 
   // Segment streaming state (for merge mode)
   streamingMode: 'single' | 'segmented' | 'select';
@@ -255,8 +280,19 @@ export type FlowState = {
   toolDebugNodeId: string | null;
   toolDebugInputs: Record<string, unknown>;
 
+  // Input Debug Dialog 状态
+  inputDebugDialogOpen: boolean;
+  inputDebugNodeId: string | null;
+  inputDebugData: { text?: string; files?: File[]; formData?: Record<string, unknown> };
+
+  // Output Debug Dialog 状态
+  outputDebugDialogOpen: boolean;
+  outputDebugNodeId: string | null;
+  outputDebugData: { mockVariables?: Record<string, string> };
+
   // Input Prompt 状态
   inputPromptOpen: boolean;
+  inputPromptTargetNodeId: string | null;  // null = 显示所有 Input 节点
 
   // Node Actions
   addNode: (type: NodeKind, position: { x: number; y: number }, data?: Partial<AppNodeData>) => void;
@@ -279,7 +315,7 @@ export type FlowState = {
   // Execution Actions
   runFlow: (sessionId?: string) => Promise<void>;
   runNode: (id: string, mockInputData?: Record<string, unknown>) => Promise<void>;
-  resetExecution: () => void;
+  resetExecution: (clearInputs?: boolean) => void;
 
   // Copilot Actions
   startCopilot: (prompt: string) => Promise<void>;
@@ -317,14 +353,27 @@ export type FlowState = {
   setToolDebugInputs: (inputs: Record<string, unknown>) => void;
   confirmToolDebugRun: () => Promise<void>;
 
+  // Input Debug Actions
+  openInputDebugDialog: (nodeId: string) => void;
+  closeInputDebugDialog: () => void;
+  setInputDebugData: (data: { text?: string; files?: File[]; formData?: Record<string, unknown> }) => void;
+  confirmInputDebugRun: () => Promise<void>;
+
+  // Output Debug Actions
+  openOutputDebugDialog: (nodeId: string) => void;
+  closeOutputDebugDialog: () => void;
+  setOutputDebugData: (data: { mockVariables?: Record<string, string> }) => void;
+  confirmOutputDebugRun: () => Promise<void>;
+
   // Input Prompt Actions
-  openInputPrompt: () => void;
+  openInputPrompt: (nodeId?: string) => void;  // nodeId=undefined 表示所有 Input 节点
   closeInputPrompt: () => void;
   confirmInputRun: () => Promise<void>;
 
   // Streaming Actions
   setStreamingText: (text: string) => void;
   appendStreamingText: (chunk: string) => void;
+  appendStreamingReasoning: (chunk: string) => void;
   clearStreaming: () => void;
   abortStreaming: () => void;
   resetStreamingAbort: () => void;

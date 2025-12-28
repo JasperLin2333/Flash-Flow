@@ -16,6 +16,7 @@ import { RAGNodeForm } from "../node-forms/RAGNodeForm";
 import { OutputNodeForm } from "../node-forms/OutputNodeForm";
 import { ToolNodeForm } from "../node-forms/ToolNodeForm";
 import { BranchNodeForm } from "../node-forms/BranchNodeForm";
+import { ImageGenNodeForm } from "../node-forms/ImageGenNodeForm";
 
 // Local components and utilities
 import { NodeIOSection } from "./NodeIOSection";
@@ -70,9 +71,21 @@ export default function ContextHUD() {
         const type = node.type as NodeKind;
         const d = node.data || {};
         const has = (k: string) => k in d;
+
+        // Model field needs different defaults for LLM vs ImageGen
+        const getModelDefault = () => {
+            if (type === "llm") {
+                return has("model") ? String((d as { model?: string }).model || DEFAULT_MODEL) : DEFAULT_MODEL;
+            }
+            if (type === "imagegen") {
+                return has("model") ? String((d as { model?: string }).model || "Kwai-Kolors/Kolors") : "Kwai-Kolors/Kolors";
+            }
+            return DEFAULT_MODEL; // Fallback for other types
+        };
+
         form.reset({
             label: String(d.label || ""),
-            model: type === "llm" && has("model") ? String((d as { model?: string }).model || DEFAULT_MODEL) : DEFAULT_MODEL,
+            model: getModelDefault(),
             temperature: type === "llm" && has("temperature") ? Number((d as { temperature?: number }).temperature ?? DEFAULT_TEMPERATURE) : DEFAULT_TEMPERATURE,
             systemPrompt: type === "llm" && has("systemPrompt") ? String((d as { systemPrompt?: string }).systemPrompt || "") : "",
             // LLM Memory fields
@@ -183,6 +196,7 @@ export default function ContextHUD() {
                                     {type === "output" && <OutputNodeForm form={form} />}
                                     {type === "tool" && <ToolNodeForm form={form} />}
                                     {type === "branch" && <BranchNodeForm form={form} />}
+                                    {type === "imagegen" && <ImageGenNodeForm form={form} selectedNodeId={selectedNodeId} updateNodeData={updateNodeData} selectedNode={selectedNode} />}
                                 </form>
                             </Form>
 
@@ -195,12 +209,6 @@ export default function ContextHUD() {
                                 nodes={nodes}
                                 edges={edges}
                                 flowContext={flowContext}
-                                customOutputs={(selectedNode.data as Record<string, unknown>)?.customOutputs as { name: string; value: string }[] | undefined}
-                                onUpdateCustomOutputs={(outputs) => {
-                                    if (selectedNodeId) {
-                                        updateNodeData(selectedNodeId, { customOutputs: outputs });
-                                    }
-                                }}
                                 onUpdateToolInputs={(inputs) => {
                                     if (selectedNodeId) {
                                         updateNodeData(selectedNodeId, { inputs });

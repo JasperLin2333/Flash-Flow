@@ -62,6 +62,9 @@ export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: 
     output: [
         { field: "text", description: "最终输出的文本内容" },
     ],
+    imagegen: [
+        { field: "imageUrl", description: "生成图片的 URL" },
+    ],
 };
 
 // ============ Tool Specific Definitions ============
@@ -87,42 +90,42 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     },
     datetime: {
         inputs: [
-            { 
-                field: "operation",              
-                description: "操作类型：now(获取当前时间)、format(格式化)、diff(日期差)、add(日期加减)", 
+            {
+                field: "operation",
+                description: "操作类型：now(获取当前时间)、format(格式化)、diff(日期差)、add(日期加减)",
                 required: false,
                 type: "enum" as const,
                 enumOptions: ["now", "format", "diff", "add"],
                 enumLabels: { now: "获取当前时间", format: "日期格式化", diff: "计算日期差", add: "日期加减" },
             },
-            { 
-                field: "date", 
-                description: "输入日期（ISO 格式或常见格式）", 
+            {
+                field: "date",
+                description: "输入日期（ISO 格式或常见格式）",
                 required: false,
                 dependsOn: { field: "operation", value: ["format", "diff", "add"] },
             },
-            { 
-                field: "format", 
-                description: "输出的日期格式（如 YYYY-MM-DD HH:mm:ss）", 
+            {
+                field: "format",
+                description: "输出的日期格式（如 YYYY-MM-DD HH:mm:ss）",
                 required: false,
                 dependsOn: { field: "operation", value: ["now", "format", "add"] },
             },
-            { 
-                field: "targetDate", 
-                description: "目标日期（用于计算日期差）", 
+            {
+                field: "targetDate",
+                description: "目标日期（用于计算日期差）",
                 required: false,
                 dependsOn: { field: "operation", value: "diff" },
             },
-            { 
-                field: "amount", 
-                description: "增减数量（用于日期加减）", 
+            {
+                field: "amount",
+                description: "增减数量（用于日期加减）",
                 required: false,
                 type: "number" as const,
                 dependsOn: { field: "operation", value: "add" },
             },
-            { 
-                field: "unit", 
-                description: "时间单位（用于日期加减）", 
+            {
+                field: "unit",
+                description: "时间单位（用于日期加减）",
                 required: false,
                 type: "enum" as const,
                 enumOptions: ["year", "month", "day", "hour", "minute", "second"],
@@ -188,4 +191,5 @@ export const NODE_UPSTREAM_INPUTS: Record<NodeKind, { field: string; description
     tool: [], // 动态根据工具类型生成
     branch: [],  // condition 表达式已说明数据来源
     output: [], // 使用 OutputNodeConfig 组件配置
+    imagegen: [], // prompt 在表单中配置，参考图片通过 UI 上传
 };

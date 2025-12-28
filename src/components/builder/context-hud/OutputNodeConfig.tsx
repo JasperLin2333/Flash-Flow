@@ -14,11 +14,13 @@ const MODE_OPTIONS: { value: OutputMode; label: string; description: string }[] 
 interface OutputNodeConfigProps {
     inputMappings?: OutputInputMappings;
     onUpdateInputMappings: (mappings: OutputInputMappings) => void;
+    isExecuting?: boolean;
 }
 
 export function OutputNodeConfig({
     inputMappings,
     onUpdateInputMappings,
+    isExecuting = false,
 }: OutputNodeConfigProps) {
     const mode = inputMappings?.mode || 'direct';
     const sources = inputMappings?.sources || [];
@@ -77,6 +79,9 @@ export function OutputNodeConfig({
 
     const handleUpdateSource = (index: number, value: string) => {
         const newSources = [...sources];
+        if (!newSources[index]) {
+            newSources[index] = { type: 'variable', value: '' };
+        }
         newSources[index] = { ...newSources[index], value };
         updateMappings({ sources: newSources });
     };
@@ -112,8 +117,9 @@ export function OutputNodeConfig({
                     输出模式
                 </label>
                 <button
-                    onClick={() => setShowModeDropdown(!showModeDropdown)}
-                    className="w-full flex items-center justify-between px-3 py-2 text-sm bg-white border rounded-lg hover:border-gray-400 transition-colors"
+                    onClick={() => !isExecuting && setShowModeDropdown(!showModeDropdown)}
+                    disabled={isExecuting}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-sm bg-white border rounded-lg transition-colors ${isExecuting ? 'opacity-50 cursor-not-allowed' : 'hover:border-gray-400'}`}
                 >
                     <div className="text-left">
                         <span className="font-medium text-gray-900">{currentModeOption.label}</span>
@@ -149,7 +155,8 @@ export function OutputNodeConfig({
                         value={template}
                         onChange={(e) => updateMappings({ template: e.target.value })}
                         placeholder="输入模板内容，使用 {{变量名}} 或 {{节点名.字段}} 引用变量&#10;&#10;例如:&#10;## 用户问题&#10;{{user_input}}&#10;&#10;## AI 回复&#10;{{LLM处理.response}}"
-                        className="w-full min-h-32 text-xs px-3 py-2 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 resize-y font-mono"
+                        disabled={isExecuting}
+                        className={`w-full min-h-32 text-xs px-3 py-2 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 resize-y font-mono ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
                     />
                     <p className="text-[9px] text-gray-400 mt-1">
                         支持 <code className="bg-gray-100 px-1 rounded">{"{{变量名}}"}</code> 或 <code className="bg-gray-100 px-1 rounded">{"{{节点名.字段}}"}</code> 语法
@@ -162,32 +169,49 @@ export function OutputNodeConfig({
                         内容来源 {mode === 'direct' && '(单个)'} {mode === 'select' && '(优先级顺序)'} {mode === 'merge' && '(合并顺序)'}
                     </label>
                     <div className="space-y-2">
-                        {sources.map((source, idx) => (
-                            <div key={idx} className="flex items-center gap-2">
-                                <span className="text-[10px] text-gray-400 w-4 shrink-0">{idx + 1}.</span>
+                        {/* 如果 sources 为空，默认显示一个输入框 */}
+                        {sources.length === 0 ? (
+                            <div className="flex items-center gap-2">
                                 <input
                                     type="text"
-                                    value={source.value}
-                                    onChange={(e) => handleUpdateSource(idx, e.target.value)}
+                                    value={sources[0]?.value || ""}
+                                    onChange={(e) => handleUpdateSource(0, e.target.value)}
                                     placeholder="{{节点名.字段}} 或 {{response}}"
-                                    className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono"
+                                    disabled={isExecuting}
+                                    className={`flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
                                 />
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 shrink-0"
-                                    onClick={() => handleRemoveSource(idx)}
-                                >
-                                    <X className="w-3 h-3 text-gray-400 hover:text-red-500" />
-                                </Button>
+                                <div className="w-6 h-6 shrink-0" /> {/* 占位符，保持对齐 */}
                             </div>
-                        ))}
+                        ) : (
+                            sources.map((source, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        value={source.value}
+                                        onChange={(e) => handleUpdateSource(idx, e.target.value)}
+                                        placeholder="{{节点名.字段}} 或 {{response}}"
+                                        disabled={isExecuting}
+                                        className={`flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+                                    />
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 shrink-0"
+                                        onClick={() => handleRemoveSource(idx)}
+                                        disabled={isExecuting}
+                                    >
+                                        <X className="w-3 h-3 text-gray-400 hover:text-red-500" />
+                                    </Button>
+                                </div>
+                            ))
+                        )}
                         {(mode !== 'direct' || sources.length === 0) && (
                             <Button
                                 variant="ghost"
                                 size="sm"
                                 className="w-full h-7 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300"
                                 onClick={handleAddSource}
+                                disabled={isExecuting}
                             >
                                 <Plus className="w-3 h-3 mr-1" />
                                 添加来源
@@ -220,13 +244,15 @@ export function OutputNodeConfig({
                                 value={attachment.value}
                                 onChange={(e) => handleUpdateAttachment(idx, e.target.value)}
                                 placeholder="{{用户输入.files}}"
-                                className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono"
+                                disabled={isExecuting}
+                                className={`flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
                             />
                             <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 shrink-0"
                                 onClick={() => handleRemoveAttachment(idx)}
+                                disabled={isExecuting}
                             >
                                 <X className="w-3 h-3 text-gray-400 hover:text-red-500" />
                             </Button>
@@ -237,6 +263,7 @@ export function OutputNodeConfig({
                         size="sm"
                         className="w-full h-7 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300"
                         onClick={handleAddAttachment}
+                        disabled={isExecuting}
                     >
                         <Plus className="w-3 h-3 mr-1" />
                         添加附件来源

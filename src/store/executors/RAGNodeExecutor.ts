@@ -1,13 +1,17 @@
 import type { AppNode, RAGNodeData, FlowContext } from "@/types/flow";
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { extractInputFromContext } from "./contextUtils";
+import { useFlowStore } from "@/store/flowStore";
+import { collectVariablesRaw } from "./utils/variableUtils";
 
 /**
- * 解析变量模板，从 context 中提取值
+ * 解析变量模板，从全局 flowContext 中提取值
+ * 使用公共的 collectVariablesRaw 函数实现全局变量解析
  */
 function resolveVariableTemplate(
     template: string,
-    context: FlowContext
+    context: FlowContext,
+    globalVariables: Record<string, unknown>
 ): unknown {
     // 匹配 {{变量名}} 格式
     const match = template.match(/^\{\{(.+?)\}\}$/);
@@ -15,32 +19,23 @@ function resolveVariableTemplate(
 
     const varPath = match[1].trim();
 
-    // 尝试 nodeLabel.field 格式（支持多级路径如 nodeLabel.files[0].url）
-    if (varPath.includes('.')) {
-        const parts = varPath.split('.');
-        const [nodeRef, ...fieldParts] = parts;
-
-        // 先按节点 ID 查找
-        if (context[nodeRef]) {
-            return getNestedValue(context[nodeRef] as Record<string, unknown>, fieldParts.join('.'));
-        }
-
-        // 再按节点标签查找
-        const meta = context._meta as { nodeLabels?: Record<string, string> } | undefined;
-        if (meta?.nodeLabels) {
-            const nodeId = Object.entries(meta.nodeLabels).find(([, label]) => label === nodeRef)?.[0];
-            if (nodeId && context[nodeId]) {
-                return getNestedValue(context[nodeId] as Record<string, unknown>, fieldParts.join('.'));
-            }
-        }
+    // 直接从预收集的全局变量中查找
+    if (varPath in globalVariables) {
+        return globalVariables[varPath];
     }
 
-    // 尝试直接字段名匹配
-    for (const [key, value] of Object.entries(context)) {
-        if (key.startsWith('_')) continue;
-        const nodeOutput = value as Record<string, unknown>;
-        if (varPath in nodeOutput) {
-            return nodeOutput[varPath];
+    // 支持嵌套路径（如 nodeLabel.files[0].url）
+    // 先尝试找到基础变量，再解析嵌套路径
+    if (varPath.includes('.')) {
+        const parts = varPath.split('.');
+        // 尝试不同长度的前缀
+        for (let i = parts.length - 1; i >= 1; i--) {
+            const baseKey = parts.slice(0, i).join('.');
+            if (baseKey in globalVariables) {
+                const baseValue = globalVariables[baseKey];
+                const remainingPath = parts.slice(i).join('.');
+                return getNestedValue(baseValue as Record<string, unknown>, remainingPath);
+            }
         }
     }
 
@@ -85,7 +80,10 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
                 query = mockData.query;
             } else {
                 // 正常模式：从 inputMappings 解析
-                query = this.resolveQuery(inputMappings?.query, context);
+                // 获取全局 flowContext 和所有节点
+                const { nodes: allNodes, flowContext: globalFlowContext } = useFlowStore.getState();
+                const globalVariables = collectVariablesRaw(context, globalFlowContext, allNodes);
+                query = this.resolveQuery(inputMappings?.query, context, globalVariables);
             }
 
             if (!query || query.trim() === "") {
@@ -95,7 +93,10 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
             }
 
             // 2. 检查是否有动态文件引用
-            const dynamicFiles = this.resolveDynamicFiles(inputMappings?.files, context);
+            // 需要重新获取全局变量（如果还没有的话）
+            const storeState = useFlowStore.getState();
+            const globalVars = collectVariablesRaw(context, storeState.flowContext, storeState.nodes);
+            const dynamicFiles = this.resolveDynamicFiles(inputMappings?.files, context, globalVars);
 
             if (dynamicFiles && dynamicFiles.length > 0) {
                 // 使用多模态 API 处理动态文件
@@ -115,11 +116,15 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
     /**
      * 解析查询内容
      */
-    private resolveQuery(queryTemplate: string | undefined, context: FlowContext): string {
+    private resolveQuery(
+        queryTemplate: string | undefined,
+        context: FlowContext,
+        globalVariables: Record<string, unknown>
+    ): string {
         if (queryTemplate && queryTemplate.trim()) {
             // 解析变量模板
             return queryTemplate.replace(/\{\{([^}]+)\}\}/g, (_match, varPath: string) => {
-                const value = resolveVariableTemplate(`{{${varPath}}}`, context);
+                const value = resolveVariableTemplate(`{{${varPath}}}`, context, globalVariables);
                 return String(value ?? '');
             });
         }
@@ -132,14 +137,15 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
      */
     private resolveDynamicFiles(
         filesTemplate: string | undefined,
-        context: FlowContext
+        context: FlowContext,
+        globalVariables: Record<string, unknown>
     ): Array<{ name: string; url: string; type?: string }> | null {
         if (!filesTemplate || !filesTemplate.trim()) {
             return null;
         }
 
-        // 解析变量模板获取文件数组
-        let filesValue = resolveVariableTemplate(filesTemplate, context);
+        // 解析变量模板获取文件数组（使用全局变量）
+        let filesValue = resolveVariableTemplate(filesTemplate, context, globalVariables);
 
         if (!filesValue) {
             return null;

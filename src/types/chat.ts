@@ -11,6 +11,7 @@ export interface ChatMessage {
     id?: string; // Optional ID for persistence tracking
     files?: File[];
     attachments?: ChatAttachment[];
+    reasoning?: string;
     timestamp?: Date;
 }
 

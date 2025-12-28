@@ -13,6 +13,18 @@ export const LLM_EXECUTOR_CONFIG = {
     },
     /** 默认温度参数 */
     DEFAULT_TEMPERATURE: 0.7,
+    /** 默认 Top P 参数 */
+    DEFAULT_TOP_P: 1.0,
+    /** 是否默认启用对话记忆 */
+    DEFAULT_MEMORY_ENABLED: false,
+    /** 默认最大记忆轮数 */
+    DEFAULT_MEMORY_MAX_TURNS: 10,
+    /** 记忆轮数最小值 */
+    MEMORY_MIN_TURNS: 1,
+    /** 记忆轮数最大值 */
+    MEMORY_MAX_TURNS: 20,
+    /** 默认响应格式 */
+    DEFAULT_RESPONSE_FORMAT: 'text' as 'text' | 'json_object',
 } as const;
 
 // ===== 通用节点配置 =====

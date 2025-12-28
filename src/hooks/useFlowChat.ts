@@ -6,6 +6,7 @@ import { chatHistoryAPI } from '@/services/chatHistoryAPI';
 import { quotaService } from '@/services/quotaService';
 import { authService } from '@/services/authService';
 import { extractOutputFromContext, extractTextFromUpstream } from '@/store/executors/contextUtils';
+import { showWarning } from '@/utils/errorNotify';
 import { useChatSession } from './useChatSession';
 import type { AppNode } from '@/types/flow';
 
@@ -29,7 +30,9 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
 
     // Streaming state from store
     const streamingText = useFlowStore((s) => s.streamingText);
+    const streamingReasoning = useFlowStore((s) => s.streamingReasoning);
     const isStreaming = useFlowStore((s) => s.isStreaming);
+    const isStreamingReasoning = useFlowStore((s) => s.isStreamingReasoning);
 
     // Derived Logic
     const {
@@ -145,6 +148,15 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 );
                 const results = await Promise.all(uploadPromises);
                 uploadedFiles = results.filter(f => f !== null);
+
+                // 检查是否有文件上传失败
+                const failedCount = files!.length - uploadedFiles.length;
+                if (failedCount > 0) {
+                    showWarning(
+                        "部分文件上传失败",
+                        `${failedCount} 个文件未能上传，请检查网络后重试`
+                    );
+                }
             }
 
             // 5. Persist User Message (Now with uploaded attachments)
@@ -176,16 +188,55 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
             const freshState = useFlowStore.getState();
             let responseText = "";
             let responseAttachments: import("@/components/apps/FlowAppInterface/constants").Attachment[] = [];
+            let responseReasoning: string | null = null;
+            let tokenUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null = null;
 
             if (freshState.executionStatus === "completed") {
                 const output = extractOutputFromContext(freshState.nodes, freshState.flowContext);
                 responseText = output.text;
                 responseAttachments = output.attachments;
+
+                // Extract reasoning and token usage from LLM nodes in context
+                for (const [nodeId, nodeOutput] of Object.entries(freshState.flowContext)) {
+                    if (nodeId.startsWith('_')) continue;
+                    const data = nodeOutput as Record<string, unknown>;
+                    if (data?.reasoning && typeof data.reasoning === 'string') {
+                        responseReasoning = data.reasoning;
+                    }
+                    if (data?.usage && typeof data.usage === 'object') {
+                        tokenUsage = data.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+                    }
+                }
             } else {
                 responseText = MESSAGES.ERROR_EXECUTION;
             }
 
-            // 9. Update UI
+            // 9. Persist AI Response FIRST (with retry) - before updating UI
+            if (currentMessageId) {
+                const maxRetries = 2;
+                let persistSuccess = false;
+                for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                    const success = await chatHistoryAPI.updateAssistantMessage(
+                        currentMessageId,
+                        responseText,
+                        responseAttachments,
+                        responseReasoning,
+                        tokenUsage
+                    );
+                    if (success) {
+                        persistSuccess = true;
+                        break;
+                    }
+                    if (attempt < maxRetries) {
+                        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                    }
+                }
+                if (!persistSuccess) {
+                    showWarning("回复保存失败", "AI回复未能保存到服务器，刷新后可能丢失");
+                }
+            }
+
+            // 10. Update UI (after persistence to ensure data consistency)
             useFlowStore.getState().clearStreaming();
             setIsLoading(false);
 
@@ -197,13 +248,14 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                     role: "assistant" as const,
                     content: responseText,
                     attachments: responseAttachments,
+                    reasoning: responseReasoning || undefined,
                     timestamp: new Date()
                 }
             ];
             setMessages(updatedMessages);
             updateSessionCache(activeSessionId, updatedMessages, false);
 
-            // 10. Increment Quota & Persist Response
+            // 11. Increment Quota (async, non-blocking)
             try {
                 if (currentUser) {
                     await quotaService.incrementUsage(currentUser.id, "app_usages");
@@ -212,11 +264,6 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 }
             } catch (e) {
                 console.error("Quota increment failed:", e);
-            }
-
-            if (currentMessageId) {
-                chatHistoryAPI.updateAssistantMessage(currentMessageId, responseText, responseAttachments)
-                    .catch(e => console.error("Failed to persist response:", e));
             }
 
         } catch (error) {
@@ -244,6 +291,8 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         startNewSession,
         sendMessage,
         streamingText,
+        streamingReasoning,
         isStreaming,
+        isStreamingReasoning,
     };
 }

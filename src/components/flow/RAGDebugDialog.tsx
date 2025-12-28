@@ -64,7 +64,7 @@ export default function RAGDebugDialog() {
                             placeholder="请输入要搜索的内容..."
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
-                            className={`transition-all duration-150 ${!query.trim()
+                            className={`transition-all duration-150 text-sm placeholder:text-sm placeholder:text-gray-400 ${!query.trim()
                                 ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
                                 : 'border-gray-200'
                                 }`}

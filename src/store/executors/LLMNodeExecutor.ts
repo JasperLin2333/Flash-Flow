@@ -224,6 +224,8 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
             temperature: llmData.temperature ?? LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE,
             input: inputContent,
             conversationHistory: memoryEnabled ? conversationHistory : undefined,
+            // Pass new parameters
+            responseFormat: llmData.responseFormat,
           }),
         });
 
@@ -237,6 +239,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
         const decoder = new TextDecoder();
         let fullResponse = "";
         let fullReasoning = "";
+        let finalUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null = null;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -253,11 +256,19 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
               try {
                 const parsed = JSON.parse(data);
 
+                // Handle usage
+                if (parsed.usage) {
+                  finalUsage = parsed.usage;
+                }
+
                 // Handle reasoning
                 if (parsed.reasoning) {
-                  fullReasoning += String(parsed.reasoning);
-                  // For now, we don't have a UI for streaming reasoning, 
-                  // but we capture it for the final result.
+                  const reasoningStr = String(parsed.reasoning);
+                  fullReasoning += reasoningStr;
+                  // Stream reasoning to UI in real-time
+                  if (shouldStream) {
+                    storeState.appendStreamingReasoning(reasoningStr);
+                  }
                 }
 
                 if (parsed.content) {
@@ -302,7 +313,8 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
 
         return {
           response: fullResponse,
-          reasoning: fullReasoning
+          reasoning: fullReasoning,
+          usage: finalUsage,
         };
 
       } catch (e) {
@@ -449,24 +461,20 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
    * 扣除额度
    */
   /**
-   * 扣除额度
+   * 刷新额度 UI（服务端已经扣减，这里只刷新显示）
+   * PERF FIX: Server-side already incremented quota in /api/run-node-stream
+   * This eliminates cross-border Supabase PATCH that caused 406 PGRST116 conflicts
    */
   private async incrementQuota() {
     try {
       const user = await authService.getCurrentUser();
       if (user) {
-        const updated = await quotaService.incrementUsage(user.id, "llm_executions");
-        if (!updated) {
-          // Quota increment failed silently
-        } else {
-          const { refreshQuota } = useQuotaStore.getState();
-          await refreshQuota(user.id);
-        }
-      } else {
-        // User not authenticated - silently skip quota increment
+        // Only refresh the UI to reflect server-side quota update
+        const { refreshQuota } = useQuotaStore.getState();
+        await refreshQuota(user.id);
       }
     } catch (e) {
-      // Silently handled
+      // Quota UI refresh failed - non-critical
     }
   }
 

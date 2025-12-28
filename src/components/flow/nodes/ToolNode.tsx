@@ -12,8 +12,8 @@ import { TOOL_REGISTRY, type ToolType } from "@/lib/tools/registry";
 import type { ToolNodeData, AppNode } from "@/types/flow";
 import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
 
-// ============ Constants ============
-const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 transition-all duration-150 hover:scale-125";
+// 统一 Handle 样式：包含 z-index 和扩展点击区域
+const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 transition-all duration-150 hover:scale-125 z-50 after:content-[''] after:absolute after:-inset-4 after:rounded-full";
 
 // ============ Tool Node Component ============
 

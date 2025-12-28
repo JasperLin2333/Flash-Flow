@@ -16,11 +16,12 @@ interface InputBarProps {
     value: string;
     onChange: (value: string) => void;
     onSend: (data: { text: string; files?: File[]; formData?: Record<string, unknown> }) => void;
+    onFormDataChange?: (formData: Record<string, unknown>) => void;
     disabled?: boolean;
     className?: string;
 }
 
-export function InputBar({ inputNode, value, onChange, onSend, disabled, className }: InputBarProps) {
+export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange, disabled, className }: InputBarProps) {
     const [formPopoverOpen, setFormPopoverOpen] = useState(false);
     const [formData, setFormData] = useState<Record<string, unknown>>({});
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -34,11 +35,12 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
     const formFields = inputNode.formFields || [];
     const fileConfig = inputNode.fileConfig || { allowedTypes: ["*/*"], maxSizeMB: 50, maxCount: 10 };
 
-    // Initialize form data with default values
+    // Initialize form data with default values, sync with existing inputNode.formData
     useState(() => {
-        const initialFormData: Record<string, unknown> = {};
+        const initialFormData: Record<string, unknown> = inputNode.formData || {};
+        // Fill in default values for fields that don't have values yet
         formFields.forEach((field) => {
-            if (field.defaultValue) {
+            if (field.defaultValue && !(field.name in initialFormData)) {
                 initialFormData[field.name] = field.defaultValue;
             }
         });
@@ -119,6 +121,12 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
 
     // Handle sending
     const handleSendClick = () => {
+        // 如果启用了文本输入但用户未输入文本，直接提示用户
+        if (enableTextInput && !value.trim()) {
+            showWarning("请输入内容", "请输入文本后再发送");
+            return;
+        }
+
         // 如果有必填字段未填写，阻止发送
         if (hasRequiredFields && !allRequiredFilled) {
             setFormPopoverOpen(true);
@@ -211,8 +219,10 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
                                         <Select
                                             value={formData[field.name] as string || ""}
                                             onValueChange={(val) => {
-                                                setFormData(prev => ({ ...prev, [field.name]: val }));
+                                                const newData = { ...formData, [field.name]: val };
+                                                setFormData(newData);
                                                 setFormErrors(prev => ({ ...prev, [field.name]: "" }));
+                                                onFormDataChange?.(newData);
                                             }}
                                         >
                                             <SelectTrigger
@@ -246,8 +256,10 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
                                                                 } else {
                                                                     newVals = newVals.filter(v => v !== opt);
                                                                 }
-                                                                setFormData(prev => ({ ...prev, [field.name]: newVals }));
+                                                                const newData = { ...formData, [field.name]: newVals };
+                                                                setFormData(newData);
                                                                 setFormErrors(prev => ({ ...prev, [field.name]: "" }));
+                                                                onFormDataChange?.(newData);
                                                             }}
                                                             className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"
                                                         />
@@ -266,8 +278,10 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
                                             placeholder={"请输入..."}
                                             value={(formData[field.name] as string) || ""}
                                             onChange={(e) => {
-                                                setFormData(prev => ({ ...prev, [field.name]: e.target.value }));
+                                                const newData = { ...formData, [field.name]: e.target.value };
+                                                setFormData(newData);
                                                 setFormErrors(prev => ({ ...prev, [field.name]: "" }));
+                                                onFormDataChange?.(newData);
                                             }}
                                             className={`${hasError ? "border-red-500" : "border-gray-200"} h-9`}
                                         />
@@ -324,10 +338,12 @@ export function InputBar({ inputNode, value, onChange, onSend, disabled, classNa
                                 <p className="font-semibold text-sm">上传附件</p>
                                 <div className="text-xs space-y-1 text-gray-200">
                                     {(() => {
-                                        const validTypes = fileConfig.allowedTypes
-                                            .flatMap(t => t.split(','))
-                                            .map(t => t.trim())
-                                            .filter(t => t && t !== "*/*" && t !== "*");
+                                        const validTypes = [...new Set(
+                                            fileConfig.allowedTypes
+                                                .flatMap(t => t.split(','))
+                                                .map(t => t.trim().toLowerCase())
+                                                .filter(t => t && t !== "*/*" && t !== "*")
+                                        )];
                                         return validTypes.length > 0 ? (
                                             <p className="flex flex-wrap gap-1 items-center">
                                                 <span className="text-gray-400 shrink-0">支持格式：</span>

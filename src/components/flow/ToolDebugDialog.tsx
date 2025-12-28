@@ -113,7 +113,7 @@ export default function ToolDebugDialog() {
                                         placeholder={field.description}
                                         value={inputValues[field.name] || ''}
                                         onChange={(e) => handleInputChange(field.name, e.target.value)}
-                                        className={`transition-all duration-150 ${isEmpty
+                                        className={`transition-all duration-150 text-sm placeholder:text-sm placeholder:text-gray-400 ${isEmpty
                                             ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
                                             : 'border-gray-200'
                                             }`}

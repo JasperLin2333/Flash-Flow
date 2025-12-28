@@ -20,10 +20,10 @@ const LLM_CONFIG = {
   TEMPERATURE_MAX: 1,
   TEMPERATURE_STEP: 0.1,
   SYSTEM_PROMPT_MIN_HEIGHT: 120,
-  // Memory defaults
-  DEFAULT_MEMORY_MAX_TURNS: 10,
-  MEMORY_MIN_TURNS: 1,
-  MEMORY_MAX_TURNS: 20,
+  // Memory defaults - 从 LLM_EXECUTOR_CONFIG 读取
+  DEFAULT_MEMORY_MAX_TURNS: LLM_EXECUTOR_CONFIG.DEFAULT_MEMORY_MAX_TURNS,
+  MEMORY_MIN_TURNS: LLM_EXECUTOR_CONFIG.MEMORY_MIN_TURNS,
+  MEMORY_MAX_TURNS: LLM_EXECUTOR_CONFIG.MEMORY_MAX_TURNS,
 } as const;
 
 // 使用共享样式
@@ -259,6 +259,39 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
           }}
         />
       )}
+
+      {/* 分隔线 */}
+      <div className="border-t border-gray-100 my-2" />
+
+      {/* JSON 输出格式 */}
+      <FormField
+        control={form.control}
+        name="responseFormat"
+        render={({ field }) => (
+          <FormItem>
+            <div className="flex items-center justify-between">
+              <div>
+                <FormLabel className={STYLES.LABEL}>JSON 输出模式</FormLabel>
+                <p className="text-[9px] text-gray-400 mt-0.5">
+                  启用后，LLM 将强制输出有效的 JSON 格式
+                </p>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value === 'json_object'}
+                  onCheckedChange={(checked) => field.onChange(checked ? 'json_object' : 'text')}
+                />
+              </FormControl>
+            </div>
+            {field.value === 'json_object' && (
+              <p className="text-[9px] text-amber-600 bg-amber-50 px-2 py-1 rounded mt-1">
+                💡 提示：请在系统提示词中说明期望的 JSON 结构，例如"请以 JSON 格式输出"
+              </p>
+            )}
+            <FormMessage />
+          </FormItem>
+        )}
+      />
     </>
   );
 }

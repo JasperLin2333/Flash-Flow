@@ -40,14 +40,27 @@ export const INITIAL_FLOW_STATE = {
     toolDebugNodeId: null,
     toolDebugInputs: {},
 
+    // Input Debug Dialog
+    inputDebugDialogOpen: false,
+    inputDebugNodeId: null,
+    inputDebugData: { text: '', files: [], formData: {} },
+
+    // Output Debug Dialog
+    outputDebugDialogOpen: false,
+    outputDebugNodeId: null,
+    outputDebugData: { mockVariables: {} },
+
     inputPromptOpen: false,
+    inputPromptTargetNodeId: null,  // null = 显示所有 Input 节点
 
     // Clipboard state for copy/paste
     clipboard: null,
 
     // Streaming state
     streamingText: "",
+    streamingReasoning: "",
     isStreaming: false,
+    isStreamingReasoning: false,
     _streamingAborted: false,
 
     // Segment streaming (merge mode)

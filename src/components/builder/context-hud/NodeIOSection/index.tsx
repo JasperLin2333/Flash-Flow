@@ -23,8 +23,6 @@ export function NodeIOSection({
     nodes,
     edges,
     flowContext,
-    customOutputs,
-    onUpdateCustomOutputs,
     onUpdateToolInputs,
     onUpdateInputMappings,
 }: NodeIOSectionProps) {
@@ -56,6 +54,7 @@ export function NodeIOSection({
                     <OutputNodeConfig
                         inputMappings={nodeData?.inputMappings as OutputInputMappings | undefined}
                         onUpdateInputMappings={(mappings) => onUpdateInputMappings(mappings)}
+                        isExecuting={nodeData?.status === 'running'}
                     />
                 </div>
             )}
@@ -81,15 +80,11 @@ export function NodeIOSection({
                 <AvailableVarsSection upstreamVariables={upstreamVariables} />
             )}
 
-            {/* 4. 输出参数（Output 节点隐藏此部分） */}
-            {nodeType !== 'output' && (
-                <OutputParamsSection
-                    nodeLabel={nodeLabel}
-                    outputFields={outputFields}
-                    customOutputs={customOutputs}
-                    onUpdateCustomOutputs={onUpdateCustomOutputs}
-                />
-            )}
+            {/* 4. 输出参数 */}
+            <OutputParamsSection
+                nodeLabel={nodeLabel}
+                outputFields={outputFields}
+            />
         </div>
     );
 }

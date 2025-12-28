@@ -11,7 +11,7 @@ import { useQuotaStore } from "@/store/quotaStore";
 import { quotaService } from "@/services/quotaService";
 import { Progress } from "@/components/ui/progress";
 import { Card } from "@/components/ui/card";
-import { Zap, Sparkles, Rocket } from "lucide-react";
+import { Zap, Sparkles, Rocket, Image } from "lucide-react";
 
 interface QuotaDisplayProps {
     compact?: boolean;
@@ -72,6 +72,14 @@ export function QuotaDisplay({ compact = false, className = "" }: QuotaDisplayPr
             label: "App （助手） 使用",
             used: quota.app_usages_used,
             limit: quota.app_usages_limit,
+            iconColor: "text-gray-400",
+            progressColor: "bg-black",
+        },
+        {
+            icon: Image,
+            label: "图片生成",
+            used: quota.image_gen_executions_used ?? 0,
+            limit: quota.image_gen_executions_limit ?? 20,
             iconColor: "text-gray-400",
             progressColor: "bg-black",
         },

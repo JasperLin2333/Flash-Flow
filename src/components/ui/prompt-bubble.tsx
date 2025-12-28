@@ -192,6 +192,38 @@ export default function PromptBubble(props: PromptBubbleProps) {
       {selectedFiles.length > 0 && (
         <div className="flex gap-3 p-3 border-b border-gray-50 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
           {selectedFiles.map((file, i) => {
+            // 判断是否为图片类型
+            const isImage = file.type?.startsWith('image/') ||
+              /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/i.test(file.name);
+
+            // 图片类型：显示为小缩略图
+            if (isImage) {
+              const objectUrl = URL.createObjectURL(file);
+              return (
+                <div
+                  key={i}
+                  className="group relative rounded-lg overflow-hidden border border-gray-200 shadow-sm shrink-0"
+                >
+                  <img
+                    src={objectUrl}
+                    alt={file.name}
+                    className="w-14 h-14 object-cover bg-gray-50"
+                    loading="lazy"
+                    onLoad={() => URL.revokeObjectURL(objectUrl)}
+                  />
+                  {onFileRemove && (
+                    <button
+                      onClick={() => onFileRemove(file)}
+                      className="absolute top-0.5 right-0.5 w-4 h-4 bg-gray-800/80 rounded-full flex items-center justify-center text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            }
+
+            // 非图片类型：保持原有的文件卡片
             const Icon = getFileIcon(file.name);
             return (
               <div key={i} className="group relative flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 min-w-[200px] max-w-[240px] shrink-0">
@@ -263,10 +295,12 @@ export default function PromptBubble(props: PromptBubbleProps) {
                   <p className="font-semibold text-sm">上传附件</p>
                   <div className="text-xs space-y-1 text-gray-200">
                     {(() => {
-                      const validTypes = fileConfig.allowedTypes
-                        .flatMap(t => t.split(','))
-                        .map(t => t.trim())
-                        .filter(t => t && t !== "*/*" && t !== "*");
+                      const validTypes = [...new Set(
+                        fileConfig.allowedTypes
+                          .flatMap(t => t.split(','))
+                          .map(t => t.trim().toLowerCase())
+                          .filter(t => t && t !== "*/*" && t !== "*")
+                      )];
                       return validTypes.length > 0 ? (
                         <p className="flex flex-wrap gap-1 items-center">
                           <span className="text-gray-400 shrink-0">支持格式：</span>
@@ -356,15 +390,20 @@ export default function PromptBubble(props: PromptBubbleProps) {
                             <SelectValue placeholder="请选择" />
                           </SelectTrigger>
                           <SelectContent>
-                            {(field as SelectFieldConfig).options.map((opt) => {
-                              const optValue = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
-                              const optLabel = typeof opt === 'object' && opt !== null ? (opt as { label: string }).label : opt;
-                              return (
-                                <SelectItem key={optValue} value={optValue}>
-                                  {optLabel}
-                                </SelectItem>
-                              );
-                            })}
+                            {(field as SelectFieldConfig).options
+                              .filter(opt => {
+                                const val = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
+                                return val && val.trim() !== '';
+                              })
+                              .map((opt) => {
+                                const optValue = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
+                                const optLabel = typeof opt === 'object' && opt !== null ? (opt as { label: string }).label : opt;
+                                return (
+                                  <SelectItem key={optValue} value={optValue}>
+                                    {optLabel}
+                                  </SelectItem>
+                                );
+                              })}
                           </SelectContent>
                         </Select>
                       ) : field.type === "multi-select" ? (

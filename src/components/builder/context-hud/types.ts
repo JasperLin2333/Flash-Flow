@@ -5,7 +5,9 @@ export interface UpstreamVariable {
     nodeLabel: string;
     nodeId: string;
     field: string;
+    displayField?: string; // 用于友好显示的字段名（如 formData.字段标签）
     value?: string;
+    hidden?: boolean; // 如果为 true，则在变量列表中隐藏
 }
 
 // ============ 上游输入状态类型 ============
@@ -53,14 +55,7 @@ export interface NodeIOSectionProps {
     nodes: AppNode[];
     edges: AppEdge[];
     flowContext: Record<string, unknown>;
-    customOutputs?: { name: string; value: string }[];
-    onUpdateCustomOutputs: (outputs: { name: string; value: string }[]) => void;
     onUpdateToolInputs?: (inputs: Record<string, unknown>) => void;
     onUpdateInputMappings?: (mappings: Record<string, string> | OutputInputMappings) => void;
 }
 
-// ============ 自定义输出类型 ============
-export interface CustomOutput {
-    name: string;
-    value: string;
-}

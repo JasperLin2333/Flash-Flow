@@ -8,7 +8,7 @@ export const SECTION_TITLE_CLASS = NODE_FORM_STYLES.SECTION_TITLE;
 
 // ============ File Type Options ============
 export const FILE_TYPE_OPTIONS = [
-    { value: ".png,.jpg,.jpeg", label: "图片 (png, jpg)" },
+    { value: ".png,.jpg,.jpeg,.webp", label: "图片 (png, jpg, jpeg, webp)" },
     { value: ".pdf", label: "PDF (pdf)" },
     { value: ".doc,.docx", label: "Word 文档 (doc, docx)" },
     { value: ".xls,.xlsx", label: "Excel 表格 (xls, xlsx)" },
@@ -45,6 +45,7 @@ export interface FileInputSectionProps {
     onToggle: (checked: boolean) => void;
     fileConfig: FileInputConfig;
     onConfigChange: (updates: Partial<FileInputConfig>) => void;
+    isHeaderHidden?: boolean;
 }
 
 export interface StructuredFormSectionProps {
@@ -55,6 +56,7 @@ export interface StructuredFormSectionProps {
     onDeleteField: (index: number) => void;
     onFieldUpdate: (index: number, updates: Partial<FormFieldConfig>) => void;
     onFieldTypeChange: (index: number, newType: "select" | "text" | "multi-select") => void;
+    isHeaderHidden?: boolean;
 }
 
 // ============ Helper Functions ============

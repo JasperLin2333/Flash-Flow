@@ -31,8 +31,9 @@ export function updateNodeStatus(
  * - Output 节点：清除 text
  * - RAG 节点：清除 searchQuery, foundDocuments
  * - 所有节点：清除 status, executionTime, output
+ * @param clearInputs 是否清除输入节点的用户数据（默认 false）
  */
-export function resetAllNodesStatus(nodes: AppNode[]): AppNode[] {
+export function resetAllNodesStatus(nodes: AppNode[], clearInputs: boolean = false): AppNode[] {
     return nodes.map((n: AppNode) => {
         // 基础重置数据
         const baseReset = {
@@ -50,8 +51,12 @@ export function resetAllNodesStatus(nodes: AppNode[]): AppNode[] {
                     data: {
                         ...inputData,
                         ...baseReset,
-                        // 🚨 FIX: 保留用户输入数据，只清除执行状态
-                        // text, files, formData 是用户的有效输入，不应被 resetExecution 清空
+                        // 仅在显式请求时清除用户输入数据
+                        ...(clearInputs ? {
+                            text: undefined,
+                            files: undefined,
+                            formData: undefined,
+                        } : {}),
                     },
                 };
             }
@@ -73,8 +78,8 @@ export function resetAllNodesStatus(nodes: AppNode[]): AppNode[] {
                     data: {
                         ...ragData,
                         ...baseReset,
-                        searchQuery: undefined,     // 清除搜索查询
-                        foundDocuments: undefined,  // 清除找到的文档
+                        query: undefined,           // 清除搜索查询
+                        documents: undefined,       // 清除找到的文档
                     },
                 };
             }

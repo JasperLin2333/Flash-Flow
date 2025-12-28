@@ -2,47 +2,8 @@ import type { AppNode, FlowContext, OutputNodeData, ContentSource, AttachmentSou
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { replaceVariables } from "@/lib/promptParser";
 import { useFlowStore } from "@/store/flowStore";
+import { collectVariablesRaw } from "./utils/variableUtils";
 
-/**
- * 从直接上游 context 中收集变量（不包含全局 flowContext）
- * 避免多 LLM 场景下的变量冲突
- */
-function collectDirectUpstreamVariables(
-  context: FlowContext,
-  allNodes: AppNode[]
-): Record<string, unknown> {
-  const variables: Record<string, unknown> = {};
-
-  // 使用 Map 优化节点查找性能 (O(1) vs O(n))
-  const nodeMap = new Map(allNodes.map(n => [n.id, n]));
-
-  for (const [nodeId, nodeOutput] of Object.entries(context)) {
-    if (nodeId.startsWith('_')) continue;
-
-    const node = nodeMap.get(nodeId);
-    const nodeLabel = node?.data?.label as string | undefined;
-
-    if (typeof nodeOutput === 'object' && nodeOutput !== null) {
-      const record = nodeOutput as Record<string, unknown>;
-      for (const [key, value] of Object.entries(record)) {
-        if (key.startsWith('_')) continue;
-
-        // 保留原始值类型（支持 files 数组等）
-        variables[key] = value;
-
-        // 带节点 label 前缀
-        if (nodeLabel) {
-          variables[`${nodeLabel}.${key}`] = value;
-        }
-
-        // 带节点 ID 前缀
-        variables[`${nodeId}.${key}`] = value;
-      }
-    }
-  }
-
-  return variables;
-}
 
 /**
  * 将变量值转换为字符串
@@ -70,8 +31,21 @@ function resolveSource(
 }
 
 /**
+ * 判断 URL 是否为图片 URL
+ * 支持通过文件扩展名或 Supabase Storage URL 判断
+ */
+function isImageUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  // 检查常见图片扩展名
+  if (/\.(png|jpg|jpeg|gif|webp|bmp|svg)(\?|$)/i.test(url)) return true;
+  // 检查 Supabase Storage URL（生成的图片通常存储在这里）
+  if (url.includes('supabase') && url.includes('/storage/')) return true;
+  return false;
+}
+
+/**
  * 解析附件来源
- * 支持文件数组 (files) 和单个文件对象 (generatedFile)
+ * 支持文件数组 (files)、单个文件对象 (generatedFile)、imageUrl 字符串
  */
 function resolveAttachments(
   attachments: AttachmentSource[] | undefined,
@@ -115,6 +89,17 @@ function resolveAttachments(
         type: file.type
       });
     }
+    // 处理 imageUrl 字符串 (如 {{图片生成.imageUrl}})
+    else if (typeof value === 'string' && isImageUrl(value)) {
+      // 从 URL 中提取文件名，或生成默认名称
+      const urlPath = value.split('?')[0];
+      const fileName = urlPath.split('/').pop() || `generated_image_${Date.now()}.png`;
+      result.push({
+        name: fileName,
+        url: value,
+        type: 'image/png'
+      });
+    }
   }
 
   return result;
@@ -138,16 +123,25 @@ export class OutputNodeExecutor extends BaseNodeExecutor {
       const nodeData = node.data as OutputNodeData;
       const inputMappings = nodeData?.inputMappings;
 
-      // 获取所有节点信息
-      const { nodes: allNodes } = useFlowStore.getState();
+      // 获取所有节点信息和全局 flowContext
+      const { nodes: allNodes, flowContext: globalFlowContext } = useFlowStore.getState();
 
-      // 收集变量（保留原始类型）
-      const variables = collectDirectUpstreamVariables(context, allNodes);
+      // 收集全局变量（保留原始类型）- 支持引用任意已执行节点
+      const variables = collectVariablesRaw(context, globalFlowContext, allNodes);
 
       // 转换为字符串版本（用于模板替换）
       const stringVariables: Record<string, string> = {};
       for (const [key, value] of Object.entries(variables)) {
         stringVariables[key] = valueToString(value);
+      }
+
+      // 支持调试模式：注入 mock 数据
+      const mockData = context.mock as Record<string, unknown> | undefined;
+      if (mockData && typeof mockData === 'object') {
+        for (const [key, value] of Object.entries(mockData)) {
+          stringVariables[key] = valueToString(value);
+          variables[key] = value;
+        }
       }
 
       // 默认模式为 direct
@@ -203,6 +197,7 @@ export class OutputNodeExecutor extends BaseNodeExecutor {
           if (!template) {
             throw new Error('Output 节点配置错误：template 模式需要配置模板内容 (template)');
           }
+          // 直接使用已收集的全局变量
           text = replaceVariables(template, stringVariables, false);
           break;
         }
@@ -211,7 +206,7 @@ export class OutputNodeExecutor extends BaseNodeExecutor {
           throw new Error(`Output 节点配置错误：未知的输出模式 "${mode}"`);
       }
 
-      // 处理附件
+      // 处理附件（使用已收集的全局变量）
       const attachments = resolveAttachments(inputMappings?.attachments, variables);
 
       // 构建输出

@@ -66,6 +66,9 @@ interface ChatAreaProps {
     inputNodeData?: InputNodeData;
     flowTitle?: string;
     isStreaming?: boolean;
+    streamingText?: string;
+    streamingReasoning?: string;
+    isStreamingReasoning?: boolean;
 }
 
 /**
@@ -78,7 +81,10 @@ export const ChatArea = memo(function ChatArea({
     flowIcon,
     inputNodeData,
     flowTitle,
-    isStreaming, // 新增
+    isStreaming,
+    streamingText,
+    streamingReasoning,
+    isStreamingReasoning,
 }: ChatAreaProps) {
     // 使用智能自动滚动 hook：用户主动滚动时暂停，滚动回底部时恢复
     const { scrollRef } = useAutoScroll<HTMLDivElement>([messages, isLoading]);
@@ -98,12 +104,14 @@ export const ChatArea = memo(function ChatArea({
                         <MessageBubble
                             key={idx}
                             role={msg.role}
-                            content={msg.content}
+                            content={(isLast && isStreaming) ? (streamingText || msg.content) : msg.content}
+                            reasoning={(isLast && (isStreaming || isStreamingReasoning)) ? (streamingReasoning || msg.reasoning) : msg.reasoning}
                             files={msg.files}
                             attachments={msg.attachments}
                             flowIcon={flowIcon}
                             timestamp={msg.timestamp}
-                            isStreaming={isLast && isStreaming} // 只有最后一条且正在流式输出时
+                            isStreaming={isLast && isStreaming}
+                            isStreamingReasoning={isLast && isStreamingReasoning}
                         />
                     );
                 })}

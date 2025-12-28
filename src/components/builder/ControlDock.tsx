@@ -269,7 +269,7 @@ export default function ControlDock() {
         <ZoomControls zoomPct={zoomPct} zoomIn={zoomIn} zoomOut={zoomOut} zoomTo={zoomTo} fitView={fitView} organizeNodes={organizeNodes} />
         <Separator orientation="vertical" className="h-6 bg-gray-200" />
 
-        <ClearCacheButton onClear={resetExecution} />
+        <ClearCacheButton onClear={() => resetExecution(true)} />
         <RunButton isRunning={isRunning} runFlow={runFlow} />
       </div>
 

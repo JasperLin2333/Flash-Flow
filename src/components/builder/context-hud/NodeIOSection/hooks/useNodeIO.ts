@@ -7,7 +7,9 @@ import {
     TOOL_IO_DEFINITIONS,
     NODE_UPSTREAM_INPUTS,
 } from "../../constants";
-import { extractVariablesFromText, flattenObjectToVariables } from "../../utils";
+import { extractVariablesFromText, flattenObjectToVariables, flattenInputNodeOutput } from "../../utils";
+import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
+import { useState, useEffect } from "react";
 
 // 输出字段类型
 export interface OutputField {
@@ -36,6 +38,12 @@ export function useNodeIO({
     edges,
     flowContext,
 }: Pick<NodeIOSectionProps, 'nodeId' | 'nodeType' | 'nodeData' | 'nodes' | 'edges' | 'flowContext'>): UseNodeIOResult {
+
+    const [models, setModels] = useState<LLMModel[]>([]);
+
+    useEffect(() => {
+        llmModelsAPI.listModels().then(setModels);
+    }, []);
 
     // 计算上游节点及其可用变量
     const upstreamVariables = useMemo((): UpstreamVariable[] => {
@@ -66,7 +74,6 @@ export function useNodeIO({
 
             const upLabel = (upNode.data?.label as string) || upNode.type || upId;
             const upOutput = flowContext[upId] as Record<string, unknown> | undefined;
-            const upCustomOutputs = (upNode.data as Record<string, unknown>)?.customOutputs as { name: string; value: string }[] | undefined;
 
             // 获取该节点类型的标准输出字段
             // 对于 Tool 节点，需要根据 toolType 动态获取输出字段
@@ -80,13 +87,20 @@ export function useNodeIO({
                 outputFields = NODE_OUTPUT_FIELDS[upNode.type as NodeKind] || [];
             }
 
-            // 如果有实际执行输出，递归展开所有字段（包括嵌套对象）
+            // 如果有实际执行输出，根据节点类型展开字段
             if (upOutput && typeof upOutput === 'object') {
-                const flattened = flattenObjectToVariables(upOutput as Record<string, unknown>, upLabel, upId);
-                // 对于 RAG 节点，隐藏 query 输出
-                if (upNode.type === 'rag') {
-                    variables.push(...flattened.filter(v => v.field !== 'query'));
+                if (upNode.type === 'input') {
+                    // Input 节点使用简化展开（只显示 user_input, files, files[n], formData.字段名）
+                    const simplified = flattenInputNodeOutput(
+                        upOutput as Record<string, unknown>,
+                        upLabel,
+                        upId,
+                        upNode.data as Record<string, unknown>
+                    );
+                    variables.push(...simplified);
                 } else {
+                    // 其他节点类型使用通用的递归展开
+                    const flattened = flattenObjectToVariables(upOutput as Record<string, unknown>, upLabel, upId);
                     variables.push(...flattened);
                 }
             } else {
@@ -94,6 +108,22 @@ export function useNodeIO({
                 outputFields.forEach(({ field }) => {
                     // 跳过 formData 和 files 字段，后面会动态生成
                     if (field === 'formData' || field === 'files') return;
+
+                    // 针对 Input 节点的 user_input 字段进行动态过滤
+                    if (upNode.type === 'input' && field === 'user_input') {
+                        const upNodeData = upNode.data as Record<string, unknown>;
+                        const enableTextInput = upNodeData?.enableTextInput as boolean | undefined;
+                        // enableTextInput 默认为 true，只有显式设置为 false 时才过滤
+                        if (enableTextInput === false) return;
+                    }
+
+                    // 针对 LLM 节点的 reasoning 字段进行动态过滤
+                    if (upNode.type === 'llm' && field === 'reasoning') {
+                        const upModelId = (upNode.data as any)?.model;
+                        const model = models.find(m => m.model_id === upModelId);
+                        if (model && !model.capabilities.hasReasoning) return;
+                    }
+
                     if (!field.startsWith('(')) {
                         variables.push({
                             nodeLabel: upLabel,
@@ -107,19 +137,36 @@ export function useNodeIO({
                 if (upNode.type === 'input') {
                     const upNodeData = upNode.data as Record<string, unknown>;
 
-                    // 从 formFields 配置生成表单变量
+                    // 从 formFields 配置生成表单变量(修复丢失的定义)
                     const enableStructuredForm = upNodeData?.enableStructuredForm as boolean | undefined;
                     const formFields = upNodeData?.formFields as Array<{ name: string; label: string }> | undefined;
+
                     if (enableStructuredForm && formFields && formFields.length > 0) {
                         formFields.forEach(formField => {
+                            // 添加友好显示的变量（使用 label 作为字段名）
+                            // 这样用户在列表中看到的是 label，复制的也是 label
+                            // 后端 variableUtils 已支持 label 解析，所以这是安全的
                             variables.push({
                                 nodeLabel: upLabel,
                                 nodeId: upId,
-                                field: `formData.${formField.name}`,
-                                value: formField.label, // 显示字段标签作为提示
+                                field: `formData.${formField.label}`,
+                                // value: `变量名: ${formField.name}`, // 移除提示，保持界面整洁
                             });
                         });
                     }
+
+                    // 标记自动生成的 raw formData 变量为隐藏
+                    // 这些变量保留在列表中是为了验证逻辑 (validateVarRefs) 能通过
+                    // 但不在 UI 中显示给用户
+                    variables.forEach(v => {
+                        if (v.nodeId === upId && v.field.startsWith('formData.')) {
+                            // 检查这是否是我们要显示的 label 变量
+                            const isLabelVar = formFields?.some(f => `formData.${f.label}` === v.field);
+                            if (!isLabelVar) {
+                                v.hidden = true;
+                            }
+                        }
+                    });
 
                     // 如果启用了文件上传，生成 files 数组引用变量
                     const enableFileInput = upNodeData?.enableFileInput as boolean | undefined;
@@ -141,22 +188,10 @@ export function useNodeIO({
                     }
                 }
             }
-
-            // 添加上游节点的自定义输出变量
-            if (upCustomOutputs && upCustomOutputs.length > 0) {
-                upCustomOutputs.forEach(cv => {
-                    variables.push({
-                        nodeLabel: upLabel,
-                        nodeId: upId,
-                        field: cv.name,
-                        value: cv.value.length > 50 ? cv.value.slice(0, 50) + '...' : cv.value,
-                    });
-                });
-            }
         });
 
         return variables;
-    }, [nodeId, nodes, edges, flowContext]);
+    }, [nodeId, nodes, edges, flowContext, models]);
 
     // 当前节点的输出字段定义（根据节点类型动态生成）
     const outputFields = useMemo((): OutputField[] => {
@@ -175,10 +210,15 @@ export function useNodeIO({
         // Input 节点：根据启用的功能动态过滤输出字段
         if (nodeType === 'input') {
             const baseFields = NODE_OUTPUT_FIELDS[nodeType] || [];
+            const enableTextInput = nodeData?.enableTextInput as boolean | undefined;
             const enableFileInput = nodeData?.enableFileInput as boolean | undefined;
             const enableStructuredForm = nodeData?.enableStructuredForm as boolean | undefined;
 
             return baseFields.filter(field => {
+                // user_input 字段只在 enableTextInput 不为 false 时显示（默认启用）
+                if (field.field === 'user_input') {
+                    return enableTextInput !== false;
+                }
                 // files 字段只在 enableFileInput 为 true 时显示
                 if (field.field === 'files') {
                     return enableFileInput === true;
@@ -192,8 +232,36 @@ export function useNodeIO({
             });
         }
 
-        return NODE_OUTPUT_FIELDS[nodeType] || [];
-    }, [nodeType, nodeData?.toolType, nodeData?.enableFileInput, nodeData?.enableStructuredForm]);
+        const fields = NODE_OUTPUT_FIELDS[nodeType] || [];
+
+        // 针对当前 LLM 节点的 reasoning 字段进行动态过滤
+        if (nodeType === 'llm') {
+            const currentModelId = nodeData?.model as string | undefined;
+            const model = models.find(m => m.model_id === currentModelId);
+            if (model && !model.capabilities.hasReasoning) {
+                return fields.filter(f => f.field !== 'reasoning');
+            }
+        }
+
+        // Output 节点：如果配置了 attachments，添加 attachments 输出字段
+        if (nodeType === 'output') {
+            const inputMappings = nodeData?.inputMappings as {
+                attachments?: Array<{ type: string; value: string }>;
+            } | undefined;
+
+            // 检查是否有有效的 attachments 配置（至少有一个非空附件）
+            const hasAttachments = inputMappings?.attachments?.some(a => a.value?.trim());
+
+            if (hasAttachments) {
+                return [
+                    ...fields,
+                    { field: 'attachments', description: '附件列表（文件/图片）' }
+                ];
+            }
+        }
+
+        return fields;
+    }, [nodeType, nodeData?.toolType, nodeData?.enableTextInput, nodeData?.enableFileInput, nodeData?.enableStructuredForm, nodeData?.model, nodeData?.inputMappings, models]);
 
     // 计算当前节点需要的上游输入（检查是否满足）
     const upstreamInputs = useMemo((): UpstreamInputState[] => {
@@ -354,7 +422,7 @@ export function useNodeIO({
             const condition = nodeData?.condition as string | undefined;
             if (condition) {
                 // 匹配 nodeName.field 格式 (nodeName 可以是中文或英文)
-                const nodeFieldRegex = /([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.(\w+)/g;
+                const nodeFieldRegex = /([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.([\w]+)/g;
                 let match;
                 while ((match = nodeFieldRegex.exec(condition)) !== null) {
                     const nodeName = match[1];
@@ -369,6 +437,134 @@ export function useNodeIO({
                         isSatisfied,
                     });
                 }
+            }
+        }
+
+        // RAG 节点：检测 inputMappings 中的变量引用
+        if (nodeType === 'rag') {
+            const inputMappings = nodeData?.inputMappings as Record<string, string> | undefined;
+            if (inputMappings?.query) {
+                const vars = extractVariablesFromText(inputMappings.query);
+                vars.forEach(varName => {
+                    const isSatisfied = upstreamFieldNames.has(varName) ||
+                        upstreamFullNames.has(varName) ||
+                        varName.includes('.');
+                    refs.push({
+                        field: varName,
+                        description: "查询内容中引用",
+                        isSatisfied,
+                    });
+                });
+            }
+            if (inputMappings?.files) {
+                const vars = extractVariablesFromText(inputMappings.files);
+                vars.forEach(varName => {
+                    const isSatisfied = upstreamFieldNames.has(varName) ||
+                        upstreamFullNames.has(varName) ||
+                        varName.includes('.');
+                    refs.push({
+                        field: varName,
+                        description: "文件引用中引用",
+                        isSatisfied,
+                    });
+                });
+            }
+        }
+
+        // ImageGen 节点：检测 prompt 和 negativePrompt 中的变量引用
+        if (nodeType === 'imagegen') {
+            const prompt = nodeData?.prompt as string | undefined;
+            if (prompt) {
+                const vars = extractVariablesFromText(prompt);
+                vars.forEach(varName => {
+                    const isSatisfied = upstreamFieldNames.has(varName) ||
+                        upstreamFullNames.has(varName) ||
+                        varName.includes('.');
+                    refs.push({
+                        field: varName,
+                        description: "图片描述中引用",
+                        isSatisfied,
+                    });
+                });
+            }
+            const negativePrompt = nodeData?.negativePrompt as string | undefined;
+            if (negativePrompt) {
+                const vars = extractVariablesFromText(negativePrompt);
+                vars.forEach(varName => {
+                    const isSatisfied = upstreamFieldNames.has(varName) ||
+                        upstreamFullNames.has(varName) ||
+                        varName.includes('.');
+                    refs.push({
+                        field: varName,
+                        description: "负向提示词中引用",
+                        isSatisfied,
+                    });
+                });
+            }
+        }
+
+        // Output 节点：检测 sources 和 template 中的变量引用（根据当前模式）
+        if (nodeType === 'output') {
+            const inputMappings = nodeData?.inputMappings as {
+                mode?: string;
+                sources?: Array<{ type: string; value: string }>;
+                template?: string;
+                attachments?: Array<{ type: string; value: string }>;
+            } | undefined;
+
+            const mode = inputMappings?.mode || 'direct';
+
+            // 只有 template 模式才检查 template 字段
+            if (mode === 'template' && inputMappings?.template) {
+                const vars = extractVariablesFromText(inputMappings.template);
+                vars.forEach(varName => {
+                    const isSatisfied = upstreamFieldNames.has(varName) ||
+                        upstreamFullNames.has(varName) ||
+                        varName.includes('.');
+                    refs.push({
+                        field: varName,
+                        description: "模板中引用",
+                        isSatisfied,
+                    });
+                });
+            }
+
+            // direct, select, merge 模式才检查 sources 字段
+            if (mode !== 'template' && inputMappings?.sources) {
+                inputMappings.sources.forEach((source, idx) => {
+                    if (source.type === 'variable' && source.value) {
+                        const vars = extractVariablesFromText(source.value);
+                        vars.forEach(varName => {
+                            const isSatisfied = upstreamFieldNames.has(varName) ||
+                                upstreamFullNames.has(varName) ||
+                                varName.includes('.');
+                            refs.push({
+                                field: varName,
+                                description: `输出来源 ${idx + 1} 中引用`,
+                                isSatisfied,
+                            });
+                        });
+                    }
+                });
+            }
+
+            // attachments 独立于 mode，始终检查
+            if (inputMappings?.attachments) {
+                inputMappings.attachments.forEach((attachment, idx) => {
+                    if (attachment.type === 'variable' && attachment.value) {
+                        const vars = extractVariablesFromText(attachment.value);
+                        vars.forEach(varName => {
+                            const isSatisfied = upstreamFieldNames.has(varName) ||
+                                upstreamFullNames.has(varName) ||
+                                varName.includes('.');
+                            refs.push({
+                                field: varName,
+                                description: `附件 ${idx + 1} 中引用`,
+                                isSatisfied,
+                            });
+                        });
+                    }
+                });
             }
         }
 

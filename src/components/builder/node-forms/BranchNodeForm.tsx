@@ -1,6 +1,7 @@
 "use client";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { NODE_FORM_STYLES, type BaseNodeFormProps } from "./shared";
 
 const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS } = NODE_FORM_STYLES;
@@ -30,7 +31,11 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
                         <FormItem>
                             <FormLabel className={LABEL_CLASS}>判断条件</FormLabel>
                             <FormControl>
-                                <Input {...field} className={INPUT_CLASS} placeholder='用户输入.user_input.length > 5' />
+                                <Textarea
+                                    {...field}
+                                    className={`${INPUT_CLASS} h-9 min-h-0 py-2 font-mono`}
+                                    placeholder='节点名.字段名.length > 5'
+                                />
                             </FormControl>
                             <FormDescription className="text-[10px] text-gray-400">
                                 支持格式: 节点名.字段.includes(&quot;值&quot;), .startsWith(), .endsWith(), === , !==, &gt;, &lt;, &gt;=, &lt;=

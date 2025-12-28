@@ -74,7 +74,7 @@ export default function LLMDebugDialog() {
                             placeholder="请输入用户消息内容..."
                             value={userInputValue}
                             onChange={(e) => setUserInputValue(e.target.value)}
-                            className={`transition-all duration-150 ${isEmpty
+                            className={`transition-all duration-150 text-sm placeholder:text-sm placeholder:text-gray-400 ${isEmpty
                                 ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
                                 : 'border-gray-200'
                                 }`}

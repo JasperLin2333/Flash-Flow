@@ -19,6 +19,16 @@ export function getDefaultNodeData(type: NodeKind): Partial<AppNodeData> {
         output: { label: "输出", text: "", status: "idle" },
         branch: { label: "分支", status: "idle" },
         tool: { label: "Tool", toolType: "web_search", inputs: {}, status: "idle" },
+        imagegen: {
+            label: "图片生成",
+            model: "Kwai-Kolors/Kolors",
+            prompt: "",
+            imageSize: "1024x1024",
+            cfg: 7.5,                     // 默认 CFG 值 (基于 Kolors)
+            numInferenceSteps: 25,        // 默认推理步数 (基于 Kolors)
+            referenceImageMode: "static", // 明确默认参考图模式
+            status: "idle"
+        },
     };
     return defaults[type] || {};
 }

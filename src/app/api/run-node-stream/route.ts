@@ -27,7 +27,7 @@ export async function POST(req: Request) {
         }
 
         const body = await reqClone.json();
-        const { model, systemPrompt, input, temperature, conversationHistory } = body;
+        const { model, systemPrompt, input, temperature, conversationHistory, responseFormat } = body;
 
         if (!model) {
             return new Response(
@@ -61,6 +61,28 @@ export async function POST(req: Request) {
 
         // Determine provider based on model
         const provider = getProviderForModel(model);
+
+        // JSON 模式兜底逻辑：如果启用了 JSON 模式但提示词中没有 "json" 关键字，自动追加指令
+        // 这是为了绕过部分模型服务商（如 OpenAI）的硬性拦截
+        if (responseFormat === 'json_object') {
+            const hasJsonKeyword = messages.some(msg =>
+                typeof msg.content === 'string' && msg.content.toLowerCase().includes('json')
+            );
+
+            if (!hasJsonKeyword) {
+                // 如果有系统提示词，追加到系统提示词；否则添加一条系统指令
+                const systemMsg = messages.find(m => m.role === 'system');
+                if (systemMsg && typeof systemMsg.content === 'string') {
+                    systemMsg.content += "\nIMPORTANT: The output must be a valid JSON object.";
+                } else {
+                    messages.unshift({
+                        role: "system",
+                        content: "The output must be a valid JSON object."
+                    });
+                }
+            }
+        }
+
         const config = PROVIDER_CONFIG[provider];
 
         // Validate API key is configured
@@ -88,6 +110,10 @@ export async function POST(req: Request) {
                         temperature: temperature || 0.7,
                         messages,
                         stream: true,
+                        // Add new parameters
+                        response_format: responseFormat === 'json_object' ? { type: 'json_object' } : undefined,
+                        // @ts-ignore - OpenAI lib might not have stream_options yet in some versions
+                        stream_options: { include_usage: true }
                     });
 
                     for await (const chunk of completion) {
@@ -95,9 +121,11 @@ export async function POST(req: Request) {
                         const content = delta?.content || "";
                         // @ts-ignore - reasoning_content is specific to some models like DeepSeek
                         const reasoning = delta?.reasoning_content || "";
+                        // @ts-ignore - usage is included in the last chunk when stream_options.include_usage is true
+                        const usage = chunk.usage || null;
 
-                        if (content || reasoning) {
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content, reasoning })}\n\n`));
+                        if (content || reasoning || usage) {
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content, reasoning, usage })}\n\n`));
                         }
                     }
 

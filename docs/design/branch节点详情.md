@@ -117,11 +117,28 @@
 *   `NodeName.data.result.score > 0.8`
 *   `NodeName.response.length > 5` (字符串长度判断)
 
- [!TIP]
+### 5. 逻辑组合 (AND/OR)
+
+支持通过 `&&` 和 `||` 连接多个条件。
+
+| 运算符 | 语法 | 说明 |
+|--------|------|------|
+| AND | `条件1 && 条件2` | 两个条件都为 true 时返回 true |
+| OR | `条件1 \|\| 条件2` | 任一条件为 true 时返回 true |
+
+**示例**：
+*   `用户.age >= 18 && 用户.verified === true` (同时满足年龄和认证)
+*   `输入.type === 'image' || 输入.type === 'video'` (图片或视频)
+
+> [!IMPORTANT]
+> **语法注意**: 运算符前后需要空格 (` && ` 而非 `&&`)
+
+[!TIP]
 > **最佳实践**：
 > - 节点名称支持：字母、中文、下划线、数字 (首字符不能是数字)
 > - 完整格式：`NodeName.path.to.field` + 操作符 + 值
 > - 示例：`用户信息.data.age > 18` 或 `UserInfo.data.status === 'active'`
+> - 复杂逻辑可使用 `&&` 和 `||` 组合多个条件
 
 ## 性能优化
 
@@ -174,12 +191,14 @@
 
 示例：
 ```javascript
-// ❌ 错误：不支持逻辑运算符
-Node.age > 18 && Node.status === 'active'
+// ❌ 错误：使用不支持的方法
+Node.text.match(/pattern/)  // 不支持正则
 
-// ✅ 正确：使用多个 Branch 节点串联
-// Branch 1: Node.age > 18 → true → Branch 2
-// Branch 2: Node.status === 'active'
+// ✅ 正确：使用支持的字符串方法
+Node.text.includes('pattern')
+
+// ✅ 逻辑组合也支持
+Node.age > 18 && Node.status === 'active'
 ```
 
 **4. 上游数据访问不到**
@@ -397,27 +416,34 @@ sequenceDiagram
 }
 ```
 
-### 示例 3：多条件串联（AND 逻辑）
+### 示例 3：多条件组合（AND/OR 逻辑）
 
-**流程结构**：
-```
-[Input] → [LLM] → [Branch1：age >= 18] → true → [Branch2：verified === true] → true → [Output：通过]
-                                       ↓ false                               ↓ false
-                                       → [Output：拒绝]                      → [Output：拒绝]
-```
-
-**配置**：
+**使用 AND 逻辑**：
 ```json
-// Branch 1
 {
-  "condition": "LLM.age >= 18"
-}
-
-// Branch 2
-{
-  "condition": "Branch1.verified === true"
+  "id": "branch-3",
+  "type": "branch",
+  "data": {
+    "label": "综合验证",
+    "condition": "LLM.age >= 18 && LLM.verified === true"
+  }
 }
 ```
+
+**使用 OR 逻辑**：
+```json
+{
+  "id": "branch-4",
+  "type": "branch",
+  "data": {
+    "label": "媒体类型检测",
+    "condition": "输入.type === 'image' || 输入.type === 'video'"
+  }
+}
+```
+
+> [!TIP]
+> 对于更复杂的逻辑（如嵌套括号），仍建议使用多个 Branch 节点串联。
 
 ### 示例 4：嵌套属性访问
 
@@ -483,7 +509,12 @@ sequenceDiagram
 
 ### 当前版本特性
 
-**v2.0（最新）**
+**v2.1（最新）**
+- ✅ **支持逻辑运算符** `&&` (AND) 和 `||` (OR)
+- ✅ 单个 Branch 节点可处理复杂条件组合
+- ✅ 递归求值，支持多条件链式组合
+
+**v2.0**
 - ✅ O(1) 节点查找性能优化
 - ✅ 大小写不敏感的节点名称匹配
 - ✅ 支持中文节点名称
