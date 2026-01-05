@@ -3,23 +3,27 @@ import { useCallback, useMemo, memo, useEffect } from "react";
 import { ReactFlow, Background, BackgroundVariant, useReactFlow, SelectionMode, PanOnScrollMode } from "@xyflow/react";
 import { useFlowStore } from "@/store/flowStore";
 import CustomNode from "./CustomNode";
-import ToolNode from "./nodes/ToolNode";
+// NOTE: ToolNode is deprecated, all node types now use unified CustomNode
 import LLMDebugDialog from "./LLMDebugDialog";
 import RAGDebugDialog from "./RAGDebugDialog";
 import ToolDebugDialog from "./ToolDebugDialog";
-import InputPromptDialog from "./InputPromptDialog";
+import InputDebugDialog from "./InputDebugDialog";
 import OutputDebugDialog from "./OutputDebugDialog";
+
+import BranchDebugDialog from "./BranchDebugDialog";
+import ImageGenDebugDialog from "./ImageGenDebugDialog";
 import type { NodeKind } from "@/types/flow";
 
 // FIX (Bug 3): Move nodeTypes outside component to prevent recreation on every render
 // WHY: Creating a new object on every render causes ReactFlow to re-register node types,
 // triggering expensive internal recalculations that cause drag lag
+// NOTE: All node types now use unified CustomNode component (ToolNode deprecated)
 const nodeTypes = {
   input: CustomNode,
   llm: CustomNode,
   output: CustomNode,
   rag: CustomNode,
-  tool: ToolNode,
+  tool: CustomNode,
   branch: CustomNode,
   imagegen: CustomNode,
 };
@@ -132,7 +136,7 @@ function FlowCanvasComponent() {
         selectionMode={interactionMode === "select" ? SelectionMode.Partial : undefined}
         selectionOnDrag={interactionMode === "select"}
         zoomOnPinch={true}
-        panOnScrollMode={PanOnScrollMode.Vertical}
+        panOnScrollMode={PanOnScrollMode.Free}
         defaultEdgeOptions={defaultEdgeOptions}
         proOptions={{ hideAttribution: true }}
         minZoom={0.1}
@@ -149,8 +153,11 @@ function FlowCanvasComponent() {
       <LLMDebugDialog />
       <RAGDebugDialog />
       <ToolDebugDialog />
-      <InputPromptDialog />
+      <InputDebugDialog />
       <OutputDebugDialog />
+
+      <BranchDebugDialog />
+      <ImageGenDebugDialog />
     </div>
   );
 }
@@ -161,3 +168,4 @@ function FlowCanvasComponent() {
 const FlowCanvas = memo(FlowCanvasComponent);
 
 export default FlowCanvas;
+

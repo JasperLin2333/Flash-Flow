@@ -6,13 +6,7 @@ import type { ToolExecutionResult } from "../types";
  */
 export async function executeCalculator(inputs: { expression: string }): Promise<ToolExecutionResult> {
     try {
-        if (!inputs.expression || inputs.expression.trim() === "") {
-            return {
-                success: false,
-                error: "Expression is required",
-            };
-        }
-
+        // Note: Input validation is handled by Zod schema in executeToolAction
         // Use mathjs for safe evaluation
         const result = evaluate(inputs.expression);
 

@@ -13,7 +13,9 @@ import { authService } from "@/services/authService";
 import { useFlowStore } from "@/store/flowStore";
 import { useQuotaStore } from "@/store/quotaStore";
 import { collectVariables } from "./utils/variableUtils";
+import { isValidImageValue } from "./utils/validationUtils";
 import { DEFAULT_IMAGEGEN_CAPABILITIES } from "@/services/imageGenModelsAPI";
+import { IMAGEGEN_CONFIG } from "@/store/constants/imageGenConstants";
 
 export class ImageGenNodeExecutor extends BaseNodeExecutor {
     async execute(
@@ -44,19 +46,36 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
             }
 
             // Handle mock data for debug mode
+            // If mockData has direct prompt/negativePrompt overrides (string type), use them.
+            // Otherwise treat mockData as variables for substitution.
+            let negativePrompt = nodeData.negativePrompt || "";
+
             if (mockData && Object.keys(mockData).length > 0) {
+                // Check for direct overrides from Debug Dialog
+                if (typeof mockData.prompt === 'string') {
+                    prompt = mockData.prompt;
+                }
+                if (typeof mockData.negativePrompt === 'string') {
+                    negativePrompt = mockData.negativePrompt;
+                }
+
+                // Also use mockData for variable substitution (legacy behavior for non-override keys)
                 const stringValues: Record<string, string> = {};
                 Object.entries(mockData).forEach(([key, value]) => {
-                    stringValues[key] = String(value);
+                    if (key !== 'prompt' && key !== 'negativePrompt') {
+                        stringValues[key] = String(value);
+                    }
                 });
-                prompt = replaceVariables(prompt, stringValues);
+                if (Object.keys(stringValues).length > 0) {
+                    prompt = replaceVariables(prompt, stringValues);
+                }
             }
 
             // Get current user for quota tracking
             const user = await authService.getCurrentUser();
 
             // Get model capabilities for cfgParam and defaults
-            const modelId = nodeData.model || "Kwai-Kolors/Kolors";
+            const modelId = nodeData.model || IMAGEGEN_CONFIG.DEFAULT_MODEL;
             const { imageGenModelsAPI } = await import("@/services/imageGenModelsAPI");
             const modelInfo = await imageGenModelsAPI.getModelByModelId(modelId);
             const capabilities = modelInfo?.capabilities || DEFAULT_IMAGEGEN_CAPABILITIES;
@@ -64,9 +83,9 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
 
             // Apply model-aware defaults when values are undefined
             // Priority: nodeData > modelCapabilities > hardcoded fallback
-            const effectiveCfg = nodeData.cfg ?? nodeData.guidanceScale ?? capabilities.defaultCfg ?? 7.5;
-            const effectiveSteps = nodeData.numInferenceSteps ?? capabilities.defaultSteps ?? 25;
-            const effectiveImageSize = nodeData.imageSize ?? capabilities.imageSizes?.[0] ?? "1024x1024";
+            const effectiveCfg = nodeData.cfg ?? nodeData.guidanceScale ?? capabilities.defaultCfg ?? IMAGEGEN_CONFIG.DEFAULT_CFG;
+            const effectiveSteps = nodeData.numInferenceSteps ?? capabilities.defaultSteps ?? IMAGEGEN_CONFIG.DEFAULT_STEPS;
+            const effectiveImageSize = nodeData.imageSize ?? capabilities.imageSizes?.[0] ?? IMAGEGEN_CONFIG.DEFAULT_IMAGE_SIZE;
 
             // Resolve reference images based on mode
             let image: string | undefined;
@@ -81,14 +100,25 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
                     else if (v && typeof v === 'object') stringValues[k] = JSON.stringify(v);
                 });
 
+                // Using shared isValidImageValue from validationUtils
+
                 if (nodeData.referenceImageVariable) {
-                    image = replaceVariables(nodeData.referenceImageVariable, stringValues);
+                    const resolved = replaceVariables(nodeData.referenceImageVariable, stringValues);
+                    if (isValidImageValue(resolved)) {
+                        image = resolved;
+                    }
                 }
                 if (nodeData.referenceImage2Variable) {
-                    image2 = replaceVariables(nodeData.referenceImage2Variable, stringValues);
+                    const resolved = replaceVariables(nodeData.referenceImage2Variable, stringValues);
+                    if (isValidImageValue(resolved)) {
+                        image2 = resolved;
+                    }
                 }
                 if (nodeData.referenceImage3Variable) {
-                    image3 = replaceVariables(nodeData.referenceImage3Variable, stringValues);
+                    const resolved = replaceVariables(nodeData.referenceImage3Variable, stringValues);
+                    if (isValidImageValue(resolved)) {
+                        image3 = resolved;
+                    }
                 }
             } else {
                 // Static mode: use uploaded URL
@@ -97,16 +127,16 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
                 image3 = nodeData.referenceImageUrl3;
             }
 
-            // Call image generation API
+            // Call image generation API with capabilities from frontend
             const response = await fetch("/api/generate-image", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     model: modelId,
                     prompt,
-                    negativePrompt: nodeData.negativePrompt,
+                    negativePrompt: capabilities.supportsNegativePrompt ? negativePrompt : undefined,
                     imageSize: capabilities.supportsImageSize !== false ? effectiveImageSize : undefined,
-                    cfg: effectiveCfg,
+                    cfg: capabilities.cfgParam ? effectiveCfg : undefined,
                     cfgParam,
                     numInferenceSteps: effectiveSteps,
                     userId: user?.id,
@@ -114,6 +144,13 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
                     image,
                     image2,
                     image3,
+                    // Pass capabilities to API for unified management
+                    capabilities: {
+                        supportsNegativePrompt: capabilities.supportsNegativePrompt ?? false,
+                        supportsImageSize: capabilities.supportsImageSize ?? true,
+                        supportsReferenceImage: capabilities.supportsReferenceImage ?? false,
+                        supportsInferenceSteps: capabilities.supportsInferenceSteps ?? false,
+                    },
                 }),
             });
 

@@ -33,6 +33,14 @@ export function extractVariables(prompt: string): string[] {
 }
 
 /**
+ * 转义正则表达式中的特殊字符
+ * 确保变量名中的 . * + ? 等字符被正确转义
+ */
+function escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * 替换 Prompt 中的变量
  * 
  * @param prompt - Prompt 文本
@@ -57,10 +65,18 @@ export function replaceVariables(
     let result = prompt;
     const usedVars = new Set<string>();
 
-    for (const [key, value] of Object.entries(values)) {
-        const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
+    // FIX: 按 key 长度降序排序，确保 "LLM1.response" 在 "response" 之前处理
+    // 这防止了短变量名意外匹配到长变量名的情况
+    const sortedEntries = Object.entries(values).sort((a, b) => b[0].length - a[0].length);
+
+    for (const [key, value] of sortedEntries) {
+        // FIX: 转义正则特殊字符，防止 . 被解释为"任意字符"
+        const escapedKey = escapeRegExp(key);
+        const regex = new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, 'g');
         if (regex.test(result)) {
             usedVars.add(key);
+            // CRITICAL FIX: 重置 lastIndex，否则 replace 会从 test 结束位置开始匹配
+            regex.lastIndex = 0;
         }
         result = result.replace(regex, value || '');
     }

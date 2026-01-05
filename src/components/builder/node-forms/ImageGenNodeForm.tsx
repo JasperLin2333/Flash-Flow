@@ -6,44 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { ChevronDown, ChevronUp, ImagePlus, Trash2, Loader2 } from "lucide-react";
-import { imageGenModelsAPI, type ImageGenModel, DEFAULT_IMAGEGEN_CAPABILITIES } from "@/services/imageGenModelsAPI";
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { fileUploadService } from "@/services/fileUploadService";
 import { useFlowStore } from "@/store/flowStore";
 import { showError } from "@/utils/errorNotify";
 import { NODE_FORM_STYLES, type ExtendedNodeFormProps } from "./shared";
 import type { AppNode, ImageGenNodeData } from "@/types/flow";
+import { useImageGenModel } from "@/hooks/useImageGenModel";
+import { IMAGEGEN_CONFIG } from "@/store/constants/imageGenConstants";
+import { ImageSlotUploader } from "./components/ImageSlotUploader";
 
 const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS } = NODE_FORM_STYLES;
-
-// ============ 配置常量 ============
-const IMAGEGEN_CONFIG = {
-    // 推理步数配置
-    // 推理步数配置 (Fallback defaults)
-    STEPS_MIN_DEFAULT: 1,
-    STEPS_MAX_DEFAULT: 50,
-    // Quality slider range
-    QUALITY_MIN: 1,
-    QUALITY_MAX: 100,
-    // CFG 滑块步进
-    CFG_STEP: 0.1,
-} as const;
-
-// 尺寸 ID 到中文名映射
-const SIZE_DISPLAY_NAMES: Record<string, string> = {
-    '1024x1024': '1:1 正方形',
-    '960x1280': '3:4 竖版',
-    '768x1024': '3:4 竖版',
-    '720x1440': '1:2 竖版',
-    '720x1280': '9:16 竖版',
-    '1328x1328': '1:1 正方形',
-    '1664x928': '16:9 横版',
-    '928x1664': '9:16 竖版',
-    '1472x1140': '4:3 横版',
-    '1140x1472': '3:4 竖版',
-    '1584x1056': '3:2 横版',
-    '1056x1584': '2:3 竖版',
-};
 
 /**
  * ImageGen 节点配置表单 Props
@@ -58,9 +31,6 @@ interface ImageGenNodeFormProps extends ExtendedNodeFormProps {
  * 根据模型能力动态显示/隐藏字段（负向提示词、引导系数等）
  */
 export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selectedNode }: ImageGenNodeFormProps) {
-    const [models, setModels] = useState<ImageGenModel[]>([]);
-    const [modelsLoading, setModelsLoading] = useState(true);
-    const [modelsError, setModelsError] = useState<string | null>(null);
     const [showAdvanced, setShowAdvanced] = useState(false);
 
     // Reference image upload state
@@ -71,32 +41,8 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
     const fileInputRef3 = useRef<HTMLInputElement>(null);
     const [showExtraImages, setShowExtraImages] = useState<number>(0);
 
-
     // Get flow ID for file upload
     const currentFlowId = useFlowStore((s) => s.currentFlowId);
-
-    // 加载可用模型列表
-    const loadModels = async () => {
-        setModelsLoading(true);
-        setModelsError(null);
-        try {
-            const data = await imageGenModelsAPI.listModels();
-            setModels(data);
-            if (data.length === 0) {
-                setModelsError("暂无可用模型");
-            }
-        } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : "加载模型列表失败";
-            setModelsError(errorMsg);
-            showError("模型加载失败", errorMsg);
-        } finally {
-            setModelsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        loadModels();
-    }, []);
 
     // 监听选中的模型，动态获取能力
     const selectedModelId = useWatch({
@@ -105,42 +51,26 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
         defaultValue: "",
     });
 
-    // 从已加载的模型列表中查找能力配置
-    const modelCapabilities = useMemo(() => {
-        const found = models.find(m => m.model_id === selectedModelId);
-        return found?.capabilities || DEFAULT_IMAGEGEN_CAPABILITIES;
-    }, [selectedModelId, models]);
-
-    // 获取模型显示名称
-    const getModelDisplayName = (modelId: string): string => {
-        const model = models.find(m => m.model_id === modelId);
-        return model?.model_name || modelId.split('/').pop() || modelId;
-    };
+    // 使用 Hook 统一管理模型加载和能力查询
+    const {
+        models,
+        loading: modelsLoading,
+        error: modelsError,
+        capabilities: modelCapabilities,
+        stepRange,
+        cfgRange,
+        sizeOptions,
+        getModelDisplayName,
+        refetchModels: loadModels,
+        calculateQuality: hookCalculateQuality,
+        calculateSteps: hookCalculateSteps,
+        calculateCfgQuality: hookCalculateCfgQuality,
+        calculateCfgValue: hookCalculateCfgValue,
+    } = useImageGenModel(selectedModelId);
 
     // ============ 推理步数 <-> 生成质量 转换逻辑 ============
-
-    // 获取当前模型的步数范围
-    const getStepRange = useMemo(() => {
-        return {
-            min: modelCapabilities.minInferenceSteps ?? IMAGEGEN_CONFIG.STEPS_MIN_DEFAULT,
-            max: modelCapabilities.maxInferenceSteps ?? IMAGEGEN_CONFIG.STEPS_MAX_DEFAULT,
-        };
-    }, [modelCapabilities]);
-
-    // 计算生成质量 (0-100)
-    // Formula: Quality = (Steps - Min) / (Max - Min) * 100
-    const calculateQuality = (steps: number, range: { min: number, max: number }): number => {
-        if (range.max === range.min) return 100;
-        const quality = ((steps - range.min) / (range.max - range.min)) * 100;
-        return Math.round(Math.max(IMAGEGEN_CONFIG.QUALITY_MIN, Math.min(IMAGEGEN_CONFIG.QUALITY_MAX, quality)));
-    };
-
-    // 根据质量计算步数
-    // Formula: Steps = Min + (Quality / 100) * (Max - Min)
-    const calculateSteps = (quality: number, range: { min: number, max: number }): number => {
-        const steps = range.min + (quality / 100) * (range.max - range.min);
-        return Math.round(Math.max(range.min, Math.min(range.max, steps)));
-    };
+    // 使用 Hook 提供的 stepRange 和转换函数
+    const getStepRange = stepRange;
 
     // 当前步数 (form value)
     const currentSteps = useWatch({
@@ -151,8 +81,8 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
 
     // 计算当前显示的质量百分比
     const currentQuality = useMemo(() => {
-        return calculateQuality(currentSteps, getStepRange);
-    }, [currentSteps, getStepRange]);
+        return hookCalculateQuality(currentSteps);
+    }, [currentSteps, hookCalculateQuality]);
 
     // 监听模型/范围变化，维持质量百分比不变，自动调整步数
     // 使用 ref 避免死循环，记录上一次的 quality
@@ -161,7 +91,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
     // 当用户手动拖动滑块时更新 ref
     const handleQualityChange = (newQuality: number) => {
         lastQualityRef.current = newQuality;
-        const newSteps = calculateSteps(newQuality, getStepRange);
+        const newSteps = hookCalculateSteps(newQuality);
         form.setValue("numInferenceSteps", newSteps, { shouldDirty: true });
         if (updateNodeData && selectedNodeId) {
             updateNodeData(selectedNodeId, { numInferenceSteps: newSteps });
@@ -171,38 +101,19 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
     // 当模型切换（导致范围变化）时，尝试保持之前的质量
     useEffect(() => {
         // 如果当前步数超出了新范围
-        const safeSteps = calculateSteps(lastQualityRef.current, getStepRange);
+        const safeSteps = hookCalculateSteps(lastQualityRef.current);
 
-        if (currentSteps < getStepRange.min || currentSteps > getStepRange.max) {
+        if (currentSteps < stepRange.min || currentSteps > stepRange.max) {
             form.setValue("numInferenceSteps", safeSteps);
             if (updateNodeData && selectedNodeId) {
                 updateNodeData(selectedNodeId, { numInferenceSteps: safeSteps });
             }
         }
-    }, [getStepRange.min, getStepRange.max, form, selectedNodeId, updateNodeData]); // Remove currentSteps dep
+    }, [stepRange.min, stepRange.max, form, selectedNodeId, updateNodeData, hookCalculateSteps]); // Remove currentSteps dep
 
     // ============ 创意系数 (CFG) <-> 0-100% 转换逻辑 ============
-
-    // 获取当前模型的 CFG 范围
-    const getCfgRange = useMemo(() => {
-        return modelCapabilities.cfgRange || { min: 0, max: 20 };
-    }, [modelCapabilities]);
-
-    // 计算 CFG 质量百分比 (0-100)
-    // 注意：用户认为百分比越大越有创意，而实际 CFG 值越小越有创意
-    // 所以逻辑是反着的：100% 对应 min(最有力/有创意)，0% 对应 max(最稳/接近提示词)
-    const calculateCfgQuality = (cfg: number, range: { min: number, max: number }): number => {
-        if (range.max === range.min) return 100;
-        const quality = ((range.max - cfg) / (range.max - range.min)) * 100;
-        return Math.round(Math.max(0, Math.min(100, quality)));
-    };
-
-    // 根据质量百分比计算实际 CFG 值
-    const calculateCfgValue = (quality: number, range: { min: number, max: number }): number => {
-        const val = range.max - (quality / 100) * (range.max - range.min);
-        // 保留一位小数并确保在范围内
-        return Math.round(val * 10) / 10;
-    };
+    // 使用 Hook 提供的 cfgRange 和转换函数
+    const getCfgRange = cfgRange;
 
     // 当前 CFG 值 (form value)
     const currentCfgValue = useWatch({
@@ -211,14 +122,26 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
         defaultValue: modelCapabilities.defaultCfg ?? 7.5,
     });
 
+    // 监听模型/范围变化，维持 CFG 在有效范围内
+    useEffect(() => {
+        if (currentCfgValue < cfgRange.min || currentCfgValue > cfgRange.max) {
+            // 如果当前值超出范围，重置为默认值
+            const safeCfg = modelCapabilities.defaultCfg ?? 7.5;
+            form.setValue("cfg", safeCfg);
+            if (updateNodeData && selectedNodeId) {
+                updateNodeData(selectedNodeId, { cfg: safeCfg });
+            }
+        }
+    }, [cfgRange.min, cfgRange.max, modelCapabilities.defaultCfg, form, selectedNodeId, updateNodeData]);
+
     // 计算当前显示的 CFG 百分比
     const currentCfgQuality = useMemo(() => {
-        return calculateCfgQuality(currentCfgValue, getCfgRange);
-    }, [currentCfgValue, getCfgRange]);
+        return hookCalculateCfgQuality(currentCfgValue);
+    }, [currentCfgValue, hookCalculateCfgQuality]);
 
     // 处理 CFG 滑块变化
     const handleCfgQualityChange = (newQuality: number) => {
-        const newValue = calculateCfgValue(newQuality, getCfgRange);
+        const newValue = hookCalculateCfgValue(newQuality);
         form.setValue("cfg", newValue, { shouldDirty: true });
         if (updateNodeData && selectedNodeId) {
             updateNodeData(selectedNodeId, { cfg: newValue });
@@ -303,12 +226,20 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
     const handleDeleteReferenceImage = (slotIndex: 1 | 2 | 3) => {
         if (!selectedNodeId) return;
         const { urlField } = getSlotConfig(slotIndex);
+        const slotKey = String(slotIndex);
 
         form.setValue(urlField, "");
         updateNodeData(selectedNodeId, { [urlField]: "" });
+
+        // Revoke ObjectURL to prevent memory leak
+        const preview = localPreviews[slotKey];
+        if (preview) {
+            URL.revokeObjectURL(preview);
+        }
+
         setLocalPreviews(prev => {
             const next = { ...prev };
-            delete next[String(slotIndex)];
+            delete next[slotKey];
             return next;
         });
 
@@ -387,15 +318,16 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                     <FormItem>
                         <FormLabel className={LABEL_CLASS}>
                             图片描述
+                            <span className="text-red-500 ml-1 text-[10px]">*</span>
                             <span className="ml-2 text-[9px] font-normal text-gray-400 normal-case">
-                                支持引用：{`{{节点名.字段名}}`}
+                                支持通过{`{{变量名}}`}引用变量的值
                             </span>
                         </FormLabel>
                         <FormControl>
                             <Textarea
                                 {...field}
                                 placeholder="描述你想生成的图片，例如：一只可爱的橘猫坐在窗台上看夕阳"
-                                className={`min-h-[80px] ${INPUT_CLASS} font-mono`}
+                                className={`min-h-[80px] ${INPUT_CLASS} font-mono bg-white`}
                             />
                         </FormControl>
                         <FormMessage />
@@ -419,8 +351,8 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                             <FormControl>
                                 <Textarea
                                     {...field}
-                                    placeholder="例如：模糊、低质量、变形、水印"
-                                    className={`min-h-[60px] ${INPUT_CLASS} font-mono`}
+                                    placeholder="例如：白色、手指、低质量、模糊（请勿填写“不要”）"
+                                    className={`min-h-[60px] ${INPUT_CLASS} font-mono bg-white`}
                                 />
                             </FormControl>
                             <FormMessage />
@@ -430,13 +362,12 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
             )}
 
             {/* 图片比例 - 仅支持的模型显示 */}
-            {modelCapabilities.supportsImageSize && modelCapabilities.imageSizes && modelCapabilities.imageSizes.length > 0 && (
+            {modelCapabilities.supportsImageSize && sizeOptions.length > 0 && (
                 <FormField
                     control={form.control}
                     name="imageSize"
                     render={({ field }) => {
-                        const sizes = modelCapabilities.imageSizes || [];
-                        const defaultSize = sizes[0] || "1024x1024";
+                        const defaultSize = sizeOptions[0]?.value || "1024x1024";
                         return (
                             <FormItem>
                                 <FormLabel className={LABEL_CLASS}>图片比例</FormLabel>
@@ -451,9 +382,9 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                        {sizes.map((sizeId: string) => (
-                                            <SelectItem key={sizeId} value={sizeId}>
-                                                {SIZE_DISPLAY_NAMES[sizeId] || sizeId}
+                                        {sizeOptions.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -475,7 +406,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                         className="flex items-center justify-between cursor-pointer py-2 hover:bg-gray-50 -mx-2 px-2 rounded-lg transition-colors"
                         onClick={() => setShowAdvanced(!showAdvanced)}
                     >
-                        <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">高级参数</h4>
+                        <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">高级设置</h4>
                         {showAdvanced ? (
                             <ChevronUp className="w-3 h-3 text-gray-400" />
                         ) : (
@@ -567,9 +498,6 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                         <div className="flex items-center justify-between">
                             <div className={LABEL_CLASS}>
                                 参考图
-                                <span className="ml-2 text-[9px] font-normal text-orange-500 normal-case">
-                                    图生图
-                                </span>
                             </div>
                             {Object.values(isUploading).some(Boolean) && <Loader2 className="w-4 h-4 animate-spin text-gray-500" />}
                         </div>
@@ -589,7 +517,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                     : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
                                     }`}
                             >
-                                📎 变量引用
+                                变量引用
                             </button>
                             <button
                                 type="button"
@@ -604,7 +532,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                     : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
                                     }`}
                             >
-                                📤 静态上传
+                                静态上传
                             </button>
                         </div>
 
@@ -617,27 +545,29 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                         <span className="text-[10px] text-blue-600 font-medium">1.</span>
                                         <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">主图</span>
                                     </div>
-                                    <FormField
-                                        control={form.control}
-                                        name="referenceImageVariable"
-                                        render={({ field }) => (
-                                            <input
-                                                {...field}
-                                                value={field.value || ""}
-                                                placeholder="{{节点名.字段名}}（图片URL）"
-                                                className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono"
-                                            />
+                                    <div className="relative flex-1">
+                                        <FormField
+                                            control={form.control}
+                                            name="referenceImageVariable"
+                                            render={({ field }) => (
+                                                <input
+                                                    {...field}
+                                                    value={field.value || ""}
+                                                    placeholder="图片URL变量"
+                                                    className="w-full text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono bg-white pr-7"
+                                                />
+                                            )}
+                                        />
+                                        {form.watch("referenceImageVariable") && (
+                                            <button
+                                                type="button"
+                                                onClick={() => form.setValue("referenceImageVariable", "")}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                            >
+                                                <span className="text-sm">×</span>
+                                            </button>
                                         )}
-                                    />
-                                    {form.watch("referenceImageVariable") && (
-                                        <button
-                                            type="button"
-                                            onClick={() => form.setValue("referenceImageVariable", "")}
-                                            className="p-1 hover:bg-gray-100 rounded transition-colors shrink-0"
-                                        >
-                                            <span className="text-gray-400 hover:text-red-500 text-sm">×</span>
-                                        </button>
-                                    )}
+                                    </div>
                                 </div>
 
                                 {/* 副图2 - 动态显示 */}
@@ -647,28 +577,30 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                             <span className="text-[10px] text-gray-500 font-medium">2.</span>
                                             <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">副图</span>
                                         </div>
-                                        <FormField
-                                            control={form.control}
-                                            name="referenceImage2Variable"
-                                            render={({ field }) => (
-                                                <input
-                                                    {...field}
-                                                    value={field.value || ""}
-                                                    placeholder="{{节点名.字段名}}（图片URL）"
-                                                    className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono"
-                                                />
-                                            )}
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                form.setValue("referenceImage2Variable", "");
-                                                setShowExtraImages(prev => Math.max(0, prev - 1));
-                                            }}
-                                            className="p-1 hover:bg-gray-100 rounded transition-colors shrink-0"
-                                        >
-                                            <span className="text-gray-400 hover:text-red-500 text-sm">×</span>
-                                        </button>
+                                        <div className="relative flex-1">
+                                            <FormField
+                                                control={form.control}
+                                                name="referenceImage2Variable"
+                                                render={({ field }) => (
+                                                    <input
+                                                        {...field}
+                                                        value={field.value || ""}
+                                                        placeholder="图片URL变量"
+                                                        className="w-full text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono bg-white pr-7"
+                                                    />
+                                                )}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    form.setValue("referenceImage2Variable", "");
+                                                    setShowExtraImages(prev => Math.max(0, prev - 1));
+                                                }}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                            >
+                                                <span className="text-sm">×</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 
@@ -679,28 +611,30 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                             <span className="text-[10px] text-gray-500 font-medium">3.</span>
                                             <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">副图</span>
                                         </div>
-                                        <FormField
-                                            control={form.control}
-                                            name="referenceImage3Variable"
-                                            render={({ field }) => (
-                                                <input
-                                                    {...field}
-                                                    value={field.value || ""}
-                                                    placeholder="{{节点名.字段名}}（图片URL）"
-                                                    className="flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono"
-                                                />
-                                            )}
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                form.setValue("referenceImage3Variable", "");
-                                                setShowExtraImages(prev => Math.max(1, prev - 1));
-                                            }}
-                                            className="p-1 hover:bg-gray-100 rounded transition-colors shrink-0"
-                                        >
-                                            <span className="text-gray-400 hover:text-red-500 text-sm">×</span>
-                                        </button>
+                                        <div className="relative flex-1">
+                                            <FormField
+                                                control={form.control}
+                                                name="referenceImage3Variable"
+                                                render={({ field }) => (
+                                                    <input
+                                                        {...field}
+                                                        value={field.value || ""}
+                                                        placeholder="图片URL变量"
+                                                        className="w-full text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono bg-white pr-7"
+                                                    />
+                                                )}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    form.setValue("referenceImage3Variable", "");
+                                                    setShowExtraImages(prev => Math.max(0, prev - 1));
+                                                }}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                            >
+                                                <span className="text-sm">×</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 
@@ -724,205 +658,59 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                 })()}
 
                                 <p className="text-[9px] text-gray-400 pt-1">
-                                    💡 融合多张图片特征生成新图，主图权重最高
+                                    💡 融合多张图片生成新图，主图权重最高
                                 </p>
                             </div>
                         ) : (
                             /* 静态上传模式 */
                             /* 静态上传模式 */
                             <div className="space-y-3">
-                                {/* Slot 1: Main Image - Always Visible */}
-                                <div className="space-y-1">
-                                    <div className="flex items-center gap-1 shrink-0">
-                                        <span className="text-[10px] text-blue-600 font-medium">1.</span>
-                                        <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">主图</span>
-                                    </div>
-                                    {currentRefImg1 || localPreviews['1'] ? (
-                                        // Uploaded State
-                                        <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                                            <div className="relative w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-gray-200">
-                                                <img
-                                                    src={localPreviews['1'] || currentRefImg1}
-                                                    alt="参考图预览"
-                                                    className="w-full h-full object-cover"
-                                                />
-                                                {isUploading['1'] && (
-                                                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                                        <Loader2 className="w-6 h-6 animate-spin text-white" />
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-medium text-gray-700 truncate">
-                                                    {isUploading['1'] ? "上传中..." : "参考图已上传"}
-                                                </p>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDeleteReferenceImage(1)}
-                                                    disabled={isUploading['1']}
-                                                    className="mt-1 text-xs text-red-500 hover:text-red-700 flex items-center gap-1 transition-colors disabled:opacity-50"
-                                                >
-                                                    <Trash2 className="w-3 h-3" />
-                                                    删除
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        // Upload Area
-                                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center transition-all duration-150 hover:border-gray-400 hover:bg-gray-50 cursor-pointer">
-                                            <input
-                                                ref={fileInputRef1}
-                                                type="file"
-                                                accept="image/png,image/jpeg,image/jpg,image/webp"
-                                                className="hidden"
-                                                id="ref-img-1"
-                                                onChange={(e) => handleReferenceImageUpload(e.target.files, 1)}
-                                                disabled={isUploading['1']}
-                                            />
-                                            <label htmlFor="ref-img-1" className="cursor-pointer block">
-                                                <ImagePlus className="w-6 h-6 mx-auto mb-1 text-gray-400" />
-                                                <div className="text-xs font-medium text-gray-600">点击上传主图</div>
-                                            </label>
-                                        </div>
-                                    )}
-                                </div>
+                                {/* Slot 1: Main Image - Using Component */}
+                                <ImageSlotUploader
+                                    slotIndex={1}
+                                    slotType="main"
+                                    currentUrl={currentRefImg1}
+                                    localPreview={localPreviews['1']}
+                                    isUploading={isUploading['1'] || false}
+                                    onUpload={(files) => handleReferenceImageUpload(files, 1)}
+                                    onDelete={() => handleDeleteReferenceImage(1)}
+                                    inputId="ref-img-1"
+                                />
 
-                                {/* Slot 2: Sub Image */}
+                                {/* Slot 2: Sub Image - Using Component */}
                                 {(currentRefImg2 || showExtraImages >= 1) && (
-                                    <div className="space-y-1">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-1 shrink-0">
-                                                <span className="text-[10px] text-gray-500 font-medium">2.</span>
-                                                <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">副图</span>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    handleDeleteReferenceImage(2);
-                                                    setShowExtraImages(prev => Math.max(0, prev - 1));
-                                                }}
-                                                className="text-gray-400 hover:text-red-500"
-                                            >
-                                                <span className="text-xs">× 移除</span>
-                                            </button>
-                                        </div>
-
-                                        {currentRefImg2 || localPreviews['2'] ? (
-                                            <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                                                <div className="relative w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-gray-200">
-                                                    <img
-                                                        src={localPreviews['2'] || currentRefImg2}
-                                                        alt="参考图预览"
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                    {isUploading['2'] && (
-                                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                                            <Loader2 className="w-6 h-6 animate-spin text-white" />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs font-medium text-gray-700 truncate">
-                                                        {isUploading['2'] ? "上传中..." : "参考图已上传"}
-                                                    </p>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeleteReferenceImage(2)}
-                                                        disabled={isUploading['2']}
-                                                        className="mt-1 text-xs text-red-500 hover:text-red-700 flex items-center gap-1 transition-colors disabled:opacity-50"
-                                                    >
-                                                        <Trash2 className="w-3 h-3" />
-                                                        删除
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center transition-all duration-150 hover:border-gray-400 hover:bg-gray-50 cursor-pointer">
-                                                <input
-                                                    ref={fileInputRef2}
-                                                    type="file"
-                                                    accept="image/png,image/jpeg,image/jpg,image/webp"
-                                                    className="hidden"
-                                                    id="ref-img-2"
-                                                    onChange={(e) => handleReferenceImageUpload(e.target.files, 2)}
-                                                    disabled={isUploading['2']}
-                                                />
-                                                <label htmlFor="ref-img-2" className="cursor-pointer block">
-                                                    <ImagePlus className="w-6 h-6 mx-auto mb-1 text-gray-400" />
-                                                    <div className="text-xs font-medium text-gray-600">点击上传副图</div>
-                                                </label>
-                                            </div>
-                                        )}
-                                    </div>
+                                    <ImageSlotUploader
+                                        slotIndex={2}
+                                        slotType="sub"
+                                        currentUrl={currentRefImg2}
+                                        localPreview={localPreviews['2']}
+                                        isUploading={isUploading['2'] || false}
+                                        onUpload={(files) => handleReferenceImageUpload(files, 2)}
+                                        onDelete={() => handleDeleteReferenceImage(2)}
+                                        onRemoveSlot={() => {
+                                            handleDeleteReferenceImage(2);
+                                            setShowExtraImages(prev => Math.max(0, prev - 1));
+                                        }}
+                                        inputId="ref-img-2"
+                                    />
                                 )}
 
-                                {/* Slot 3: Sub Image */}
+                                {/* Slot 3: Sub Image - Using Component */}
                                 {(currentRefImg3 || showExtraImages >= 2) && (
-                                    <div className="space-y-1">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-1 shrink-0">
-                                                <span className="text-[10px] text-gray-500 font-medium">3.</span>
-                                                <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">副图</span>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    handleDeleteReferenceImage(3);
-                                                    setShowExtraImages(prev => Math.max(1, prev - 1));
-                                                }}
-                                                className="text-gray-400 hover:text-red-500"
-                                            >
-                                                <span className="text-xs">× 移除</span>
-                                            </button>
-                                        </div>
-
-                                        {currentRefImg3 || localPreviews['3'] ? (
-                                            <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                                                <div className="relative w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-gray-200">
-                                                    <img
-                                                        src={localPreviews['3'] || currentRefImg3}
-                                                        alt="参考图预览"
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                    {isUploading['3'] && (
-                                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                                            <Loader2 className="w-6 h-6 animate-spin text-white" />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs font-medium text-gray-700 truncate">
-                                                        {isUploading['3'] ? "上传中..." : "参考图已上传"}
-                                                    </p>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeleteReferenceImage(3)}
-                                                        disabled={isUploading['3']}
-                                                        className="mt-1 text-xs text-red-500 hover:text-red-700 flex items-center gap-1 transition-colors disabled:opacity-50"
-                                                    >
-                                                        <Trash2 className="w-3 h-3" />
-                                                        删除
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center transition-all duration-150 hover:border-gray-400 hover:bg-gray-50 cursor-pointer">
-                                                <input
-                                                    ref={fileInputRef3}
-                                                    type="file"
-                                                    accept="image/png,image/jpeg,image/jpg,image/webp"
-                                                    className="hidden"
-                                                    id="ref-img-3"
-                                                    onChange={(e) => handleReferenceImageUpload(e.target.files, 3)}
-                                                    disabled={isUploading['3']}
-                                                />
-                                                <label htmlFor="ref-img-3" className="cursor-pointer block">
-                                                    <ImagePlus className="w-6 h-6 mx-auto mb-1 text-gray-400" />
-                                                    <div className="text-xs font-medium text-gray-600">点击上传副图</div>
-                                                </label>
-                                            </div>
-                                        )}
-                                    </div>
+                                    <ImageSlotUploader
+                                        slotIndex={3}
+                                        slotType="sub"
+                                        currentUrl={currentRefImg3}
+                                        localPreview={localPreviews['3']}
+                                        isUploading={isUploading['3'] || false}
+                                        onUpload={(files) => handleReferenceImageUpload(files, 3)}
+                                        onDelete={() => handleDeleteReferenceImage(3)}
+                                        onRemoveSlot={() => {
+                                            handleDeleteReferenceImage(3);
+                                            setShowExtraImages(prev => Math.max(1, prev - 1));
+                                        }}
+                                        inputId="ref-img-3"
+                                    />
                                 )}
 
                                 {/* Add Button */}

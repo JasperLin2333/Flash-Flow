@@ -40,19 +40,18 @@
 | `fileConfig.maxCount` | number | `10` | 最大文件数量，范围 1-10 |
 
 **支持的文件类型 (allowedTypes 可选值)**:
-- `.png,.jpg,.jpeg` - 图片 (png, jpg)
+- `.png,.jpg,.jpeg,.webp` - 图片 (png, jpg, jpeg, webp)
 - `.pdf` - PDF 文档
 - `.doc,.docx` - Word 文档
 - `.xls,.xlsx` - Excel 表格
 - `.txt` - 文本文件
 - `.md` - Markdown
 - `.csv` - CSV 文件
-- `image/*` - 所有图片类型（通配符）
-- `*/*` - 所有文件类型（通配符）
+- `*/*` - 所有文件类型（未选择任何类型时的默认值）
 
 > [!TIP]
 > 在构建器中，文件类型以复选框形式呈现，可同时选择多种类型。
-> 智能 AI 规划功能会根据节点名称自动推断合适的文件类型（如节点名包含"图片"则默认选择 `image/*`）。
+> 如果取消选择所有类型，系统自动回退到 `*/*`（允许所有文件）。
 
 ### 结构化表单配置 (`enableStructuredForm=true` 时)
 
@@ -82,52 +81,55 @@
 
 ### 运行前校验 (Runtime Validation)
 
-点击"运行 Flow"时，系统会自动检查 Input 节点的数据完整性。**如果存在以下任意缺失情况，会自动弹出输入对话框**：
+点击"运行 Flow"时，系统会对 Input 节点的数据完整性进行检查。**目前仅针对结构化表单的必填项进行强制校验**。
 
 **校验规则**：
 
-1. **文本未填**: 启用了文本输入 (`enableTextInput: true`)，但 `text` 为空或仅包含空格
-2. **文件未上传**: 启用了文件上传 (`enableFileInput: true`)，但 `files` 为空数组
-3. **必填字段缺失**: 启用了结构化表单 (`enableStructuredForm: true`)，且存在 `required: true` 的字段未填写数据
-   - 对于多选字段：空数组 `[]` 视为未填写
-   - 对于其他字段：空值、`null`、`undefined` 视为未填写（但数字 `0` 视为有效值）
+1. **结构化表单校验**: 
+   - 启用了结构化表单 (`enableStructuredForm: true`)
+   - 存在 `required: true` 的字段未填写数据
+   - **判定标准**:
+     - `undefined` 或 `null` 视为未填写
+     - 空字符串 `""` 视为未填写 (包括仅空格)
+     - 空数组 `[]` 视为未填写
+     - **注意**: 数字 `0` 视为有效值
+
+2. **文本与文件输入**:
+   - `text` 输入：不做强制非空校验（即使启用，为空通常也可运行，取决于具体业务逻辑，但底层不拦截）
+   - `files` 上传：不做强制非空校验（未上传文件时 `files` 字段可能不存在或为空数组）
 
 **校验流程**：
 
 ```typescript
-// 伪代码示例
-for (const inputNode of inputNodes) {
-  // 1. 检查文本输入
-  const isTextEnabled = enableTextInput !== false; // 默认 true
-  const isTextMissing = isTextEnabled && (!text || !text.trim());
-  
-  // 2. 检查文件上传
-  const isFileEnabled = enableFileInput === true;
-  const isFileMissing = isFileEnabled && (!files || files.length === 0);
-  
-  // 3. 检查结构化表单必填项
-  const isFormEnabled = enableStructuredForm === true;
-  let isFormMissing = false;
-  if (isFormEnabled && formFields) {
-    isFormMissing = formFields.some(field => 
-      field.required && isEmpty(formData[field.name])
-    );
-  }
-  
-  // 4. 如果有任何缺失，弹出输入对话框
-  if (isTextMissing || isFileMissing || isFormMissing) {
-    openInputPrompt();
-    return;
-  }
+// 伪代码示例 (参考 src/store/utils/inputValidation.ts)
+export function checkInputNodeMissing(data: InputNodeData): boolean {
+    // 仅检查结构化表单必填项
+    const isFormEnabled = data.enableStructuredForm === true && Array.isArray(data.formFields);
+
+    if (isFormEnabled && data.formFields) {
+        return data.formFields.some((field) => {
+            if (!field.required) return false;
+            const value = data.formData?.[field.name];
+            return isFieldEmpty(value);
+        });
+    }
+
+    return false;
+}
+
+function isFieldEmpty(value: unknown): boolean {
+    if (value === undefined || value === null) return true;
+    if (typeof value === 'string' && value.trim() === '') return true;
+    if (Array.isArray(value) && value.length === 0) return true;
+    // 数字 0 视为有效值
+    if (typeof value === 'number') return false;
+    return false;
 }
 ```
 
 > [!WARNING]
 > **文件上传说明**：
-> - 如果启用了文件上传且未上传任何文件，系统会**自动弹出输入对话框**，提示用户上传文件
-> - 文件上传是在点击“运行”后、执行流程前进行的
-> - 如果上传失败，会显示错误提示并中止执行
-> - 开发者需在后续节点中自行判断文件是否存在（文件可能为空数组）
+> - 系统**不会**自动校验文件是否已上传。如果您的业务逻辑依赖文件输入，请在后续节点（如 Tool 或 LLM）中自行检查 `files` 字段是否为空。
 
 > [!NOTE]
 > **对话框交互优化**：
@@ -205,6 +207,100 @@ Input 节点执行后，会输出以下 JSON 结构：
 >   - 文件数组：`{{输入节点.files}}`（在支持文件的节点中使用）
 >   - 单个文件 URL：`{{输入节点.files[0].url}}`
 
+### 完整节点 JSON 示例
+
+以下是一个完整的 Input 节点配置与运行时数据示例：
+
+```json
+{
+  "id": "input_1704038400000",
+  "type": "input",
+  "position": { "x": 100, "y": 200 },
+  "data": {
+    "label": "智能文案助手",
+    "status": "completed",
+    
+    "enableTextInput": true,
+    "enableFileInput": true,
+    "enableStructuredForm": true,
+    
+    "greeting": "欢迎使用智能文案助手！请上传产品图片，填写产品信息，我来帮你生成专业的营销文案。",
+    
+    "fileConfig": {
+      "allowedTypes": [".png,.jpg,.jpeg,.webp"],
+      "maxSizeMB": 10,
+      "maxCount": 3
+    },
+    
+    "formFields": [
+      {
+        "type": "text",
+        "name": "product_name",
+        "label": "产品名称",
+        "placeholder": "请输入产品名称",
+        "required": true,
+        "defaultValue": ""
+      },
+      {
+        "type": "select",
+        "name": "style",
+        "label": "文案风格",
+        "options": ["专业严谨", "活泼有趣", "情感共鸣", "简洁明了"],
+        "required": true,
+        "defaultValue": "专业严谨"
+      },
+      {
+        "type": "multi-select",
+        "name": "target_audience",
+        "label": "目标受众",
+        "options": ["年轻人", "职场人士", "家庭用户", "学生群体", "高端消费者"],
+        "required": false,
+        "defaultValue": []
+      }
+    ],
+    
+    "text": "请帮我生成一段朋友圈文案",
+    "files": [
+      {
+        "name": "product_photo.jpg",
+        "size": 1258000,
+        "type": "image/jpeg",
+        "url": "https://storage.example.com/uploads/product_photo.jpg"
+      }
+    ],
+    "formData": {
+      "product_name": "智能保温杯",
+      "style": "活泼有趣",
+      "target_audience": ["年轻人", "职场人士"]
+    },
+    
+    "output": {
+      "user_input": "请帮我生成一段朋友圈文案",
+      "files": [
+        {
+          "name": "product_photo.jpg",
+          "size": 1258000,
+          "type": "image/jpeg",
+          "url": "https://storage.example.com/uploads/product_photo.jpg"
+        }
+      ],
+      "formData": {
+        "product_name": "智能保温杯",
+        "style": "活泼有趣",
+        "target_audience": ["年轻人", "职场人士"]
+      }
+    },
+    "executionTime": 5
+  }
+}
+```
+
+> [!NOTE]
+> **字段说明**：
+> - **配置字段** (`enableXxx`, `fileConfig`, `formFields`, `greeting`)：在构建器中设置，定义节点能力
+> - **运行时数据** (`text`, `files`, `formData`)：用户在运行时填写的实际数据
+> - **输出字段** (`output`, `executionTime`, `status`)：节点执行后生成的结果
+
 ### 实现细节
 
 **执行逻辑** (`InputNodeExecutor`)：
@@ -221,8 +317,12 @@ enableXxx      弹窗填写    上传到云存储   提取数据   后续节点�
 ```
 
 **关键代码位置**：
-- 类型定义: `src/types/flow.ts` - `InputNodeData` 接口
+- 类型定义: `src/types/flow.ts` - `InputNodeData` 接口 (L103-L122)
 - 表单配置: `src/components/builder/node-forms/InputNodeForm/`
+  - `index.tsx` - 主表单组件
+  - `FileInputSection.tsx` - 文件上传配置
+  - `StructuredFormSection.tsx` - 结构化表单配置
+  - `constants.ts` - 常量定义和默认值
 - 运行校验: `src/components/flow/InputPromptDialog.tsx`
 - 执行器: `src/store/executors/InputNodeExecutor.ts`
 - 应用界面: `src/components/apps/FlowAppInterface/`
@@ -248,7 +348,7 @@ enableXxx      弹窗填写    上传到云存储   提取数据   后续节点�
 
 4. **文件类型限制**：根据实际需求精确限制文件类型，避免用户上传不支持的文件
    ```
-   图片处理: ["image/*"]
-   文档分析: [".pdf", ".doc", ".docx", ".txt"]
-   数据导入: [".csv", ".xlsx"]
+   图片处理: [".png,.jpg,.jpeg,.webp"]
+   文档分析: [".pdf", ".doc,.docx", ".txt"]
+   数据导入: [".csv", ".xls,.xlsx"]
    ```

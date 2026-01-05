@@ -6,8 +6,14 @@ export default function RunOutputs({ outputNodes, flowContext }: { outputNodes: 
   return (
     <>
       {outputNodes.map((node) => {
+        /**
+         * 注意：这里的 text 是 OutputNodeExecutor 的执行结果输出字段，
+         * 存储在 flowContext[nodeId].text 中，而非 OutputNodeData.text（已废弃）。
+         * 
+         * 执行器输出格式: { text: string; attachments?: {...}[] }
+         * 详见 OutputNodeExecutor.ts Line 233
+         */
         const outputData = flowContext[node.id] as { text?: string } | undefined;
-        // Read text from flowContext (single source of truth)
         const textData = outputData?.text;
         return (
           <div key={node.id} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm space-y-2 transition-all duration-200">

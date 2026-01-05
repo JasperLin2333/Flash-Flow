@@ -154,9 +154,9 @@ function NodeTile({
     );
 }
 
-// ============ Utilities ============
 /**
  * 处理 AI 修改指令的核心函数
+ * 使用 AI 意图分类决定 patch 模式还是 full 模式
  */
 const handleModificationInstruction = async (
     prompt: string,
@@ -165,24 +165,77 @@ const handleModificationInstruction = async (
     setNodes: (nodes: AppNode[]) => void,
     setEdges: (edges: any[]) => void,
     updateNodeData: (id: string, data: any) => void,
-    setCopilotStatus: (status: "idle" | "thinking" | "completed") => void
+    setCopilotStatus: (status: "idle" | "thinking" | "completed") => void,
+    forceFull = false  // 强制使用 full 模式（用于 fallback）
 ) => {
+    // 动态导入意图分类器
+    const { classifyIntent, filterRelevantNodes } = await import("@/store/services/modification/intentClassifier");
+
+    // Step 1: AI 意图分类（异步调用小模型）
+    const intent = await classifyIntent(prompt);
+    console.log("[BrainBar] Intent classification result:", intent);
+
+    // Step 2: 根据分类结果决定模式
+    // shouldUsePatchMode 已在 classifyIntent 中计算好
+    const usePatchMode = !forceFull && intent.shouldUsePatchMode;
+    const mode = usePatchMode ? "patch" : "full";
+    const nodesToSend = usePatchMode ? filterRelevantNodes(nodes, intent) : nodes;
+
     try {
         const resp = await fetch("/api/modify-flow", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt, currentNodes: nodes, currentEdges: edges }),
+            body: JSON.stringify({
+                prompt,
+                currentNodes: nodesToSend,
+                currentEdges: edges,
+                mode
+            }),
         });
 
-        const instruction = await resp.json();
-        executeModificationService(instruction, nodes, edges, setNodes, setEdges, updateNodeData);
-        setCopilotStatus("completed");
+        const result = await resp.json();
+
+        // Patch 模式：直接应用 patches
+        if (mode === "patch" && result.patches && Array.isArray(result.patches)) {
+            for (const patch of result.patches) {
+                if (patch.nodeId && patch.data) {
+                    updateNodeData(patch.nodeId, patch.data);
+                }
+            }
+            setCopilotStatus("completed");
+        }
+        // Full 模式或 Patch 失败：使用原有执行器
+        else if (result.nodes || result.action) {
+            executeModificationService(result, nodes, edges, setNodes, setEdges, updateNodeData);
+            setCopilotStatus("completed");
+        }
+        // Patch 模式返回了非预期格式，fallback 到 full 模式
+        else if (mode === "patch" && !forceFull) {
+            console.warn("[BrainBar] Patch mode returned unexpected format, falling back to full mode");
+            return handleModificationInstruction(
+                prompt, nodes, edges, setNodes, setEdges, updateNodeData, setCopilotStatus, true
+            );
+        }
+        else {
+            console.warn("[BrainBar] Unexpected response format:", result);
+            setCopilotStatus("completed");
+        }
     } catch (e) {
         console.error("Modification failed:", e);
+
+        // 如果 patch 模式失败且未曾 fallback，尝试 full 模式
+        if (mode === "patch" && !forceFull) {
+            console.warn("[BrainBar] Patch mode failed, falling back to full mode");
+            return handleModificationInstruction(
+                prompt, nodes, edges, setNodes, setEdges, updateNodeData, setCopilotStatus, true
+            );
+        }
+
         setCopilotStatus("idle");
         throw e;
     }
 };
+
 
 export default function BrainBar() {
     const [prompt, setPrompt] = useState("");

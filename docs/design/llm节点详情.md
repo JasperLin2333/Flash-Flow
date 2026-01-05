@@ -14,13 +14,58 @@
 | `temperature` | number | ❌ | `0.7` | 生成温度 (0.0-1.0)，控制随机性 |
 | `enableMemory` | boolean | ❌ | `false` | 是否启用多轮对话记忆 |
 | `memoryMaxTurns` | number | ❌ | `10` | 最大记忆轮数 (1-20) |
-| `customOutputs` | array | ❌ | `[]` | 用户自定义输出变量列表 `{name, value}` |
+| `responseFormat` | enum | ❌ | `"text"` | 响应格式: `text` (普通文本) 或 `json_object` (JSON 模式) |
 
 > [!TIP]
 > **Temperature 指南**:
 > - **0.0 - 0.3**: 确定性输出 (翻译、摘要、指令遵循)
 > - **0.4 - 0.7**: 平衡 (通用对话、解答)
 > - **0.8 - 1.0**: 创造性 (故事创作、头脑风暴)
+
+## 完整节点 JSON 示例
+
+```json
+{
+  "id": "llm_abc123",
+  "type": "llm",
+  "position": { "x": 400, "y": 200 },
+  "data": {
+    "label": "智能助手",
+    "model": "deepseek-ai/DeepSeek-V3.2",
+    "systemPrompt": "你是一个专业的{{role}}，请用{{style}}的语气回答用户问题。",
+    "temperature": 0.7,
+    "enableMemory": true,
+    "memoryMaxTurns": 10,
+
+    "responseFormat": "text"
+  }
+}
+```
+
+### JSON 输出模式示例
+
+当需要 LLM 输出结构化数据时，启用 `json_object` 模式：
+
+```json
+{
+  "id": "llm_json_example",
+  "type": "llm",
+  "position": { "x": 400, "y": 200 },
+  "data": {
+    "label": "数据提取器",
+    "model": "deepseek-ai/DeepSeek-V3.2",
+    "systemPrompt": "从用户输入中提取信息，请以 JSON 格式输出，包含 name, age, location 字段。",
+    "temperature": 0.3,
+    "enableMemory": false,
+    "responseFormat": "json_object"
+  }
+}
+```
+
+> [!WARNING]
+> 使用 `json_object` 模式时，必须在 `systemPrompt` 中明确说明"请以 JSON 格式输出"，否则模型可能无法正确输出 JSON。
+
+
 
 ## 核心执行逻辑 (Execution Logic)
 
@@ -29,7 +74,7 @@
 LLM 节点的执行遵循以下步骤顺序：
 
 ```
-配额检查 → 延迟等待(200ms) → 获取流式配置 → 变量收集与替换 → 输入解析 → 对话记忆处理 → LLM 请求执行 → 流式/非流式响应处理 → 记忆保存 → 额度扣除
+配额检查 → 延迟等待(200ms) → 获取流式配置 → 变量收集与替换 → 输入解析 → 对话记忆处理 → LLM 请求执行 → 流式/非流式响应处理 → 记忆保存 → 额度刷新
 ```
 
 ### 1. 额度检查 (Quota Check)
@@ -42,7 +87,7 @@ LLM 节点的执行遵循以下步骤顺序：
 
 **服务端配额验证** (/api/run-node-stream):
 *   请求到达 API 时再次验证配额 (双重保护)
-*   流式输出完成后才扣除额度 (`incrementQuotaOnServer`)
+*   流式输出完成后扣除额度
 *   失败时不扣除
 
 ### 2. 延迟与流式配置
@@ -68,7 +113,6 @@ LLM 节点的执行遵循以下步骤顺序：
 | 节点标签.字段 | `{{获取当前时间.formatted}}` | 通过节点 label 引用 |
 | 节点ID.字段 | `{{tool_xxx.formatted}}` | 通过节点 ID 引用 |
 | 嵌套字段 | `{{nodeLabel.data.key}}` | 支持递归展开对象 |
-| 自定义输出 | `{{customVar}}` | 用户在节点配置的 customOutputs |
 
 **变量替换**: 使用 `replaceVariables(systemPrompt, allVariables)` 将 System Prompt 中的 `{{variable}}` 占位符替换为实际值。
 
@@ -77,11 +121,12 @@ LLM 节点的执行遵循以下步骤顺序：
 LLM 节点需要一个主要的用户输入内容 (`input`)，其解析优先级如下：
 
 1.  **调试 mock 数据**: 如果处于调试模式且提供了 mock 数据，优先使用第一个 mock 值。
-2.  **上游 `user_input` 映射**: 自动遍历上游 context（忽略下划线开头的系统字段），查找第一个包含 `user_input` 字段且不为空的输出对象。
-    *   这通常由 `Input Node` 提供，或通过 `inputMappings` 配置指定。
-    *   如果未找到，返回空字符串 `""`
+2.  **`user_input` 映射**: 必须通过节点的 `inputMappings.user_input` 配置明确指定输入来源。
+    *   **Strict Mode**: 系统不再自动遍历上游寻找输入，必须显式连接或配置引用。
+    *   通常配置为引用的变量，如 `{{InputNode.user_input}}`。
+    *   如果未配置或配置的值为空，则输入为空字符串 `""`。
 
-#### 5. 对话记忆 (Memory)
+### 5. 对话记忆 (Memory)
 
 #### 启用条件
 
@@ -89,14 +134,18 @@ LLM 节点需要一个主要的用户输入内容 (`input`)，其解析优先级
 *   存在有效的 `flowId` 和 `sessionId` (通过 `context._meta` 传递)
 *   最大记忆轮数: `memoryMaxTurns` (默认 10，范围 1-20)
 
-#### 记忆键策略 (Memory Key)
+#### 记忆范围策略 (Memory Scope)
 
-| 节点类型 | Memory Key | 说明 |
-|---------|-----------|------|
-| **流式节点** (`shouldStream = true`) | `"__main__"` | 共享主对话记忆，适用于与用户直接交互的节点 |
-| **非流式节点** | `node.id` | 独立记忆空间，中间步骤不污染主对话 |
+当前版本强制使用 **节点级独立记忆** (`node` scope)。
 
-> **设计理由**: 流式节点通常是面向用户的最终输出节点，它们共享一个对话历史可以实现连贯的多轮对话体验。而非流式节点（如工作流中间的 LLM 处理节点）使用独立的记忆空间，避免内部逻辑干扰主对话上下文。
+| 范围 | Memory Key | 说明 |
+|------|-----------|------|
+| **仅本节点** | `node.id` | 每个 LLM 节点维护独立的对话历史，互不干扰。 |
+
+> [!NOTE]
+> **设计变更**:
+> 为了简化状态管理并避免多节点间的上下文污染，已移除 `flow` (共享) 和 `shared_group` (分组) 模式。现在每个 LLM 节点都拥有完全独立的记忆空间。
+
 
 #### 记忆存储流程
 
@@ -121,13 +170,15 @@ LLM 节点需要一个主要的用户输入内容 (`input`)，其解析优先级
   systemPrompt: string,                 // 替换变量后的 System Prompt
   temperature: number,                  // 温度参数 (默认 0.7)
   input: string,                        // 用户输入内容
-  conversationHistory?: ConversationMessage[]  // 对话历史 (启用记忆时)
+  conversationHistory?: ConversationMessage[],  // 对话历史 (启用记忆时)
+  responseFormat?: 'text' | 'json_object'       // 响应格式 (可选)
 }
 ```
 
 **响应格式**: Server-Sent Events (SSE) 流式数据
 ```
 data: {"content": "文本片段", "reasoning": "推理内容"}
+data: {"usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}}
 data: [DONE]
 ```
 
@@ -139,7 +190,7 @@ LLM 节点是否启用流式输出，**严格取决于下游 `Output Node` 的�
 |-----------------|---------|---------|----------|
 | **Direct** (直接) | ✅ 是 | `single` | 单一流式输出。只有 Output 的第一个来源节点启用流式。 |
 | **Select** (选择) | ✅ 是 | `select` | **首字锁定机制**: 多个并行 LLM 竞速，第一个输出字符的节点调用 `tryLockSource` 成功后锁定输出通道，其余节点的输出被忽略。 |
-| **Merge** (合并) | ✅ 是 | `segmented` | **分段流式**: 每个节点的输出流式追加到独立的段落 (`appendToSegment`)，完成后调用 `completeSegment`。 |
+| **Merge** (合并) | ❌ 否 | - | 需要等待所有来源节点完成以进行合并，禁用流式，避免内容错乱。 |
 | **Template** (模板)| ❌ 否 | - | 需要等待所有来源节点完成以进行模板渲染，禁用流式。 |
 | **无 Output 节点** | ❌ 否 | - | 纯后台执行，不流式。 |
 | **通过 Branch 连接** | ✅ 是 | (根据 Output 模式) | `getStreamingConfig` 会检测通过 Branch 节点间接连接到 Output 的情况。 |
@@ -161,36 +212,30 @@ for (const char of chars) {
 **刷新策略** (根据 streamMode):
 - `single`: 调用 `appendStreamingText(char)` 直接追加
 - `select`: 先调用 `tryLockSource(nodeId)` 尝试锁定，成功后追加
-- `segmented`: 调用 `appendToSegment(nodeId, char)` 追加到对应段落
 
 #### Reasoning 内容处理
 
 部分模型 (如 DeepSeek) 支持输出推理过程 (`reasoning_content`):
-- **流式阶段**: 累积到 `fullReasoning` 变量 (暂不实时显示)
+- **流式阶段**: 累积到 `fullReasoning` 变量，同时实时调用 `appendStreamingReasoning` 更新 UI
 - **最终输出**: 包含在返回结果的 `reasoning` 字段中
 
 ### 7. 错误处理
-
-**流式模式下的错误**:
-- `segmented` 模式: 调用 `failSegment(nodeId, errorMessage)` 标记段落失败
-- 其他模式: 调用 `clearStreaming()` 清空流式状态
 
 **常见错误信息**:
 - `"API request failed: [status]"`: API 请求失败
 - `"No response body"`: 响应体缺失
 - 提供商特定错误 (如 API key 未配置)
 
-### 8. 配额扣除
+### 8. 配额刷新
 
-**扣除时机**:
-- **前端**: 流式输出完成后调用 `incrementQuota()` (仅非 mock 模式)
-- **后端**: SSE 流结束前调用 `incrementQuotaOnServer` (双重保险)
+**刷新时机**:
+- 流式输出完成后，服务端已扣除额度
+- 前端调用 `refreshQuota()` 刷新 UI 显示 (仅非 mock 模式)
 
-**扣除流程**:
+**刷新流程**:
 1. 获取当前用户 (`authService.getCurrentUser`)
-2. 调用 `quotaService.incrementUsage(user.id, "llm_executions")`
-3. 刷新前端配额状态 `useQuotaStore.refreshQuota(user.id)`
-4. 失败时静默处理 (不影响执行结果)
+2. 调用 `useQuotaStore.refreshQuota(user.id)` 刷新前端配额状态
+3. 失败时静默处理 (不影响执行结果)
 
 ## 输出格式 (Output Format)
 
@@ -263,7 +308,6 @@ for (const char of chars) {
 
 **配额服务** (`quotaService`):
 - `checkQuota(userId, "llm_executions")`: 检查配额
-- `incrementUsage(userId, "llm_executions")`: 增加使用次数
 
 **记忆服务** (`llmMemoryService`):
 - `getHistory(flowId, nodeId, sessionId, maxTurns)`: 获取对话历史
@@ -272,11 +316,9 @@ for (const char of chars) {
 
 **状态管理** (`useFlowStore`):
 - `appendStreamingText(text)`: 追加流式文本
+- `appendStreamingReasoning(text)`: 追加推理内容
 - `clearStreaming()`: 清空流式状态
 - `resetStreamingAbort()`: 重置中止状态
-- `appendToSegment(nodeId, text)`: 追加到段落
-- `completeSegment(nodeId)`: 标记段落完成
-- `failSegment(nodeId, error)`: 标记段落失败
 - `tryLockSource(nodeId)`: 尝试锁定来源 (select 模式)
 
 ## 常见问题 (FAQ)
@@ -286,7 +328,7 @@ for (const char of chars) {
 检查以下条件:
 1. 工作流中是否存在 Output 节点
 2. LLM 节点是否连接到 Output 节点 (直接或通过 Branch)
-3. Output 节点的模式是否为 Template (Template 模式禁用流式)
+3. Output 节点的模式是否为 Template 或 Merge (这两种模式禁用流式)
 4. 在 direct 模式下，LLM 节点是否为 Output 的第一个来源
 
 ### Q2: 记忆功能不生效?
@@ -307,7 +349,7 @@ for (const char of chars) {
 
 ### Q4: 如何调整打字机速度?
 
-修改 [LLMNodeExecutor.ts](file:///Users/jasperlin/Desktop/product/flash-flow-saas/flash-flow/src/store/executors/LLMNodeExecutor.ts#L273-L274) 中的延迟参数:
+修改 [LLMNodeExecutor.ts](file:///Users/jasperlin/Desktop/product/flash-flow-saas/flash-flow/src/store/executors/LLMNodeExecutor.ts#L283-L284) 中的延迟参数:
 ```typescript
 const delay = chars.length > 50 ? 2 : 5;  // 调整这两个数值
 ```
@@ -322,3 +364,11 @@ newProvider: {
   prefixes: ["model-prefix-"],
 }
 ```
+
+### Q6: JSON 输出模式有什么限制?
+
+- 必须在 `systemPrompt` 中明确说明需要 JSON 格式输出
+- 建议同时降低 `temperature` (0.3 左右) 以获得更稳定的结构化输出
+- 部分模型可能不完全支持 `json_object` 模式
+
+

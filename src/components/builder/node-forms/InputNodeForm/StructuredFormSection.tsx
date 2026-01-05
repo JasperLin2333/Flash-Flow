@@ -3,9 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, GripVertical } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import type { FormFieldConfig, SelectFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
 import { INPUT_CLASS, SECTION_TITLE_CLASS, type StructuredFormSectionProps } from "./constants";
+import { OptionsEditor } from "./OptionsEditor";
 
 /**
  * Utility to convert label to a safe variable name slug
@@ -67,14 +68,15 @@ function FieldEditor({
             <div className="grid grid-cols-2 gap-3">
                 {/* Field Label */}
                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">字段显示名称</label>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">字段名</label>
                     <Input
                         value={field.label}
                         onChange={(e) => {
                             const newLabel = e.target.value;
                             const updates: Partial<FormFieldConfig> = { label: newLabel };
-                            // If name is still identifying as a default/generic one, sync it
-                            if (field.name.startsWith('field_') || field.name === '') {
+                            // Only auto-generate name if it's completely empty (new field)
+                            // Once a name is set, it should remain stable
+                            if (field.name === '') {
                                 const slug = toVariableSlug(newLabel);
                                 if (slug) {
                                     updates.name = `${slug}_${Date.now().toString().slice(-4)}`;
@@ -83,7 +85,7 @@ function FieldEditor({
                             onUpdate(index, updates);
                         }}
                         placeholder="例如：姓名"
-                        className={`${INPUT_CLASS} h-8 text-xs`}
+                        className={`${INPUT_CLASS} h-8 text-xs shadow-none`}
                     />
                 </div>
 
@@ -96,7 +98,7 @@ function FieldEditor({
                             onTypeChange(index, value)
                         }
                     >
-                        <SelectTrigger className={`${INPUT_CLASS} h-8 text-xs`}>
+                        <SelectTrigger size="sm" className={`${INPUT_CLASS} h-8 text-xs py-0 shadow-none`}>
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -111,30 +113,25 @@ function FieldEditor({
             {/* Field Name - Variable Identity */}
             <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">变量标识 (ID)</label>
-                    <span className="text-[9px] text-gray-400 italic">用于逻辑引用，建议仅用小写字母和下划线</span>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">变量ID</label>
+                    <span className="text-[9px] text-gray-400 italic">建议仅用小写字母、数字和下划线</span>
                 </div>
                 <Input
                     value={field.name}
                     onChange={(e) => onUpdate(index, { name: e.target.value })}
                     placeholder="field_name"
-                    className={`${INPUT_CLASS} h-8 font-mono text-[11px] text-blue-600 bg-blue-50/20 border-blue-100 hover:border-blue-200 focus:border-blue-300 transition-colors`}
+                    className={`${INPUT_CLASS} h-8 font-mono text-[11px] shadow-none`}
                 />
             </div>
 
             {/* Type-specific fields */}
             {(field.type === "select" || field.type === "multi-select") && (
                 <div className="space-y-1.5 animate-in fade-in zoom-in-95 duration-200 pt-1 border-t border-gray-100 border-dashed">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">候选项 (中/英逗号分隔)</label>
-                    <Input
-                        value={(field as SelectFieldConfig | MultiSelectFieldConfig).options.join(", ")}
-                        onChange={(e) =>
-                            onUpdate(index, {
-                                options: e.target.value.split(/[,,，，]/).map((s) => s.trim()).filter(Boolean),
-                            })
-                        }
-                        placeholder="选项1, 选项2..."
-                        className={`${INPUT_CLASS} h-8 text-xs`}
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">选项设置</label>
+                    <OptionsEditor
+                        options={(field as SelectFieldConfig | MultiSelectFieldConfig).options}
+                        onChange={(options) => onUpdate(index, { options })}
+                        placeholder="输入选项后按回车添加..."
                     />
                 </div>
             )}

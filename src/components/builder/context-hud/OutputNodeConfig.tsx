@@ -3,13 +3,13 @@ import React, { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, X, ChevronDown } from "lucide-react";
 import type { OutputMode, ContentSource, AttachmentSource, OutputInputMappings } from "@/types/flow";
+import { FormSeparator, NODE_FORM_STYLES } from "../node-forms/shared";
+import { OUTPUT_MODE_OPTIONS } from "@/lib/outputModeConstants";
 
-const MODE_OPTIONS: { value: OutputMode; label: string; description: string }[] = [
-    { value: 'direct', label: '直接引用', description: '从单一上游节点获取输出' },
-    { value: 'select', label: '分支选择', description: '从多个来源中选择第一个非空结果' },
-    { value: 'merge', label: '内容合并', description: '将多个来源的内容合并输出' },
-    { value: 'template', label: '模板渲染', description: '自定义输出格式模板(非流式输出)' },
-];
+const { LABEL: LABEL_CLASS, CARD: CARD_CLASS, CARD_SPACING } = NODE_FORM_STYLES;
+
+// 使用共享常量
+const MODE_OPTIONS = OUTPUT_MODE_OPTIONS;
 
 interface OutputNodeConfigProps {
     inputMappings?: OutputInputMappings;
@@ -58,16 +58,32 @@ export function OutputNodeConfig({
     };
 
     const handleModeChange = (newMode: OutputMode) => {
-        let newSources = sources;
+        // 类型隔离：根据目标模式决定保留哪些字段
+        const isSourceMode = ['direct', 'select', 'merge'].includes(newMode);
+        const isTemplateMode = newMode === 'template';
 
-        // 如果切换到直连模式，只能保留一个 source
-        if (newMode === 'direct') {
-            newSources = sources.slice(0, 1);
+        let newSources: ContentSource[] = [];
+        let newTemplate = '';
+
+        if (isSourceMode) {
+            // sources 类模式：保留现有 sources
+            newSources = sources.length > 0 ? [...sources] : [];
+            // direct 模式只保留第一个
+            if (newMode === 'direct' && newSources.length > 1) {
+                newSources = newSources.slice(0, 1);
+            }
+            // 清空 template（不相关字段）
+            newTemplate = '';
+        } else if (isTemplateMode) {
+            // template 模式：保留现有 template，清空 sources
+            newTemplate = template || '';
+            newSources = [];
         }
 
         updateMappings({
             mode: newMode,
-            sources: newSources
+            sources: newSources,
+            template: newTemplate,
         });
         setShowModeDropdown(false);
     };
@@ -113,7 +129,7 @@ export function OutputNodeConfig({
         <div className="space-y-3">
             {/* 模式选择器 */}
             <div className="relative" ref={dropdownRef}>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 block">
+                <label className={`${LABEL_CLASS} mb-2 block`}>
                     输出模式
                 </label>
                 <button
@@ -148,7 +164,7 @@ export function OutputNodeConfig({
             {mode === 'template' ? (
                 // 模板模式：显示模板编辑器
                 <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 block">
+                    <label className={`${LABEL_CLASS} mb-2 block`}>
                         输出模板
                     </label>
                     <textarea
@@ -165,112 +181,140 @@ export function OutputNodeConfig({
             ) : (
                 // 其他模式：显示 sources 配置
                 <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 block">
+                    <label className={`${LABEL_CLASS} mb-2 block`}>
                         内容来源 {mode === 'direct' && '(单个)'} {mode === 'select' && '(优先级顺序)'} {mode === 'merge' && '(合并顺序)'}
                     </label>
-                    <div className="space-y-2">
-                        {/* 如果 sources 为空，默认显示一个输入框 */}
-                        {sources.length === 0 ? (
-                            <div className="flex items-center gap-2">
+                    <div className={`${CARD_SPACING}`}>
+                        {/* 始终显示主来源 Slot - Direct 模式仅显示此一个 */}
+                        <div className="flex items-center group">
+                            {/* Input */}
+                            <div className="relative flex-1">
                                 <input
                                     type="text"
                                     value={sources[0]?.value || ""}
                                     onChange={(e) => handleUpdateSource(0, e.target.value)}
                                     placeholder="{{节点名.字段}} 或 {{response}}"
                                     disabled={isExecuting}
-                                    className={`flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
                                 />
-                                <div className="w-6 h-6 shrink-0" /> {/* 占位符，保持对齐 */}
-                            </div>
-                        ) : (
-                            sources.map((source, idx) => (
-                                <div key={idx} className="flex items-center gap-2">
-                                    <input
-                                        type="text"
-                                        value={source.value}
-                                        onChange={(e) => handleUpdateSource(idx, e.target.value)}
-                                        placeholder="{{节点名.字段}} 或 {{response}}"
-                                        disabled={isExecuting}
-                                        className={`flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
-                                    />
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 shrink-0"
-                                        onClick={() => handleRemoveSource(idx)}
-                                        disabled={isExecuting}
+                                {sources[0]?.value && !isExecuting && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdateSource(0, "")}
+                                        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded-full text-gray-300 hover:text-gray-500 transition-colors"
                                     >
-                                        <X className="w-3 h-3 text-gray-400 hover:text-red-500" />
-                                    </Button>
-                                </div>
-                            ))
-                        )}
-                        {(mode !== 'direct' || sources.length === 0) && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="w-full h-7 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300"
-                                onClick={handleAddSource}
-                                disabled={isExecuting}
-                            >
-                                <Plus className="w-3 h-3 mr-1" />
-                                添加来源
-                            </Button>
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 其他来源 Slot - 仅在非 Direct 模式下显示 */}
+                        {mode !== 'direct' && (
+                            <>
+                                {sources.slice(1).map((source, idx) => {
+                                    const actualIndex = idx + 1;
+                                    return (
+                                        <div key={actualIndex} className="flex items-center group animate-in fade-in slide-in-from-top-1 duration-200">
+                                            {/* Input */}
+                                            <div className="relative flex-1">
+                                                <input
+                                                    type="text"
+                                                    value={source.value}
+                                                    onChange={(e) => handleUpdateSource(actualIndex, e.target.value)}
+                                                    placeholder="{{变量名}}"
+                                                    disabled={isExecuting}
+                                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-orange-300 focus:ring-1 focus:ring-orange-100 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveSource(actualIndex)}
+                                                    disabled={isExecuting}
+                                                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-red-50 rounded-full text-gray-300 hover:text-red-500 transition-colors"
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                                {/* 添加按钮 */}
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full h-7 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300 rounded-lg"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAddSource(); }}
+                                    disabled={isExecuting}
+                                >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    添加来源
+                                </Button>
+                            </>
                         )}
                     </div>
+
                     {mode === 'select' && (
-                        <p className="text-[9px] text-gray-400 mt-1">
-                            按顺序检查，使用第一个非空结果
+                        <p className="text-[9px] text-gray-400 mt-1 pl-1">
+                            💡 按顺序检查，使用第一个非空结果作为输出
                         </p>
                     )}
                     {mode === 'merge' && (
-                        <p className="text-[9px] text-gray-400 mt-1">
-                            合并所有非空结果，用双换行分隔
+                        <p className="text-[9px] text-gray-400 mt-1 pl-1">
+                            💡 合并所有非空结果，默认用双换行分隔
                         </p>
                     )}
                 </div>
             )}
 
             {/* 附件配置 */}
-            <div className="pt-2 border-t border-gray-100">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 block">
+            <FormSeparator />
+            <div>
+                <label className={`${LABEL_CLASS} mb-2 block`}>
                     附件 (可选)
                 </label>
-                <div className="space-y-2">
+                <div className={`${CARD_SPACING}`}>
+                    {/* 附件列表 */}
                     {attachments.map((attachment, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                            <input
-                                type="text"
-                                value={attachment.value}
-                                onChange={(e) => handleUpdateAttachment(idx, e.target.value)}
-                                placeholder="{{用户输入.files}}"
-                                disabled={isExecuting}
-                                className={`flex-1 text-xs px-3 py-1.5 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
-                            />
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 shrink-0"
-                                onClick={() => handleRemoveAttachment(idx)}
-                                disabled={isExecuting}
-                            >
-                                <X className="w-3 h-3 text-gray-400 hover:text-red-500" />
-                            </Button>
+                        <div key={idx} className="flex items-center group animate-in fade-in slide-in-from-top-1 duration-200">
+                            {/* Input */}
+                            <div className="relative flex-1">
+                                <input
+                                    type="text"
+                                    value={attachment.value}
+                                    onChange={(e) => handleUpdateAttachment(idx, e.target.value)}
+                                    placeholder="{{用户输入.files}}"
+                                    disabled={isExecuting}
+                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-purple-300 focus:ring-1 focus:ring-purple-100 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => handleRemoveAttachment(idx)}
+                                    disabled={isExecuting}
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-red-50 rounded-full text-gray-300 hover:text-red-500 transition-colors"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
                         </div>
                     ))}
+
+                    {/* 添加按钮 */}
                     <Button
+                        type="button"
                         variant="ghost"
                         size="sm"
-                        className="w-full h-7 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300"
-                        onClick={handleAddAttachment}
+                        className="w-full h-7 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300 rounded-lg"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAddAttachment(); }}
                         disabled={isExecuting}
                     >
                         <Plus className="w-3 h-3 mr-1" />
                         添加附件来源
                     </Button>
                 </div>
-                <p className="text-[9px] text-gray-400 mt-1">
-                    引用文件变量（如 <code className="bg-gray-100 px-1 rounded">{`{{用户输入.files}}`}</code> 或 <code className="bg-gray-100 px-1 rounded">{`{{代码执行.generatedFile}}`}</code>）
+                <p className="text-[9px] text-gray-400 mt-1 pl-1">
+                    引用文件URL变量
                 </p>
             </div>
 

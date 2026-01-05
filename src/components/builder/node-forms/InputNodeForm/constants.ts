@@ -20,8 +20,8 @@ export const FILE_TYPE_OPTIONS = [
 // ============ Default Values ============
 export const DEFAULT_FILE_CONFIG: FileInputConfig = {
     allowedTypes: ["*/*"], // All files by default
-    maxSizeMB: 100, // Customizable, default 100MB
-    maxCount: 10, // Default to 10 files
+    maxSizeMB: 100, // Maximum 100MB
+    maxCount: 10, // Maximum 10 files
 };
 
 // ============ Types ============

@@ -96,11 +96,8 @@ function getStreamingConfig(
       return { shouldStream: false, streamMode: 'single', outputNodeId: outputNode.id };
 
     case 'merge':
-      // merge 模式：分段流式（需要是配置的 source 之一）
-      if (configuredSourceIds.length > 0 && !configuredSourceIds.includes(nodeId)) {
-        return noStream; // 不是配置的 source，不流式
-      }
-      return { shouldStream: true, streamMode: 'segmented', outputNodeId: outputNode.id };
+      // merge 模式：禁用流式，等待所有 LLM 完成后一次性合并输出（避免内容错乱）
+      return { shouldStream: false, streamMode: 'single', outputNodeId: outputNode.id };
 
     case 'select':
       // select 模式：首字锁定流式（需要是配置的 source 之一）
@@ -135,8 +132,8 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
     // Merge mockData from argument and context
     const effectiveMockData = mockData || (context.mock as Record<string, unknown>);
 
-    // Quota check
-    const quotaError = await this.checkQuota(effectiveMockData);
+    // Quota check - always check, including debug mode
+    const quotaError = await this.checkQuota();
     if (quotaError) {
       return quotaError;
     }
@@ -174,6 +171,9 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       // 2. 输入内容解析
       const inputContent = this.resolveInputContent(
         context,
+        node,
+        allNodes,
+        globalFlowContext,
         effectiveMockData
       );
 
@@ -182,8 +182,9 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       const flowId = meta?.flowId;
       const sessionId = meta?.sessionId;
       const memoryEnabled = llmData.enableMemory === true;
+      // FIELD MAPPING: memoryMaxTurns (NodeData) → maxTurns (internal/llmMemoryService)
       const maxTurns = llmData.memoryMaxTurns ?? 10;
-      const memoryNodeId = shouldStream ? "__main__" : node.id;
+      const memoryNodeId = this.resolveMemoryNodeId(llmData, node.id);
 
       let conversationHistory: ConversationMessage[] = [];
       if (memoryEnabled && flowId && sessionId) {
@@ -212,7 +213,6 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
               clearStreaming();
             }
           }
-          // segmented 和 select 模式不需要在这里初始化，由 executionActions 在开始时初始化
         }
 
         const resp = await fetch("/api/run-node-stream", {
@@ -296,37 +296,24 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
           }
         }
 
-        // 流式完成后的处理
-        if (shouldStream && streamMode === 'segmented') {
-          completeSegment(node.id);
-        }
-
         // 5. 保存记忆
         if (memoryEnabled && flowId && sessionId && fullResponse) {
           this.saveMemory(flowId, memoryNodeId, sessionId, 'assistant', fullResponse, maxTurns);
         }
 
-        // 6. 扣除额度
-        if (!effectiveMockData || Object.keys(effectiveMockData).length === 0) {
-          this.incrementQuota();
-        }
+        // 6. 刷新额度 UI（服务端已扣减）
+        this.incrementQuota();
 
         return {
           response: fullResponse,
           reasoning: fullReasoning,
-          usage: finalUsage,
         };
 
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
 
         if (shouldStream) {
-          if (streamMode === 'segmented') {
-            // merge 模式失败：标记所有段落为失败（全部失败策略）
-            storeState.failSegment(node.id, errorMessage);
-          } else {
-            storeState.clearStreaming();
-          }
+          storeState.clearStreaming();
         }
         return { error: errorMessage };
       }
@@ -339,42 +326,43 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
   }
 
   /**
-   * 检查配额
+   * 检查配额（始终检查，包括调试模式）
    */
-  private async checkQuota(effectiveMockData?: Record<string, unknown>): Promise<ExecutionResult | null> {
-    if (!effectiveMockData || Object.keys(effectiveMockData).length === 0) {
-      try {
-        const user = await authService.getCurrentUser();
-        if (!user) {
-          return {
-            output: { error: "请先登录以使用 LLM 功能" },
-            executionTime: 0,
-          };
-        }
-
-        const quotaCheck = await quotaService.checkQuota(user.id, "llm_executions");
-        if (!quotaCheck.allowed) {
-          return {
-            output: { error: `LLM 执行次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。` },
-            executionTime: 0,
-          };
-        }
-      } catch (e) {
+  private async checkQuota(): Promise<ExecutionResult | null> {
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) {
         return {
-          output: { error: "配额检查失败，请稍后重试或联系支持" },
+          output: { error: "请先登录以使用 LLM 功能" },
           executionTime: 0,
         };
       }
+
+      const quotaCheck = await quotaService.checkQuota(user.id, "llm_executions");
+      if (!quotaCheck.allowed) {
+        return {
+          output: { error: `LLM 执行次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。` },
+          executionTime: 0,
+        };
+      }
+    } catch (e) {
+      return {
+        output: { error: "配额检查失败，请稍后重试或联系支持" },
+        executionTime: 0,
+      };
     }
     return null;
   }
 
   /**
    * 解析输入内容
-   * 必须通过 inputMappings.user_input 显式配置
+   * 支持通过 inputMappings.user_input 配置变量引用（如 {{输入.formData.用户输入}}）
    */
   private resolveInputContent(
     context: FlowContext,
+    node: AppNode,
+    allNodes: AppNode[],
+    globalFlowContext: FlowContext,
     effectiveMockData?: Record<string, unknown>
   ): string {
     // 调试模式：使用第一个 mock 值
@@ -386,18 +374,29 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       return Object.values(stringValues)[0] || "";
     }
 
-    // 从上游 context 中获取 user_input（通过 inputMappings 配置）
-    const upstreamEntries = Object.entries(context).filter(([key]) => !key.startsWith('_'));
-    for (const [, data] of upstreamEntries) {
-      if (data && typeof data === 'object') {
-        const obj = data as Record<string, unknown>;
-        if (typeof obj.user_input === 'string' && obj.user_input.trim()) {
-          return obj.user_input;
-        }
-      }
+    // 1. 优先从 inputMappings.user_input 解析变量引用
+    const llmData = node.data as LLMNodeData;
+    const inputMappings = (llmData as Record<string, unknown>).inputMappings as Record<string, string> | undefined;
+    const userInputTemplate = inputMappings?.user_input;
+
+    if (userInputTemplate) {
+      // 收集所有可用变量并进行替换
+      const allVariables = collectVariables(context, globalFlowContext, allNodes);
+      return replaceVariables(userInputTemplate, allVariables);
     }
 
+    // 2. Fallback removed: Strict strict adherence to inputMappings is now enforced.
+    // If inputMappings.user_input is not set, we return empty string.
     return "";
+
+  }
+
+  /**
+   * 获取记忆存储的 nodeId（每个节点独立记忆）
+   */
+  private resolveMemoryNodeId(_llmData: LLMNodeData, actualNodeId: string): string {
+    // 简化设计：每个 LLM 节点独立维护自己的记忆
+    return actualNodeId;
   }
 
   /**
@@ -458,9 +457,6 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
   }
 
   /**
-   * 扣除额度
-   */
-  /**
    * 刷新额度 UI（服务端已经扣减，这里只刷新显示）
    * PERF FIX: Server-side already incremented quota in /api/run-node-stream
    * This eliminates cross-border Supabase PATCH that caused 406 PGRST116 conflicts
@@ -490,10 +486,6 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
     const { appendStreamingText, appendToSegment, tryLockSource } = storeState;
 
     switch (streamMode) {
-      case "segmented":
-        appendToSegment(nodeId, buffer);
-        break;
-
       case "select":
         if (tryLockSource(nodeId)) {
           appendStreamingText(buffer);

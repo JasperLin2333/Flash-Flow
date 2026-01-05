@@ -7,10 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
 import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
 import { showError } from "@/utils/errorNotify";
-import { NODE_FORM_STYLES, type BaseNodeFormProps } from "./shared";
+import { NODE_FORM_STYLES, type BaseNodeFormProps, FormSeparator } from "./shared";
 
 // ============ 配置常量 ============
 const LLM_CONFIG = {
@@ -38,6 +39,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
   const [models, setModels] = useState<LLMModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // 加载可用模型列表
   const loadModels = async () => {
@@ -130,47 +132,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
         )}
       />
 
-      {/* 温度参数 */}
-      <FormField
-        control={form.control}
-        name="temperature"
-        render={({ field }) => {
-          // FIX: Extract current temperature value with proper fallback
-          const currentTemp = field.value ?? LLM_CONFIG.DEFAULT_TEMPERATURE;
 
-          return (
-            <FormItem>
-              <div className="flex items-center justify-between">
-                <FormLabel className={STYLES.LABEL}>温度</FormLabel>
-                <span className="text-xs text-gray-600 font-mono">
-                  {currentTemp.toFixed(1)}
-                </span>
-              </div>
-              <FormControl>
-                {/* 
-                  CRITICAL FIX: Use controlled mode (value) instead of uncontrolled (defaultValue)
-                  
-                  WHY: Radix Slider with defaultValue only sets initial position on mount.
-                  When field.value changes, the slider position doesn't update, causing
-                  visual mismatch between displayed number and slider position.
-                  
-                  SOLUTION: Use value prop to make it fully controlled by form state.
-                  This ensures slider position always reflects field.value.
-                */}
-                <Slider
-                  min={LLM_CONFIG.TEMPERATURE_MIN}
-                  max={LLM_CONFIG.TEMPERATURE_MAX}
-                  step={LLM_CONFIG.TEMPERATURE_STEP}
-                  value={[currentTemp]}
-                  onValueChange={(vals) => field.onChange(vals[0])}
-                  className="py-2"
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          );
-        }}
-      />
 
       {/* 系统提示词 */}
       <FormField
@@ -181,14 +143,14 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
             <FormLabel className={STYLES.LABEL}>
               系统提示词
               <span className="ml-2 text-[9px] font-normal text-gray-400 normal-case">
-                提示词支持变量引用：{`{{变量名}}`}
+                支持通过{`{{变量名}}`}引用变量的值
               </span>
             </FormLabel>
             <FormControl>
               <Textarea
                 {...field}
-                placeholder="系统提示词用于设定 AI 的基本行为。例如：让它扮演什么角色、用什么语气回答、重点关注什么、需要避免什么。这些规则会一直影响后续回答。"
-                className={`min-h-[${LLM_CONFIG.SYSTEM_PROMPT_MIN_HEIGHT}px] font-mono text-xs ${STYLES.INPUT}`}
+                placeholder="用于设定 AI 的基本行为，例如：让它扮演什么角色、用什么语气回答、重点关注什么、需要避免什么。这些规则会一直影响后续回答。"
+                className={`min-h-[${LLM_CONFIG.SYSTEM_PROMPT_MIN_HEIGHT}px] font-mono text-xs ${STYLES.INPUT} bg-white`}
               />
             </FormControl>
             <FormMessage />
@@ -197,101 +159,167 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
       />
 
       {/* 分隔线 */}
-      <div className="border-t border-gray-100 my-2" />
+      <FormSeparator />
 
-      {/* 对话记忆开关 */}
-      <FormField
-        control={form.control}
-        name="enableMemory"
-        render={({ field }) => (
-          <FormItem>
-            <div className="flex items-center justify-between">
-              <div>
-                <FormLabel className={STYLES.LABEL}>对话记忆</FormLabel>
-                <p className="text-[9px] text-gray-400 mt-0.5">
-                  启用后，LLM 将记住同一会话中的对话历史
-                </p>
-              </div>
-              <FormControl>
-                <Switch
-                  checked={field.value ?? false}
-                  onCheckedChange={field.onChange}
-                />
-              </FormControl>
-            </div>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-
-      {/* 最大记忆轮数（仅在记忆启用时显示） */}
-      {enableMemory && (
-        <FormField
-          control={form.control}
-          name="memoryMaxTurns"
-          render={({ field }) => {
-            const currentTurns = field.value ?? LLM_CONFIG.DEFAULT_MEMORY_MAX_TURNS;
-
-            return (
+      {/* 对话记忆区块 */}
+      <div className="space-y-2">
+        <div className={`${STYLES.LABEL} px-1`}>记忆设置</div>
+        <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100 space-y-3">
+          {/* 对话记忆开关 */}
+          <FormField
+            control={form.control}
+            name="enableMemory"
+            render={({ field }) => (
               <FormItem>
                 <div className="flex items-center justify-between">
-                  <FormLabel className={STYLES.LABEL}>最大记忆轮数</FormLabel>
-                  <span className="text-xs text-gray-600 font-mono">
-                    {currentTurns} 轮
-                  </span>
+                  <div>
+                    <span className="text-xs font-semibold text-gray-700">记忆</span>
+                    <p className="text-[10px] text-gray-500 mt-0.5">
+                      启用后，AI将记住同一会话中的对话历史
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value ?? false}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
                 </div>
-                <FormControl>
-                  <Slider
-                    min={LLM_CONFIG.MEMORY_MIN_TURNS}
-                    max={LLM_CONFIG.MEMORY_MAX_TURNS}
-                    step={1}
-                    value={[currentTurns]}
-                    onValueChange={(vals) => field.onChange(vals[0])}
-                    className="py-2"
-                  />
-                </FormControl>
-                <p className="text-[9px] text-gray-400">
-                  保留最近 {currentTurns} 轮对话作为上下文
-                </p>
                 <FormMessage />
               </FormItem>
-            );
-          }}
-        />
-      )}
+            )}
+          />
+
+          {/* 最大记忆轮数（仅在记忆启用时显示） */}
+          {enableMemory && (
+            <div className="pt-3 border-t border-gray-200/60 animate-in fade-in slide-in-from-top-1 duration-200">
+              <FormField
+                control={form.control}
+                name="memoryMaxTurns"
+                render={({ field }) => {
+                  const currentTurns = field.value ?? LLM_CONFIG.DEFAULT_MEMORY_MAX_TURNS;
+
+                  return (
+                    <FormItem>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-gray-600">最大记忆轮数</span>
+                        <span className="text-xs text-gray-600 font-mono">
+                          {currentTurns} 轮
+                        </span>
+                      </div>
+                      <FormControl>
+                        <Slider
+                          min={LLM_CONFIG.MEMORY_MIN_TURNS}
+                          max={LLM_CONFIG.MEMORY_MAX_TURNS}
+                          step={1}
+                          value={[currentTurns]}
+                          onValueChange={(vals) => field.onChange(vals[0])}
+                          className="py-2"
+                        />
+                      </FormControl>
+                      <p className="text-[9px] text-gray-400 mt-1">
+                        保留最近 {currentTurns} 轮对话作为上下文
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* 分隔线 */}
-      <div className="border-t border-gray-100 my-2" />
+      <FormSeparator />
 
-      {/* JSON 输出格式 */}
-      <FormField
-        control={form.control}
-        name="responseFormat"
-        render={({ field }) => (
-          <FormItem>
-            <div className="flex items-center justify-between">
-              <div>
-                <FormLabel className={STYLES.LABEL}>JSON 输出模式</FormLabel>
-                <p className="text-[9px] text-gray-400 mt-0.5">
-                  启用后，LLM 将强制输出有效的 JSON 格式
-                </p>
-              </div>
-              <FormControl>
-                <Switch
-                  checked={field.value === 'json_object'}
-                  onCheckedChange={(checked) => field.onChange(checked ? 'json_object' : 'text')}
-                />
-              </FormControl>
-            </div>
-            {field.value === 'json_object' && (
-              <p className="text-[9px] text-amber-600 bg-amber-50 px-2 py-1 rounded mt-1">
-                💡 提示：请在系统提示词中说明期望的 JSON 结构，例如"请以 JSON 格式输出"
-              </p>
-            )}
-            <FormMessage />
-          </FormItem>
+      {/* 高级参数标题 - 可折叠 */}
+      <div className="space-y-3">
+        <div
+          className="flex items-center justify-between cursor-pointer group"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+        >
+          <div className={`${STYLES.LABEL} px-1 group-hover:text-gray-900 transition-colors`}>高级设置</div>
+          {showAdvanced ? (
+            <ChevronUp className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+          )}
+        </div>
+
+        {showAdvanced && (
+          <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+            {/* 温度参数 */}
+            <FormField
+              control={form.control}
+              name="temperature"
+              render={({ field }) => {
+                const currentTemp = field.value ?? LLM_CONFIG.DEFAULT_TEMPERATURE;
+
+                return (
+                  <FormItem>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-gray-700">温度</span>
+                      <span className="text-xs text-gray-600 font-mono">
+                        {currentTemp.toFixed(1)}
+                      </span>
+                    </div>
+                    <FormControl>
+                      <Slider
+                        min={LLM_CONFIG.TEMPERATURE_MIN}
+                        max={LLM_CONFIG.TEMPERATURE_MAX}
+                        step={LLM_CONFIG.TEMPERATURE_STEP}
+                        value={[currentTemp]}
+                        onValueChange={(vals) => field.onChange(vals[0])}
+                        className="py-2"
+                      />
+                    </FormControl>
+                    <p className="text-[9px] text-gray-400 mt-1">
+                      数值越低越精确，数值越高越有创意
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
+            />
+
+            {/* 分隔 */}
+            <FormSeparator className="border-gray-200/60 my-3" />
+
+            {/* JSON 输出格式 */}
+            <FormField
+              control={form.control}
+              name="responseFormat"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-gray-700">JSON 输出模式</span>
+                      <p className="text-[10px] text-gray-500 mt-0.5">
+                        强制 LLM 输出有效的 JSON 格式
+                      </p>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value === 'json_object'}
+                        onCheckedChange={(checked) => field.onChange(checked ? 'json_object' : 'text')}
+                      />
+                    </FormControl>
+                  </div>
+                  {field.value === 'json_object' && (
+                    <div className="bg-amber-50 rounded-md p-2 mt-2 border border-amber-100">
+                      <p className="text-[9px] text-amber-600 font-medium flex items-center gap-1">
+                        提示：请在系统提示词中说明"请以 JSON 格式输出"
+                      </p>
+                    </div>
+                  )}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
         )}
-      />
+      </div>
     </>
   );
 }

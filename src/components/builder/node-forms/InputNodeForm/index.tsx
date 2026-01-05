@@ -16,6 +16,7 @@ import {
 } from "./constants";
 import { FileInputSection } from "./FileInputSection";
 import { StructuredFormSection } from "./StructuredFormSection";
+import { FormSeparator } from "../shared";
 
 /**
  * InputNodeForm - Input 节点配置表单
@@ -71,10 +72,6 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
         updateFormValue("enableStructuredForm", checked);
         if (checked && formFields.length === 0) {
             updateFormValue("formFields", []);
-        } else if (!checked) {
-            // 关闭结构化表单时，清空字段配置和表单数据
-            updateFormValue("formFields", []);
-            updateFormValue("formData", undefined);
         }
     };
 
@@ -128,18 +125,15 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                 )}
             />
 
-            {/* 分隔线 */}
-            <div className="border-t border-gray-100 my-4" />
-
             {/* Input Capabilities Section */}
-            <div className="space-y-3">
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">输入能力配置</div>
+            <div className="space-y-2">
+                <div className={`${LABEL_CLASS} px-1`}>输入方式</div>
                 <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100 space-y-3">
                     {/* Text Input Toggle */}
                     <div className="flex items-center justify-between">
                         <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-gray-700">自由文本输入</span>
-                            <span className="text-[10px] text-gray-500">允许用户输入任意文本内容</span>
+                            <span className="text-xs font-semibold text-gray-700">文本输入</span>
+                            <span className="text-[10px] text-gray-500">允许输入文本内容</span>
                         </div>
                         <Switch checked={enableTextInput} onCheckedChange={handleTextInputToggle} />
                     </div>
@@ -147,8 +141,8 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                     {/* File Input Toggle */}
                     <div className="flex items-center justify-between border-t border-gray-100 pt-3">
                         <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-gray-700">文件/图像上传</span>
-                            <span className="text-[10px] text-gray-500">支持图片、文档等各类文件上传</span>
+                            <span className="text-xs font-semibold text-gray-700">文件 / 图像上传</span>
+                            <span className="text-[10px] text-gray-500">允许各类文件上传</span>
                         </div>
                         <Switch checked={enableFileInput} onCheckedChange={handleFileInputToggle} />
                     </div>
@@ -156,8 +150,8 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                     {/* Structured Form Toggle */}
                     <div className="flex items-center justify-between border-t border-gray-100 pt-3">
                         <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-gray-700">结构化表单</span>
-                            <span className="text-[10px] text-gray-500">定义特定字段（如下拉框、单选）</span>
+                            <span className="text-xs font-semibold text-gray-700">快捷表单</span>
+                            <span className="text-[10px] text-gray-500">通过表单快速描述需求，让对话更有条理</span>
                         </div>
                         <Switch checked={enableStructuredForm} onCheckedChange={handleStructuredFormToggle} />
                     </div>
@@ -166,11 +160,11 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
 
             {/* Conditional Configuration Sections */}
             {(enableFileInput || enableStructuredForm) && (
-                <div className="space-y-6 mt-6">
+                <div className="space-y-4">
                     {/* File/Image Configuration */}
                     {enableFileInput && (
-                        <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">文件上传设置</div>
+                        <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                            <div className={`${LABEL_CLASS} px-1`}>文件上传设置</div>
                             <FileInputSection
                                 enabled={true}
                                 onToggle={() => { }} // Toggle handled by parent
@@ -183,8 +177,8 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
 
                     {/* Structured Form Configuration */}
                     {enableStructuredForm && (
-                        <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">表单字段配置</div>
+                        <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                            <div className={`${LABEL_CLASS} px-1`}>表单设置</div>
                             <StructuredFormSection
                                 enabled={true}
                                 onToggle={() => { }} // Toggle handled by parent
@@ -200,8 +194,7 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                 </div>
             )}
 
-            {/* 分隔线 */}
-            <div className="border-t border-gray-100 my-4" />
+            <FormSeparator />
 
             {/* 招呼语配置 */}
             <FormField
@@ -213,9 +206,9 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                         <FormControl>
                             <textarea
                                 {...field}
-                                placeholder="在APP页面显示，引导用户如何使用该助手..."
+                                placeholder="引导用户如何使用该助手..."
                                 rows={3}
-                                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+                                className="flex w-full rounded-md border border-input bg-white px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
                             />
                         </FormControl>
                         <FormMessage />

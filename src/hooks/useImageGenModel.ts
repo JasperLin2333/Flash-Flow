@@ -13,30 +13,7 @@ import {
     DEFAULT_IMAGEGEN_CAPABILITIES
 } from "@/services/imageGenModelsAPI";
 import { showError } from "@/utils/errorNotify";
-
-// Configuration constants
-const IMAGEGEN_CONFIG = {
-    STEPS_MIN_DEFAULT: 1,
-    STEPS_MAX_DEFAULT: 50,
-    QUALITY_MIN: 1,
-    QUALITY_MAX: 100,
-} as const;
-
-// Size display name mapping
-const SIZE_DISPLAY_NAMES: Record<string, string> = {
-    '1024x1024': '1:1 正方形',
-    '960x1280': '3:4 竖版',
-    '768x1024': '3:4 竖版',
-    '720x1440': '1:2 竖版',
-    '720x1280': '9:16 竖版',
-    '1328x1328': '1:1 正方形',
-    '1664x928': '16:9 横版',
-    '928x1664': '9:16 竖版',
-    '1472x1140': '4:3 横版',
-    '1140x1472': '3:4 竖版',
-    '1584x1056': '3:2 横版',
-    '1056x1584': '2:3 竖版',
-};
+import { SIZE_DISPLAY_NAMES, IMAGEGEN_CONFIG } from "@/store/constants/imageGenConstants";
 
 export interface ImageGenModelHookResult {
     // Model data
@@ -113,12 +90,25 @@ export function useImageGenModel(selectedModelId: string | undefined): ImageGenM
         , [capabilities]);
 
     // Size options with display names
+    // Size options with display names
     const sizeOptions = useMemo(() => {
         const sizes = capabilities.imageSizes || [];
-        return sizes.map(size => ({
-            value: size,
-            label: SIZE_DISPLAY_NAMES[size] || size,
-        }));
+        return sizes.map((size: any) => {
+            if (typeof size === 'object' && size !== null) {
+                // Handle case where size is an object (e.g. { value: "1024x1024", label: "Square" })
+                // This protects against inconsistent data structures from the API
+                const value = size.value || "";
+                const label = size.label || SIZE_DISPLAY_NAMES[value] || value;
+                return { value, label };
+            }
+
+            // Handle standard string case
+            const value = String(size);
+            return {
+                value,
+                label: SIZE_DISPLAY_NAMES[value] || value,
+            };
+        });
     }, [capabilities]);
 
     // Get model display name

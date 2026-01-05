@@ -23,6 +23,7 @@ export class InputNodeExecutor extends BaseNodeExecutor {
       }
 
       // Include formData as a nested object (fields accessible via formData.fieldName)
+      // 注意：不再过滤 field_ 前缀，因为默认创建的表单字段使用此前缀
       if (inputData.formData && Object.keys(inputData.formData).length > 0) {
         output.formData = inputData.formData;
       }

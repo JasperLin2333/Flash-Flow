@@ -28,6 +28,10 @@ function AppContent() {
     const setNodes = useFlowStore((s) => s.setNodes);
     const setEdges = useFlowStore((s) => s.setEdges);
 
+    // Streaming mode state for segmented/select modes (merge/select Output modes)
+    const streamingMode = useFlowStore((s) => s.streamingMode);
+    const streamingSegments = useFlowStore((s) => s.streamingSegments);
+
     const {
         messages,
         input,
@@ -97,7 +101,37 @@ function AppContent() {
 
     // Compute display messages: append streaming text as partial assistant message
     // 当有流式输出时，将其作为临时助手消息显示
+    // FIX: Added segmented mode support for merge/select Output modes (consistent with AppModeOverlay)
     const { displayMessages, shouldShowLoading } = useMemo(() => {
+        // Handle segmented streaming (merge mode) - must check first
+        if (streamingMode === 'segmented' && streamingSegments.length > 0) {
+            // Concatenate all segment contents that have data
+            const combinedContent = streamingSegments
+                .filter(s => s.content)
+                .map(s => s.content)
+                .join('\n\n');
+
+            if (combinedContent) {
+                if (!streamingStartTimeRef.current) {
+                    streamingStartTimeRef.current = new Date();
+                }
+                return {
+                    displayMessages: [...messages, {
+                        role: "assistant" as const,
+                        content: combinedContent,
+                        timestamp: streamingStartTimeRef.current
+                    }],
+                    shouldShowLoading: false
+                };
+            }
+
+            // Segments initialized but no content yet - show loading
+            const lastMessage = messages[messages.length - 1];
+            const isWaitingForResponse = isLoading && lastMessage?.role === "user";
+            return { displayMessages: messages, shouldShowLoading: isWaitingForResponse };
+        }
+
+        // Handle single/select streaming (existing logic)
         if (isStreaming && streamingText) {
             if (!streamingStartTimeRef.current) {
                 streamingStartTimeRef.current = new Date();
@@ -121,7 +155,7 @@ function AppContent() {
             displayMessages: messages,
             shouldShowLoading: isWaitingForResponse // 只有在等待回复时显示loading
         };
-    }, [messages, isStreaming, streamingText, isLoading]);
+    }, [messages, isStreaming, streamingText, isLoading, streamingMode, streamingSegments]);
 
     // 等待数据加载完成
     if (isInitializing) {

@@ -10,6 +10,11 @@ import { Search, Calculator as CalcIcon, Clock, Globe, Terminal } from "lucide-r
 export type ToolType = "web_search" | "calculator" | "datetime" | "url_reader" | "code_interpreter";
 
 /**
+ * Default tool type used as fallback
+ */
+export const DEFAULT_TOOL_TYPE: ToolType = "web_search";
+
+/**
  * Zod schema type helper - extracts input type from schema
  */
 export type ToolInputs<T extends z.ZodTypeAny> = z.infer<T>;
@@ -37,12 +42,10 @@ const webSearchSchema = z.object({
     query: z.string()
         .min(1, "Query is required")
         .describe("请在此输入你想要搜索的内容"),
-    maxResults: z.number()
+    maxResults: z.coerce.number()
         .int()
         .min(1)
         .max(10)
-        .default(5)
-        .optional()
         .describe("请在此输入你期望搜索内容的最大数量 (1-10)"),
 });
 
@@ -60,37 +63,62 @@ const calculatorSchema = z.object({
  * Datetime Tool Schema
  * Provides date/time operations: get current time, format, diff, add/subtract
  */
-const datetimeSchema = z.object({
-    operation: z.enum(["now", "format", "diff", "add"])
-        .default("now")
-        .describe("操作类型：now(获取当前时间)、format(格式化)、diff(日期差)、add(日期加减)"),
-    date: z.string()
-        .optional()
-        .describe("输入日期（ISO 格式或常见格式），留空则使用当前时间"),
-    targetDate: z.string()
-        .optional()
-        .describe("目标日期（用于计算日期差）"),
-    format: z.string()
-        .default("YYYY-MM-DD HH:mm:ss")
-        .optional()
-        .describe("输出格式，如 YYYY-MM-DD、HH:mm:ss 等"),
-    amount: z.number()
-        .optional()
-        .describe("增减数量（用于日期加减）"),
-    unit: z.enum(["year", "month", "day", "hour", "minute", "second"])
-        .optional()
-        .describe("时间单位（用于日期加减）"),
-});
+const datetimeSchema = z.discriminatedUnion("operation", [
+    // 1. Now: Only optional format
+    z.object({
+        operation: z.literal("now").describe("操作类型"),
+        format: z.string()
+            .default("YYYY-MM-DD HH:mm:ss")
+            .optional()
+            .describe("输出格式，如 YYYY-MM-DD、HH:mm:ss 等"),
+    }),
 
-/**
- * Weather Tool Schema
- * Queries real-time weather for a specified city
- */
-const weatherSchema = z.object({
-    city: z.string()
-        .min(1, "城市名称不能为空")
-        .describe("请输入要查询天气的城市名称，如：北京、上海"),
-});
+    // 2. Format: Date + Format required
+    z.object({
+        operation: z.literal("format").describe("操作类型"),
+        date: z.string()
+            .min(1, "格式化操作必须输入日期")
+            .describe("输入日期（ISO 格式或常见格式）"),
+        format: z.string()
+            .min(1, "格式化操作必须指定输出格式")
+            .default("YYYY-MM-DD HH:mm:ss")
+            .describe("输出格式，如 YYYY-MM-DD、HH:mm:ss 等"),
+    }),
+
+    // 3. Diff: Date + TargetDate required, unit optional
+    z.object({
+        operation: z.literal("diff").describe("操作类型"),
+        date: z.string()
+            .min(1, "计算日期差必须输入开始日期")
+            .describe("开始日期"),
+        targetDate: z.string()
+            .min(1, "计算日期差必须输入结束日期")
+            .describe("结束日期（用于计算日期差）"),
+        unit: z.enum(["year", "month", "day", "hour", "minute", "second"])
+            .default("day")
+            .describe("时间单位（默认为天）"),
+    }),
+
+    // 4. Add: Date + Amount + Unit required
+    z.object({
+        operation: z.literal("add").describe("操作类型"),
+        date: z.string()
+            .min(1, "日期计算必须输入基础日期")
+            .describe("基础日期"),
+        amount: z.coerce.number()
+            .int() // Assuming integer checks are desired, otherwise just number
+            .describe("增减数量（负数代表减少）"),
+        unit: z.enum(["year", "month", "day", "hour", "minute", "second"])
+            .describe("时间单位"),
+        format: z.string()
+            .default("YYYY-MM-DD HH:mm:ss")
+            .optional()
+            .describe("输出结果的格式"),
+    }),
+]);
+
+
+
 
 /**
  * URL Reader Tool Schema
@@ -100,7 +128,7 @@ const urlReaderSchema = z.object({
     url: z.string()
         .url("请输入有效的 URL")
         .describe("请输入要读取的网页 URL"),
-    maxLength: z.number()
+    maxLength: z.coerce.number()
         .int()
         .min(100)
         .max(50000)
@@ -253,3 +281,29 @@ export function validateToolInputs(toolId: ToolType, inputs: unknown) {
 
     return { success: true as const, data: result.data };
 }
+
+// ============ Datetime Tool Constants ============
+
+/**
+ * Datetime operation options for UI rendering
+ * Used by ToolDebugDialog to dynamically render operation selector
+ */
+export const DATETIME_OPERATIONS = [
+    { value: "now", label: "now (获取当前时间)" },
+    { value: "format", label: "format (格式化日期)" },
+    { value: "diff", label: "diff (计算时间差)" },
+    { value: "add", label: "add (日期加减)" },
+] as const;
+
+/**
+ * Time unit options for datetime tool
+ */
+export const TIME_UNIT_OPTIONS = [
+    { value: "year", label: "年" },
+    { value: "month", label: "月" },
+    { value: "day", label: "日" },
+    { value: "hour", label: "小时" },
+    { value: "minute", label: "分" },
+    { value: "second", label: "秒" },
+] as const;
+

@@ -6,6 +6,7 @@ import { hasCycle } from "../utils/cycleDetection";
 import { calculateTopologicalLevels, groupNodesByLevel, getDescendants } from "../utils/parallelExecutionUtils";
 import { resolveSourceNodeIdFromSource } from "../utils/sourceResolver";
 import { showWarning } from "@/utils/errorNotify";
+import { checkInputNodeMissing } from "../utils/inputValidation";
 
 
 export const createExecutionActions = (
@@ -24,7 +25,7 @@ export const createExecutionActions = (
 
         if (!node) throw new Error(`Node ${nodeId} not found during execution`);
 
-        if (isDebugRunner && node.type === 'input') {
+        if (isDebugRunner && node.type === 'input' && !mockInputData) {
             return null;
         }
 
@@ -133,30 +134,7 @@ export const createExecutionActions = (
             // 2. Check if input nodes have valid data or need user input
             const inputNodes = nodes.filter((n: AppNode) => n.type === 'input');
             const invokeInputPrompt = inputNodes.some((n: AppNode) => {
-                const data = n.data as InputNodeData;
-
-                // Text field is now optional - no validation needed
-                const isTextMissing = false;
-
-                // File field is now optional - no validation needed
-                const isFileMissing = false;
-
-                // Check Form
-                // If form is enabled, check if any REQUIRED field is missing
-                const isFormEnabled = data.enableStructuredForm === true && Array.isArray(data.formFields);
-                let isFormMissing = false;
-                if (isFormEnabled && data.formFields) {
-                    isFormMissing = data.formFields.some(field =>
-                        field.required && (
-                            data.formData?.[field.name] === undefined ||
-                            data.formData?.[field.name] === null ||
-                            (typeof data.formData[field.name] === 'string' && (data.formData[field.name] as string).trim() === '') ||
-                            (Array.isArray(data.formData[field.name]) && (data.formData[field.name] as unknown[]).length === 0)
-                        )
-                    );
-                }
-
-                return isTextMissing || isFileMissing || isFormMissing;
+                return checkInputNodeMissing(n.data as InputNodeData);
             });
 
             if (invokeInputPrompt) {
@@ -353,7 +331,14 @@ export const createExecutionActions = (
         runNode: async (nodeId: string, mockInputData?: Record<string, unknown>) => {
             const node = get().nodes.find((n: AppNode) => n.id === nodeId);
             if (!node || !node.type) return;
-            if (node.type === "input") return;
+            if (node.type === "input" && !mockInputData) return;
+
+            // Track running node
+            set((state: FlowState) => {
+                const newRunningNodeIds = new Set(state.runningNodeIds);
+                newRunningNodeIds.add(nodeId);
+                return { runningNodeIds: newRunningNodeIds };
+            });
 
             // Check if there are incoming connections
             const incomingEdges = get().edges.filter((e: AppEdge) => e.target === nodeId);
@@ -377,8 +362,18 @@ export const createExecutionActions = (
                     set({ flowContext: { ...prev, [nodeId]: result.output } });
                 }
             } catch (error) {
-                // Silently handled
+                console.error(`Node ${nodeId} direct execution failed:`, error);
+                throw error;
+            } finally {
+                // Remove from running nodes
+                set((state: FlowState) => {
+                    const newRunningNodeIds = new Set(state.runningNodeIds);
+                    newRunningNodeIds.delete(nodeId);
+                    return { runningNodeIds: newRunningNodeIds };
+                });
             }
         },
+
+
     };
 };

@@ -4,12 +4,25 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { User, Brain, Download, Search, Clock, CheckCircle2, Loader2, AlertCircle, Play, Wrench, GitBranch, Image } from "lucide-react";
-import type { LLMNodeData, RAGNodeData, InputNodeData, ExecutionStatus, AppNode } from "@/types/flow";
+import type { LLMNodeData, RAGNodeData, InputNodeData, ExecutionStatus, AppNode, FlowState } from "@/types/flow";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFlowStore } from "@/store/flowStore";
 import { useShallow } from "zustand/shallow";
 import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
+import { isOutputNodeConfigured } from "@/store/utils/outputNodeUtils";
+import { HANDLE_STYLE, METADATA_LABEL_STYLE, METADATA_VALUE_STYLE } from "./constants";
+
+import {
+  LLMMetadata,
+  RAGMetadata,
+  InputMetadata,
+  OutputMetadata,
+  ToolMetadata,
+  BranchMetadata,
+  ImageGenMetadata
+} from "./nodes/metadata";
+import { handleNodeTest } from "@/store/utils/nodeTestUtils";
 
 // ============ Constants ============
 const ICON: Record<string, React.ReactNode> = {
@@ -29,77 +42,7 @@ const STATUS_ICON: Record<ExecutionStatus, React.ReactNode> = {
   error: <AlertCircle className="w-3 h-3 text-destructive" />,
 };
 
-const HIDE_DEBUG_NODE_TYPES = ["branch"];
-// 统一使用 Tool 节点的字体样式
-const METADATA_LABEL_STYLE = "text-xs text-gray-500 font-semibold";
-const METADATA_VALUE_STYLE = "text-xs text-gray-500";
-// 统一 Handle 样式：包含 z-index 和扩展点击区域
-const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 transition-all duration-150 hover:scale-125 z-50 after:content-[''] after:absolute after:-inset-4 after:rounded-full";
-
-// PERFORMANCE FIX: Wrap with React.memo to prevent unnecessary re-renders
-// When one node updates, all other nodes won't re-render
-// FIX: Extract LLM metadata component to properly use Hooks
-function LLMMetadata({ llm }: { llm: LLMNodeData }) {
-  // FIX: Initialize with empty string to avoid showing stale model_id
-  const [modelName, setModelName] = React.useState<string>("");
-  // Track the current model being fetched to handle race conditions
-  const currentModelRef = React.useRef<string | undefined>(undefined);
-
-  React.useEffect(() => {
-    const modelId = llm?.model;
-
-    // Always reset when model changes to avoid showing old name
-    if (currentModelRef.current !== modelId) {
-      setModelName(""); // Clear while loading
-      currentModelRef.current = modelId;
-    }
-
-    if (!modelId) return;
-
-    import("@/services/llmModelsAPI").then(({ llmModelsAPI }) => {
-      llmModelsAPI.listModels().then(models => {
-        // Only update if this is still the current model (avoid race conditions)
-        if (currentModelRef.current !== modelId) return;
-
-        const found = models.find(m => m.model_id === modelId);
-        if (found) {
-          setModelName(found.model_name);
-        } else {
-          // FIX: If model not found in DB, show a friendly display name
-          // Extract last segment of model_id (e.g., "qwen-flash" from "Qwen/qwen-flash")
-          const displayName = modelId.includes('/')
-            ? modelId.split('/').pop() || modelId
-            : modelId;
-          setModelName(displayName);
-        }
-      });
-    });
-  }, [llm?.model]);
-
-  const hasConfig = llm?.model;
-  if (!hasConfig) return null;
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <span className={METADATA_LABEL_STYLE}>模型</span>
-        <span className={METADATA_VALUE_STYLE}>{modelName || "加载中..."}</span>
-      </div>
-      {typeof llm.temperature === "number" && (
-        <div className="flex items-center gap-2">
-          <span className={METADATA_LABEL_STYLE}>温度</span>
-          <span className={METADATA_VALUE_STYLE}>{llm.temperature}</span>
-        </div>
-      )}
-      {llm.enableMemory && (
-        <div className="flex items-center gap-2">
-          <span className={METADATA_LABEL_STYLE}>记忆</span>
-          <span className={METADATA_VALUE_STYLE}>开启 ({llm.memoryMaxTurns || 10}轮)</span>
-        </div>
-      )}
-    </div>
-  );
-}
+const HIDE_DEBUG_NODE_TYPES: string[] = [];  // All node types now support testing
 
 const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   const llm = data as LLMNodeData;
@@ -111,174 +54,52 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   // PERFORMANCE FIX: Use useShallow for batched store subscriptions
   // NOTE: edges and nodes are NOT subscribed here to avoid re-renders on every node/edge change
   // They are fetched on-demand in handleTestNode using getState()
-  const { runNode, openLLMDebugDialog, openRAGDebugDialog, openToolDebugDialog, openInputPrompt, openOutputDebugDialog } = useFlowStore(
+  const {
+    runNode,
+    runningNodeIds,
+    openDialog,
+    openInputPrompt,
+    flowContext
+  } = useFlowStore(
     useShallow((s) => ({
       runNode: s.runNode,
-      openLLMDebugDialog: s.openLLMDebugDialog,
-      openRAGDebugDialog: s.openRAGDebugDialog,
-      openToolDebugDialog: s.openToolDebugDialog,
+      runningNodeIds: s.runningNodeIds,
+      openDialog: s.openDialog,
       openInputPrompt: s.openInputPrompt,
-      openOutputDebugDialog: s.openOutputDebugDialog,
+      flowContext: s.flowContext,
     }))
   );
 
+  // Check if this node is currently running
+  const isNodeRunning = runningNodeIds.has(id as string);
+
+  // Branch node: get conditionResult from flowContext for visual feedback
+  const branchConditionResult = React.useMemo(() => {
+    if (type !== 'branch' || status !== 'completed') return null;
+    const nodeOutput = flowContext[id as string] as Record<string, unknown> | undefined;
+    if (!nodeOutput) return null;
+    return nodeOutput.conditionResult as boolean | undefined;
+  }, [type, status, flowContext, id]);
+
   const renderMetadata = () => {
-    // ===== LLM 节点 =====
-    if (type === "llm") {
-      return <LLMMetadata llm={llm} />;
+    switch (type) {
+      case "llm":
+        return <LLMMetadata llm={llm} />;
+      case "rag":
+        return <RAGMetadata rag={rag} />;
+      case "input":
+        return <InputMetadata input={input} />;
+      case "output":
+        return <OutputMetadata data={data} />;
+      case "tool":
+        return <ToolMetadata tool={data as import("@/types/flow").ToolNodeData} />;
+      case "branch":
+        return <BranchMetadata branch={data as import("@/types/flow").BranchNodeData} />;
+      case "imagegen":
+        return <ImageGenMetadata imageGen={data as import("@/types/flow").ImageGenNodeData} />;
+      default:
+        return null;
     }
-
-    // ===== RAG 节点 =====
-    if (type === "rag") {
-      const files = rag?.files || [];
-      const maxTokens = rag?.maxTokensPerChunk || 200;
-
-      return (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className={METADATA_LABEL_STYLE}>知识库:</span>
-            <span className={METADATA_VALUE_STYLE}>{files.length} 个文件</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={METADATA_LABEL_STYLE}>块大小:</span>
-            <span className={METADATA_VALUE_STYLE}>{maxTokens} 字符</span>
-          </div>
-        </div>
-      );
-    }
-
-
-    // ===== Input 节点 =====
-    if (type === "input") {
-      const enableText = input?.enableTextInput !== false;
-      const enableFile = input?.enableFileInput === true;
-      const enableForm = input?.enableStructuredForm === true;
-      const formCount = input?.formFields?.length || 0;
-
-      const features: string[] = [];
-      if (enableText) features.push("文本");
-      if (enableFile) features.push("文件");
-      if (enableForm) features.push(`表单(${formCount}项)`);
-
-      if (features.length === 0) return null;
-
-      return (
-        <div className="flex items-center gap-2">
-          <span className={METADATA_LABEL_STYLE}>输入方式</span>
-          <span className={METADATA_VALUE_STYLE}>{features.join(" + ")}</span>
-        </div>
-      );
-    }
-
-    // ===== Output 节点 =====
-    if (type === "output") {
-      return (
-        <div className="flex items-center gap-2">
-          <span className={METADATA_LABEL_STYLE}>类型</span>
-          <span className={METADATA_VALUE_STYLE}>文本输出</span>
-        </div>
-      );
-    }
-
-    // ===== Tool 节点 =====
-    if (type === "tool") {
-      const toolData = data as import("@/types/flow").ToolNodeData;
-      const toolType = toolData?.toolType;
-
-      // 工具类型映射
-      const toolLabels: Record<string, string> = {
-        web_search: "网页搜索",
-        calculator: "计算器",
-        datetime: "日期时间",
-        weather: "天气查询",
-        url_reader: "网页读取",
-      };
-
-      if (!toolType) return null;
-
-      return (
-        <div className="flex items-center gap-2">
-          <span className={METADATA_LABEL_STYLE}>工具</span>
-          <span className={METADATA_VALUE_STYLE}>{toolLabels[toolType] || toolType}</span>
-        </div>
-      );
-    }
-
-    // ===== Branch 节点 =====
-    if (type === "branch") {
-      const branchData = data as import("@/types/flow").BranchNodeData;
-      const condition = branchData?.condition;
-
-      if (!condition) return null;
-
-      // 截断过长的条件表达式
-      const displayCondition = condition.length > 30
-        ? condition.slice(0, 27) + "..."
-        : condition;
-
-      return (
-        <div className="flex items-center gap-2">
-          <span className={METADATA_LABEL_STYLE}>条件</span>
-          <span className={METADATA_VALUE_STYLE}>{displayCondition}</span>
-        </div>
-      );
-    }
-
-    // ===== ImageGen 节点 =====
-    if (type === "imagegen") {
-      const imageGenData = data as import("@/types/flow").ImageGenNodeData;
-      const model = imageGenData?.model;
-      const imageSize = imageGenData?.imageSize;
-
-      // 模型名称映射：显示中文名（与数据库 model_name 保持一致）
-      const MODEL_NAMES: Record<string, string> = {
-        "Kwai-Kolors/Kolors": "可灵",
-        "Qwen/Qwen-Image": "千问-文生图",
-        "Qwen/Qwen-Image-Edit-2509": "千问-图生图",
-        "black-forest-labs/FLUX.1-schnell": "FLUX.1 快速",
-        "stabilityai/stable-diffusion-3-5-large-turbo": "SD 3.5 Turbo",
-      };
-      const modelName = model ? (MODEL_NAMES[model] || model.split('/').pop()) : "可灵";
-
-      // 图片比例映射
-      const SIZE_NAMES: Record<string, string> = {
-        // Kolors / Common
-        "1024x1024": "1:1",
-        "960x1280": "3:4",
-        "768x1024": "3:4",
-        "720x1440": "1:2",
-        "720x1280": "9:16",
-        "1024x768": "4:3",
-        "1024x512": "2:1",
-        "512x1024": "1:2",
-        // Qwen
-        "1328x1328": "1:1",
-        "1664x928": "16:9",
-        "928x1664": "9:16",
-        "1472x1140": "4:3",
-        "1140x1472": "3:4",
-        "1584x1056": "3:2",
-        "1056x1584": "2:3",
-      };
-      const sizeName = imageSize ? (SIZE_NAMES[imageSize] || imageSize) : "1:1";
-
-      return (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className={METADATA_LABEL_STYLE}>模型</span>
-            <span className={METADATA_VALUE_STYLE}>{modelName}</span>
-          </div>
-          {imageSize && (
-            <div className="flex items-center gap-2">
-              <span className={METADATA_LABEL_STYLE}>比例</span>
-              <span className={METADATA_VALUE_STYLE}>{sizeName}</span>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    return null;
   };
 
   const handleTestNode = () => {
@@ -286,90 +107,24 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
     // This prevents re-renders when any node/edge changes
     const { nodes, edges } = useFlowStore.getState();
 
-    // Input 节点：用户需要填写测试数据（复用 InputPromptDialog）
-    if (type === 'input') {
-      openInputPrompt(id as string);  // 传入 nodeId 表示单节点测试模式
-      return;
-    }
+    // 构建完整节点对象以便传递给工具函数
+    // 注意：CustomNode 仅接收部分 props，我们从 store 获取完整数据更安全，
+    // 但为了性能，这里构造一个临时的 AppNode 对象用于测试逻辑
+    // 更好的方式是使用 store 中的完整节点对象
+    const currentNode = nodes.find(n => n.id === id);
+    if (!currentNode) return;
 
-    // Output 节点：打开 OutputDebugDialog 填写 mock 变量
-    if (type === 'output') {
-      openOutputDebugDialog(id as string);
-      return;
-    }
-
-    // LLM 节点：检查 inputMappings.user_input 是否已配置
-    if (type === 'llm') {
-      const llmData = data as LLMNodeData;
-      const inputMappings = (llmData as unknown as { inputMappings?: Record<string, string> })?.inputMappings;
-      const userInputValue = inputMappings?.user_input;
-
-      // 如果已配置且不是变量引用（没有 {{），则直接运行
-      if (userInputValue && userInputValue.trim() && !userInputValue.includes('{{')) {
-        runNode(id as string, { user_input: userInputValue });
-        return;
+    handleNodeTest(
+      id as string,
+      currentNode,
+      nodes,
+      edges,
+      {
+        openDialog: openDialog as FlowState['openDialog'],
+        openInputPrompt: openInputPrompt as FlowState['openInputPrompt'],
+        runNode: runNode as FlowState['runNode']
       }
-
-      // 否则打开调试弹窗让用户填写
-      openLLMDebugDialog(id as string);
-      return;
-    }
-
-    // RAG 节点：检查 inputMappings.query 是否已配置
-    if (type === 'rag') {
-      const ragData = data as RAGNodeData;
-      const inputMappings = (ragData as unknown as { inputMappings?: Record<string, string> })?.inputMappings;
-      const queryValue = inputMappings?.query;
-
-      // 如果已配置且不是变量引用（没有 {{），则直接运行
-      if (queryValue && queryValue.trim() && !queryValue.includes('{{')) {
-        runNode(id as string, { query: queryValue });
-        return;
-      }
-
-      // 否则打开调试弹窗让用户填写
-      openRAGDebugDialog(id as string);
-      return;
-    }
-
-    // Tool 节点：检查参数是否充分配置
-    if (type === 'tool') {
-      // 获取当前节点（从 store 中获取完整的节点对象）
-      const currentNode = nodes.find(n => n.id === id);
-      if (currentNode && isToolNodeParametersConfigured(currentNode)) {
-        // 如果参数充分配置，直接运行
-        runNode(id as string);
-      } else {
-        // 否则打开调试弹窗
-        openToolDebugDialog(id as string);
-      }
-      return;
-    }
-
-    // ImageGen 节点：如果已配置 prompt，直接运行
-    if (type === 'imagegen') {
-      const imageGenData = data as import("@/types/flow").ImageGenNodeData;
-      const prompt = imageGenData?.prompt;
-
-      if (prompt && prompt.trim()) {
-        runNode(id as string);
-      } else {
-        // 提示用户需要配置 prompt
-        console.warn('[ImageGen] Prompt is required for image generation');
-      }
-      return;
-    }
-
-    // Check upstream dependencies
-    const incomingEdges = edges.filter(e => e.target === id);
-    if (incomingEdges.length === 0) {
-      runNode(id as string);
-      return;
-    }
-
-    // For nodes with upstream dependencies, run directly
-    // Upstream data will be available from flowContext
-    runNode(id as string);
+    );
   };
 
   return (
@@ -399,13 +154,21 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 rounded-full hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-all duration-150"
+                    disabled={isNodeRunning}
+                    className={cn(
+                      "h-6 w-6 rounded-full transition-all duration-150",
+                      isNodeRunning
+                        ? "bg-transparent text-gray-300 cursor-not-allowed"
+                        : "hover:bg-gray-200 text-gray-600 hover:text-gray-900"
+                    )}
                     onClick={handleTestNode}
                   >
                     <Play className="w-3 h-3" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top">测试节点</TooltipContent>
+                <TooltipContent side="top">
+                  {isNodeRunning ? "运行中..." : "测试"}
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
@@ -440,26 +203,46 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
 
       {type === 'branch' ? (
         <>
-          {/* True Output */}
+          {/* True Output - highlight when condition is true */}
           <div className="absolute -right-[5px] top-[40%] flex items-center flex-row-reverse z-10">
             <Handle
               id="true"
               type="source"
               position={Position.Right}
-              className={cn(HANDLE_STYLE, "!relative !transform-none !left-auto !right-auto !bg-green-500 !border-green-600", selected ? "!border-black" : "")}
+              className={cn(
+                HANDLE_STYLE,
+                "!relative !transform-none !left-auto !right-auto !bg-green-500 !border-green-600",
+                selected ? "!border-black" : "",
+                branchConditionResult === true && "!scale-125 !ring-2 !ring-green-400 !ring-opacity-75"
+              )}
             />
-            <span className="mr-2 text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded border border-green-200 tracking-tight">TRUE</span>
+            <span className={cn(
+              "mr-2 text-[10px] font-bold px-1.5 py-0.5 rounded border tracking-tight transition-all duration-300",
+              branchConditionResult === true
+                ? "text-white bg-green-500 border-green-600 shadow-md animate-pulse"
+                : "text-green-600 bg-green-50 border-green-200"
+            )}>TRUE</span>
           </div>
 
-          {/* False Output */}
+          {/* False Output - highlight when condition is false */}
           <div className="absolute -right-[5px] top-[55%] flex items-center flex-row-reverse z-10">
             <Handle
               id="false"
               type="source"
               position={Position.Right}
-              className={cn(HANDLE_STYLE, "!relative !transform-none !left-auto !right-auto !bg-red-500 !border-red-600", selected ? "!border-black" : "")}
+              className={cn(
+                HANDLE_STYLE,
+                "!relative !transform-none !left-auto !right-auto !bg-red-500 !border-red-600",
+                selected ? "!border-black" : "",
+                branchConditionResult === false && "!scale-125 !ring-2 !ring-red-400 !ring-opacity-75"
+              )}
             />
-            <span className="mr-2 text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 tracking-tight">FALSE</span>
+            <span className={cn(
+              "mr-2 text-[10px] font-bold px-1.5 py-0.5 rounded border tracking-tight transition-all duration-300",
+              branchConditionResult === false
+                ? "text-white bg-red-500 border-red-600 shadow-md animate-pulse"
+                : "text-red-600 bg-red-50 border-red-200"
+            )}>FALSE</span>
           </div>
         </>
       ) : (

@@ -3,6 +3,8 @@
 import { Sandbox } from "@e2b/code-interpreter";
 import { createClient } from "@supabase/supabase-js";
 import type { ToolExecutionResult } from "../types";
+import { getMimeType } from "@/utils/mimeUtils";
+import { cleanCodeBlock } from "@/utils/stringUtils";
 
 /**
  * Code Interpreter Inputs
@@ -11,53 +13,6 @@ export interface CodeInterpreterInputs {
     code: string;
     outputFileName?: string;
     inputFiles?: { name: string; url: string }[];
-}
-
-/**
- * Get MIME type from file extension
- */
-function getMimeType(fileName: string): string {
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    const mimeTypes: Record<string, string> = {
-        // Spreadsheets
-        csv: 'text/csv',
-        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        xls: 'application/vnd.ms-excel',
-        // Documents
-        pdf: 'application/pdf',
-        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        doc: 'application/msword',
-        txt: 'text/plain',
-        md: 'text/markdown',
-        // Data
-        json: 'application/json',
-        xml: 'application/xml',
-        // Images
-        png: 'image/png',
-        jpg: 'image/jpeg',
-        jpeg: 'image/jpeg',
-        gif: 'image/gif',
-        svg: 'image/svg+xml',
-        // Archives
-        zip: 'application/zip',
-    };
-    return mimeTypes[ext || ''] || 'application/octet-stream';
-}
-
-/**
- * Clean code by removing markdown code block markers
- */
-function cleanCodeInput(code: string): string {
-    // Remove markdown code blocks like ```python...``` or ```...```
-    let cleaned = code.trim();
-    
-    // Remove opening code fence with optional language
-    cleaned = cleaned.replace(/^```\w*\n?/m, '');
-    
-    // Remove closing code fence
-    cleaned = cleaned.replace(/\n?```$/m, '');
-    
-    return cleaned.trim();
 }
 
 /**
@@ -77,9 +32,9 @@ export async function executeCodeInterpreter(inputs: CodeInterpreterInputs): Pro
             error: "E2B API Key 未配置。请在环境变量中设置 E2B_API_KEY",
         };
     }
-    
+
     // Clean code input to remove markdown formatting
-    const cleanedCode = cleanCodeInput(inputs.code);
+    const cleanedCode = cleanCodeBlock(inputs.code);
 
     // Create sandbox with timeout
     let sbx: Sandbox | null = null;
@@ -191,7 +146,7 @@ export async function executeCodeInterpreter(inputs: CodeInterpreterInputs): Pro
                 generatedFile,
                 result: execution.results?.[0]?.text || null,
                 // 添加提示信息
-                message: generatedFile && !generatedFile.url 
+                message: generatedFile && !generatedFile.url
                     ? `文件 ${generatedFile.name} 已生成，但由于Supabase未配置，文件无法持久化保存。请配置 NEXT_PUBLIC_SUPABASE_URL 和 SUPABASE_SERVICE_ROLE_KEY 环境变量。`
                     : undefined,
             },

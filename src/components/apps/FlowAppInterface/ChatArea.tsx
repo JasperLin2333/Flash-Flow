@@ -1,6 +1,7 @@
 import type { InputNodeData } from "@/types/flow";
 import { AppIcon } from "./AppIcon";
 import { MessageBubble } from "./MessageBubble";
+import { CentralForm } from "../../run/CentralForm";
 import { LAYOUT, STYLES, ANIMATION, UI_TEXT, type FlowIconConfig, type Message } from "./constants";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { memo } from "react";
@@ -9,13 +10,29 @@ import { memo } from "react";
 interface EmptyStateProps {
     inputNodeData?: InputNodeData;
     flowTitle?: string;
+    onSend?: (data: { text: string; files?: File[]; formData?: Record<string, unknown> }) => void;
+    onFormDataChange?: (formData: Record<string, unknown>) => void;
 }
 
 /**
  * EmptyState - 空状态提示
- * 当没有对话历史时显示，显示自定义招呼语
+ * 当没有对话历史时显示，显示自定义招呼语 或 中央表单
  */
-function EmptyState({ inputNodeData, flowTitle }: EmptyStateProps) {
+function EmptyState({ inputNodeData, flowTitle, onSend, onFormDataChange }: EmptyStateProps) {
+    // Check if we should show the Central Form
+    const showCentralForm = inputNodeData?.enableStructuredForm && onSend;
+
+    if (showCentralForm) {
+        return (
+            <CentralForm
+                inputNodeData={inputNodeData}
+                flowTitle={flowTitle}
+                onSend={onSend}
+                onFormDataChange={onFormDataChange}
+            />
+        );
+    }
+
     const appName = flowTitle || "智能助手";
     const greeting = inputNodeData?.greeting || UI_TEXT.emptyState;
 
@@ -69,6 +86,9 @@ interface ChatAreaProps {
     streamingText?: string;
     streamingReasoning?: string;
     isStreamingReasoning?: boolean;
+    // New props for Central Form
+    onSend?: (data: { text: string; files?: File[]; formData?: Record<string, unknown> }) => void;
+    onFormDataChange?: (formData: Record<string, unknown>) => void;
 }
 
 /**
@@ -85,6 +105,8 @@ export const ChatArea = memo(function ChatArea({
     streamingText,
     streamingReasoning,
     isStreamingReasoning,
+    onSend,
+    onFormDataChange,
 }: ChatAreaProps) {
     // 使用智能自动滚动 hook：用户主动滚动时暂停，滚动回底部时恢复
     const { scrollRef } = useAutoScroll<HTMLDivElement>([messages, isLoading]);
@@ -96,8 +118,15 @@ export const ChatArea = memo(function ChatArea({
             role="log"
             aria-live="polite"
         >
-            <div className={`${LAYOUT.maxWidth} mx-auto space-y-12`}>
-                {messages.length === 0 && <EmptyState inputNodeData={inputNodeData} flowTitle={flowTitle} />}
+            <div className={`${LAYOUT.maxWidth} mx-auto space-y-12 pb-24`}>
+                {messages.length === 0 && (
+                    <EmptyState
+                        inputNodeData={inputNodeData}
+                        flowTitle={flowTitle}
+                        onSend={onSend}
+                        onFormDataChange={onFormDataChange}
+                    />
+                )}
                 {messages.map((msg, idx) => {
                     const isLast = idx === messages.length - 1;
                     return (

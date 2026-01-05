@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 export const runtime = 'edge';
 import { GoogleGenAI } from '@google/genai';
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
+import { incrementQuotaOnServer } from "@/lib/quotaEdge";
+import { getMimeType } from "@/utils/mimeUtils";
+
+// ============ Constants ============
+const RAG_MODEL = 'gemini-2.5-flash';
 
 // ============ Types ============
 interface SearchRequest {
@@ -12,24 +17,6 @@ interface SearchRequest {
     // Note: topK is managed internally by Gemini API, not configurable via this API
     // For multimodal mode
     files?: Array<{ name: string; url: string; type?: string }>;
-}
-
-// ============ Helpers ============
-function getMimeType(filename: string): string {
-    const ext = filename.split('.').pop()?.toLowerCase();
-    const mimeTypes: Record<string, string> = {
-        'pdf': 'application/pdf',
-        'txt': 'text/plain',
-        'md': 'text/markdown',
-        'doc': 'application/msword',
-        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'png': 'image/png',
-        'jpg': 'image/jpeg',
-        'jpeg': 'image/jpeg',
-        'gif': 'image/gif',
-        'webp': 'image/webp',
-    };
-    return mimeTypes[ext || ''] || 'application/octet-stream';
 }
 
 // ============ API Handler ============
@@ -75,7 +62,7 @@ export async function POST(req: Request) {
             }
 
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: RAG_MODEL,
                 contents: query,
                 config: {
                     tools: [
@@ -132,6 +119,9 @@ export async function POST(req: Request) {
 
             // Extract document content from citations or use response text
             const documents = citations.map(c => c.chunk).filter(Boolean);
+
+            // Deduct quota on success
+            await incrementQuotaOnServer(req, user.id, "llm_executions");
 
             return NextResponse.json({
                 documents: documents.length > 0 ? documents : [text],
@@ -192,11 +182,14 @@ export async function POST(req: Request) {
             parts.push({ text: query });
 
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: RAG_MODEL,
                 contents: [{ role: 'user', parts }]
             });
 
             const text = response.text || '';
+
+            // Deduct quota on success
+            await incrementQuotaOnServer(req, user.id, "llm_executions");
 
             return NextResponse.json({
                 documents: [text],

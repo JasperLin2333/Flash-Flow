@@ -8,10 +8,98 @@
 
 | 参数名 | 类型 | 必填 | 默认值 | 描述 |
 |-------|------|-----|-------|------|
-| `label` | string | ✅ | - | 节点显示名称 |
-| `toolType` | string | ✅ | - | 工具类型选择 (见下文) |
-| `inputs` | object | ❌ | `{}` | 工具特定的输入参数 (支持 `{{变量}}` 引用) |
-| `customOutputs` | array | ❌ | `[]` | 用户自定义输出变量列表 `{name, value}` |
+| `label` | string | ❌ | - | 节点显示名称 |
+| `toolType` | string | ❌ | - | 工具类型，如 `"web_search"` / `"calculator"` / `"datetime"` / `"url_reader"` / `"code_interpreter"` |
+| `inputs` | object | ❌ | `{}` | 工具特定的输入参数，支持 `{{变量}}` 引用 |
+
+## 完整 JSON 示例
+
+### 网页搜索节点
+```json
+{
+  "id": "tool_web_search_1",
+  "type": "tool",
+  "position": { "x": 400, "y": 200 },
+  "data": {
+    "label": "搜索最新资讯",
+    "toolType": "web_search",
+    "inputs": {
+      "query": "{{Input节点.text}}",
+      "maxResults": 5
+    }
+  }
+}
+```
+
+### 计算器节点
+```json
+{
+  "id": "tool_calculator_1",
+  "type": "tool",
+  "position": { "x": 400, "y": 200 },
+  "data": {
+    "label": "计算价格",
+    "toolType": "calculator",
+    "inputs": {
+      "expression": "(100 * 5) + 50"
+    }
+  }
+}
+```
+
+### 日期时间节点
+```json
+{
+  "id": "tool_datetime_1",
+  "type": "tool",
+  "position": { "x": 400, "y": 200 },
+  "data": {
+    "label": "获取当前时间",
+    "toolType": "datetime",
+    "inputs": {
+      "operation": "now",
+      "format": "YYYY-MM-DD HH:mm:ss"
+    }
+  }
+}
+```
+
+### 网页读取节点
+```json
+{
+  "id": "tool_url_reader_1",
+  "type": "tool",
+  "position": { "x": 400, "y": 200 },
+  "data": {
+    "label": "读取网页内容",
+    "toolType": "url_reader",
+    "inputs": {
+      "url": "https://example.com/article",
+      "maxLength": 5000
+    }
+  }
+}
+```
+
+### 代码执行节点
+```json
+{
+  "id": "tool_code_1",
+  "type": "tool",
+  "position": { "x": 400, "y": 200 },
+  "data": {
+    "label": "执行数据处理",
+    "toolType": "code_interpreter",
+    "inputs": {
+      "code": "import pandas as pd\ndf = pd.read_csv('/home/user/data.csv')\nprint(df.head())",
+      "inputFiles": [
+        { "name": "data.csv", "url": "{{Input节点.files.0.url}}" }
+      ],
+      "outputFileName": "result.csv"
+    }
+  }
+}
+```
 
 ## 支持的工具 (Supported Tools)
 
@@ -23,7 +111,7 @@
 *   **分类**: `search`
 *   **输入参数**:
     *   `query` (string, 必填): 搜索关键词（请在此输入你想要搜索的内容）。
-    *   `maxResults` (number, 选填): 最大结果数 (1-10, 默认 5)（请在此输入你期望搜索内容的最大数量）。
+    *   `maxResults` (number, 必填): 最大结果数 (1-10)（请在此输入你期望搜索内容的最大数量）。
 *   **输出示例**:
     ```json
     {
@@ -129,11 +217,8 @@
 ```mermaid
 flowchart TD
     Start(["开始执行"]) --> CheckMock["检查 mockData 或 context.mock"]
-    CheckMock --> CollectVars["收集上游变量并扁平化"]
-    CollectVars --> BuildMap["创建节点查找 Map (O1 查找)"]
-    BuildMap --> FlattenLoop["遍历 context 和 flowContext"]
-    FlattenLoop --> AddCustom["添加自定义输出变量"]
-    AddCustom --> ReplaceVars{"存在变量映射?"}
+    CheckMock --> CollectVars["调用 collectVariables 收集变量"]
+    CollectVars --> ReplaceVars{"存在变量映射?"}
     ReplaceVars -->|是| DoReplace["对字符串字段执行变量替换"]
     ReplaceVars -->|否| Validate
     DoReplace --> Validate["Zod Schema 参数校验"]
@@ -152,45 +237,27 @@ flowchart TD
 ### 详细执行步骤
 
 1.  **变量收集 (Variable Collection)**: 
-    - 系统会自动收集所有上游节点的输出，包括：
-      - 直接上游 context（来自入边的上游节点输出）
-      - 全局 flowContext（全局可见的所有节点输出）
-    - 支持用户自定义输出变量 (`customOutputs`)
-    - 创建节点查找 Map，实现 O(1) 查找性能优化
+    - 使用 `collectVariables` 公共函数收集所有上游节点的输出
+    - 确保与其他节点一致的变量解析逻辑
+    - 包括直接上游 context 和全局 flowContext
 
-2.  **变量压平 (Variable Flattening)**: 
-    - 递归展开嵌套对象，将多层结构压平为一维键值对
-    - 生成多种引用格式，支持灵活的变量引用：
-      - 无前缀：`field`（顶层字段）
-      - 节点标签前缀：`Label.field`（通过节点名称引用）
-      - 节点 ID 前缀：`nodeId.field`（通过节点 ID 引用）
-    - 特殊处理：
-      - 数组序列化为 JSON 字符串
-      - null/undefined 转换为空字符串
-      - 跳过以 `_` 开头的内部字段
-
-3.  **参数替换 (Variable Replacement)**: 
-    - 在执行前，`inputs` 中的字符串值会被解析
+2.  **变量替换 (Variable Replacement)**: 
+    - 遍历 `inputs` 对象，对字符串类型的值执行变量替换
     - `{{变量}}` 占位符会被替换为实际值
     - **只替换字符串类型的值**，保留非字符串数据结构的完整性
 
-4.  **Schema 验证 (Validation)**: 
-    - 使用工具注册中心的 Zod Schema 进行**二次验证**：
-      - 第一次：UI 层调试对话框验证
-      - 第二次：执行器层验证（此处）
-    - 验证失败会抛出详细的错误信息，包括字段路径和错误描述
+3.  **Schema 验证 (Validation)**: 
+    - 使用 `validateToolInputs` 函数验证输入参数
+    - 验证失败会抛出详细的错误信息
     - 防止无效参数调用外部服务
 
-5.  **工具执行 (Tool Execution)**:
+4.  **工具执行 (Tool Execution)**:
     - 通过 `executeToolAction` 路由到具体工具执行器
-    - 执行结果包含：
-      - `success`: 执行状态
-      - `data`: 工具返回的数据
-      - `error`: 错误信息（失败时）
+    - 执行结果包含 `success`、`data`、`error`
 
-6.  **计时与返回 (Timing & Return)**:
+5.  **计时与返回 (Timing & Return)**:
     - 使用 `measureTime` 记录完整执行耗时
-    - 返回格式化的执行结果：`{output, executionTime}`
+    - 返回格式：`{output, executionTime}`
 
 ## 技术架构
 
@@ -198,12 +265,13 @@ flowchart TD
 
 | 文件 | 职责 |
 |------|------|
-| [ToolNodeExecutor.ts](file:///Users/jasperlin/Desktop/product/flash-flow-saas/flash-flow/src/store/executors/ToolNodeExecutor.ts) | Tool 节点执行器，负责变量收集、替换和执行编排 |
-| [registry.ts](file:///Users/jasperlin/Desktop/product/flash-flow-saas/flash-flow/src/lib/tools/registry.ts) | 工具注册中心，管理所有工具的 Schema 和元数据 |
-| [index.ts](file:///Users/jasperlin/Desktop/product/flash-flow-saas/flash-flow/src/app/actions/tools/index.ts) | 工具执行入口，路由到具体工具执行器 |
-| [executors/*](file:///Users/jasperlin/Desktop/product/flash-flow-saas/flash-flow/src/app/actions/tools/executors) | 具体工具执行器实现（webSearch、calculator、datetime 等） |
-| [ToolDebugDialog.tsx](file:///Users/jasperlin/Desktop/product/flash-flow-saas/flash-flow/src/components/flow/ToolDebugDialog.tsx) | 调试对话框，动态渲染工具输入表单 |
-| [ToolNodeForm.tsx](file:///Users/jasperlin/Desktop/product/flash-flow-saas/flash-flow/src/components/builder/node-forms/ToolNodeForm.tsx) | 节点配置表单 |
+| [ToolNodeExecutor.ts](src/store/executors/ToolNodeExecutor.ts) | Tool 节点执行器，负责变量收集、替换和执行编排 |
+| [variableUtils.ts](src/store/executors/utils/variableUtils.ts) | 公共变量收集函数 `collectVariables` |
+| [registry.ts](src/lib/tools/registry.ts) | 工具注册中心，管理所有工具的 Schema 和元数据 |
+| [index.ts](src/app/actions/tools/index.ts) | 工具执行入口，路由到具体工具执行器 |
+| [executors/*](src/app/actions/tools/executors) | 具体工具执行器实现（webSearch、calculator、datetime 等） |
+| [ToolDebugDialog.tsx](src/components/flow/ToolDebugDialog.tsx) | 调试对话框，动态渲染工具输入表单 |
+| [ToolNodeForm.tsx](src/components/builder/node-forms/ToolNodeForm.tsx) | 节点配置表单 |
 
 ### 依赖关系
 
@@ -211,15 +279,16 @@ flowchart TD
 graph TD
     A[ToolNodeExecutor] --> B[BaseNodeExecutor]
     A --> C[registry.ts]
-    A --> D[promptParser.ts]
-    A --> E[executeToolAction]
-    E --> F[webSearch]
-    E --> G[calculator]
-    E --> H[datetime]
-    E --> I[urlReader]
-    E --> J[codeInterpreter]
+    A --> D[variableUtils.ts]
+    A --> E[promptParser.ts]
+    A --> F[executeToolAction]
+    F --> G[webSearch]
+    F --> H[calculator]
+    F --> I[datetime]
+    F --> J[urlReader]
+    F --> K[codeInterpreter]
     UI[ToolDebugDialog] --> C
-    UI --> E
+    UI --> F
     Form[ToolNodeForm] --> C
 ```
 

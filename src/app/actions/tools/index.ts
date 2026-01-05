@@ -3,14 +3,7 @@
 import { validateToolInputs, type ToolType } from "@/lib/tools/registry";
 import type { ToolExecutionResult, ToolExecutionInput } from "./types";
 
-// Import tool executors
-import { executeWebSearch } from "./executors/webSearch";
-import { executeCalculator } from "./executors/calculator";
-import { executeDatetime, type DatetimeInputs } from "./executors/datetime";
-// NOTE: Weather tool is hidden from UI
-// import { executeWeather } from "./executors/weather";
-import { executeUrlReader } from "./executors/urlReader";
-import { executeCodeInterpreter, type CodeInterpreterInputs } from "./executors/codeInterpreter";
+import { TOOL_EXECUTORS } from "./toolExecutorMap";
 
 // Re-export types for external use
 export type { ToolExecutionResult, ToolExecutionInput };
@@ -39,43 +32,20 @@ export async function executeToolAction(input: ToolExecutionInput): Promise<Tool
         };
     }
 
-    // Route to the appropriate tool handler with proper type narrowing
+    // Route to the appropriate tool handler details using the executor map
     try {
-        switch (toolType) {
-            case "web_search": {
-                const webSearchInputs = validation.data as { query: string; maxResults?: number };
-                return await executeWebSearch(webSearchInputs);
-            }
+        const executor = TOOL_EXECUTORS[toolType as ToolType];
 
-            case "calculator": {
-                const calcInputs = validation.data as { expression: string };
-                return await executeCalculator(calcInputs);
-            }
-
-            case "datetime": {
-                const datetimeInputs = validation.data as DatetimeInputs;
-                return await executeDatetime(datetimeInputs);
-            }
-
-            // NOTE: Weather tool is hidden from UI but kept for backwards compatibility
-            // Legacy workflows using weather will fall through to default case
-
-            case "url_reader": {
-                const urlReaderInputs = validation.data as { url: string; maxLength?: number };
-                return await executeUrlReader(urlReaderInputs);
-            }
-
-            case "code_interpreter": {
-                const codeInputs = validation.data as CodeInterpreterInputs;
-                return await executeCodeInterpreter(codeInputs);
-            }
-
-            default:
-                return {
-                    success: false,
-                    error: `Unknown tool type: ${toolType}`,
-                };
+        if (!executor) {
+            // NOTE: Weather tool might fall here if not in the map, but it's hidden from UI
+            return {
+                success: false,
+                error: `Unknown tool type: ${toolType}`,
+            };
         }
+
+        return await executor(validation.data);
+
     } catch (error) {
         if (process.env.NODE_ENV === 'development') {
             console.error(`Tool execution error (${toolType}):`, error);

@@ -3,17 +3,8 @@ import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { replaceVariables } from "@/lib/promptParser";
 import { useFlowStore } from "@/store/flowStore";
 import { collectVariablesRaw } from "./utils/variableUtils";
+import { getMimeType, valueToString } from "@/utils/mimeUtils";
 
-
-/**
- * 将变量值转换为字符串
- */
-function valueToString(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === 'string') return value;
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
 
 /**
  * 解析单个 source 的值
@@ -68,6 +59,14 @@ function resolveAttachments(
     const varName = varMatch[1];
     const value = variables[varName];
 
+    // [Dev Check] Warn if variable not found
+    if (value === undefined) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`[OutputNode] Attachment variable not found: ${varName}`);
+      }
+      continue;
+    }
+
     // 处理文件数组 (如 {{用户输入.files}})
     if (Array.isArray(value)) {
       for (const file of value) {
@@ -94,10 +93,11 @@ function resolveAttachments(
       // 从 URL 中提取文件名，或生成默认名称
       const urlPath = value.split('?')[0];
       const fileName = urlPath.split('/').pop() || `generated_image_${Date.now()}.png`;
+      const mimeType = getMimeType(urlPath);
       result.push({
         name: fileName,
         url: value,
-        type: 'image/png'
+        type: mimeType === 'application/octet-stream' ? 'image/png' : mimeType
       });
     }
   }
@@ -162,10 +162,30 @@ export class OutputNodeExecutor extends BaseNodeExecutor {
         }
 
         case 'select': {
-          // 分支选择：取第一个非空结果
+          // 分支选择：优先使用流式锁定的源，否则取第一个非空结果
           if (sources.length === 0) {
             throw new Error('Output 节点配置错误：select 模式需要至少配置一个来源 (sources)');
           }
+
+          // 优先使用流式锁定的源（如果存在）
+          const { lockedSourceId } = useFlowStore.getState();
+          if (lockedSourceId) {
+            // 查找锁定源对应的节点
+            const lockedNode = allNodes.find(n => n.id === lockedSourceId);
+            if (lockedNode) {
+              const lockedLabel = (lockedNode.data?.label as string) || lockedSourceId;
+              // 尝试从锁定节点获取 response（支持 label 和 ID 两种前缀）
+              const lockedResponse = stringVariables[`${lockedLabel}.response`]
+                || stringVariables[`${lockedSourceId}.response`]
+                || stringVariables['response'];  // 回退到无前缀
+              if (lockedResponse && lockedResponse.trim() && !lockedResponse.includes('{{')) {
+                text = lockedResponse;
+                break;
+              }
+            }
+          }
+
+          // 回退：按配置顺序选择第一个非空
           for (const source of sources) {
             const resolved = resolveSource(source, variables, stringVariables);
             if (resolved && resolved.trim() && !resolved.includes('{{')) {

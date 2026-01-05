@@ -8,7 +8,9 @@ import { extractOutputFromContext } from "@/store/executors/contextUtils";
 import { fileUploadService } from "@/services/fileUploadService";
 import type { FlowContext, AppNode } from "@/types/flow";
 import type { ChatAttachment } from "@/types/chat";
-import { showError } from "@/utils/errorNotify";
+import { showError, showWarning } from "@/utils/errorNotify";
+import { quotaService } from "@/services/quotaService";
+import { authService } from "@/services/authService";
 
 // ============ Constants ============
 const ANIMATION = {
@@ -26,6 +28,7 @@ interface AppMessage {
     content: string;
     files?: File[];
     attachments?: ChatAttachment[];
+    reasoning?: string;  // FIX: 添加 reasoning 字段以支持 LLM 思考过程
     timestamp?: Date;
 }
 
@@ -45,6 +48,8 @@ export default function AppModeOverlay() {
     // Streaming state
     const streamingText = useFlowStore((s) => s.streamingText);
     const isStreaming = useFlowStore((s) => s.isStreaming);
+    const streamingReasoning = useFlowStore((s) => s.streamingReasoning);
+    const isStreamingReasoning = useFlowStore((s) => s.isStreamingReasoning);
 
     // Segment streaming state (for merge mode)
     const streamingMode = useFlowStore((s) => s.streamingMode);
@@ -78,10 +83,22 @@ export default function AppModeOverlay() {
             setIsLoading(false);
             // 使用 extractOutputFromContext 同时提取文本和附件
             const output = extractOutputFromContext(nodes as AppNode[], flowContext);
+
+            // NOTE: 保留流式阶段收集的 reasoning
+            // 如果用户需要更精确控制，可在 Output 模板中使用 {{节点.reasoning}}
+
+            // Check Output Node mode to determine if we should show reasoning
+            const outputNode = (nodes as AppNode[]).find(n => n.type === 'output');
+            const outputMode = (outputNode?.data as any)?.inputMappings?.mode || 'direct';
+            // Only show reasoning in direct or select modes
+            // In merge/template modes, the output is processed/combined, so raw reasoning might be confusing
+            const shouldShowReasoning = outputMode === 'direct' || outputMode === 'select';
+
             setMessages((prev) => [...prev, {
                 role: "assistant",
                 content: output.text,
                 attachments: output.attachments,
+                reasoning: shouldShowReasoning ? (streamingReasoning || undefined) : undefined,
                 timestamp: new Date()
             }]);
             // Clear streaming AFTER adding the message to prevent flash
@@ -119,6 +136,33 @@ export default function AppModeOverlay() {
         if (!hasValidContent) return;
         if (isLoading) return;
 
+        // FIX: 添加配额检查（与 useFlowChat 保持一致）
+        let currentUser: Awaited<ReturnType<typeof authService.getCurrentUser>> = null;
+        try {
+            currentUser = await authService.getCurrentUser();
+            if (!currentUser) {
+                setMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: "请先登录以使用预览功能。",
+                    timestamp: new Date()
+                }]);
+                return;
+            }
+
+            const quotaCheck = await quotaService.checkQuota(currentUser.id, "app_usages");
+            if (!quotaCheck.allowed) {
+                setMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: `您的 APP 使用次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。`,
+                    timestamp: new Date()
+                }]);
+                return;
+            }
+        } catch (e) {
+            console.error("[AppModeOverlay] Quota check failed:", e);
+            // 配额检查失败时允许继续，不阻塞用户
+        }
+
         // 构建用户消息（支持空文本时显示友好提示）
         const userMsg = hasText
             ? input
@@ -130,12 +174,17 @@ export default function AppModeOverlay() {
         setMessages((prev) => [...prev, { role: "user", content: userMsg, files }]);
         setIsLoading(true);
 
-        // 上传文件并获取 URL（如果有文件）
+        // FIX: 使用完整版文件上传（带重试，与 useFlowChat 保持一致）
         let uploadedFiles: { name: string; size: number; type: string; url: string }[] = [];
         if (hasFiles && inputNode && currentFlowId) {
             try {
                 const uploadPromises = files.map(async (file) => {
-                    const result = await fileUploadService.uploadFile(file, inputNode.id, currentFlowId);
+                    const result = await fileUploadService.completeUpload(
+                        file,
+                        inputNode.id,
+                        currentFlowId,
+                        currentUser?.id
+                    );
                     if (result) {
                         return {
                             name: file.name,
@@ -148,6 +197,15 @@ export default function AppModeOverlay() {
                 });
                 const results = await Promise.all(uploadPromises);
                 uploadedFiles = results.filter((f): f is NonNullable<typeof f> => f !== null);
+
+                // 检查是否有文件上传失败
+                const failedCount = files.length - uploadedFiles.length;
+                if (failedCount > 0) {
+                    showWarning(
+                        "部分文件上传失败",
+                        `${failedCount} 个文件未能上传，请检查网络后重试`
+                    );
+                }
             } catch (error) {
                 console.error("文件上传失败:", error);
                 showError("文件上传失败", "请检查网络连接后重试");
@@ -155,9 +213,11 @@ export default function AppModeOverlay() {
         }
 
         // 更新 Input Node 并运行 Flow（传递 sessionId 用于记忆功能）
+        // FIX: 包含 formData 以确保结构化表单数据正确传递（与 useFlowChat 保持一致）
         if (inputNode) {
             updateNodeData(inputNode.id, {
                 text: input,
+                formData: inputNodeData?.formData,  // FIX: 添加 formData 支持
                 files: uploadedFiles.length > 0 ? uploadedFiles : undefined,
             });
         }
@@ -166,6 +226,7 @@ export default function AppModeOverlay() {
 
 
     // Compute display messages: append streaming text as partial assistant message
+    // FIX: 添加 streamingReasoning 支持
     const displayMessages = useMemo(() => {
         if (!isLoading) return messages;
 
@@ -181,20 +242,30 @@ export default function AppModeOverlay() {
                 .join('\n\n');
 
             if (combinedContent) {
-                return [...messages, { role: "assistant" as const, content: combinedContent, timestamp: new Date() }];
+                return [...messages, {
+                    role: "assistant" as const,
+                    content: combinedContent,
+                    reasoning: streamingReasoning || undefined,
+                    timestamp: new Date()
+                }];
             }
 
             // If no content yet but streaming, return messages (isLoading will show loading indicator)
             return messages;
         }
 
-        // Handle single/select streaming (existing logic)
-        if (isStreaming && streamingText) {
-            return [...messages, { role: "assistant" as const, content: streamingText, timestamp: new Date() }];
+        // Handle single/select streaming: 有 text 或 reasoning 流式输出时创建消息
+        if ((isStreaming && streamingText) || (isStreamingReasoning && streamingReasoning)) {
+            return [...messages, {
+                role: "assistant" as const,
+                content: streamingText || "",  // reasoning 先输出时 text 为空
+                reasoning: streamingReasoning || undefined,
+                timestamp: new Date()
+            }];
         }
 
         return messages;
-    }, [messages, isStreaming, streamingText, isLoading, streamingMode, streamingSegments]);
+    }, [messages, isStreaming, streamingText, isLoading, streamingMode, streamingSegments, streamingReasoning]);
 
     // Determine if we should show loading indicator
     // For merge mode: show loading when waiting for segments
@@ -232,13 +303,13 @@ export default function AppModeOverlay() {
 
         // In select mode, show loading until we have streaming content
         if (streamingMode === 'select') {
-            // Show loading if there's no streaming content yet
-            return !streamingText;
+            // Show loading if there's no streaming content yet (text or reasoning)
+            return !streamingText && !streamingReasoning;
         }
 
-        // For single/direct modes, show loading when not streaming
-        return !isStreaming;
-    }, [isLoading, isStreaming, streamingMode, streamingSegments, streamingText]);
+        // For single/direct modes, show loading when not streaming (text or reasoning)
+        return !isStreaming && !isStreamingReasoning;
+    }, [isLoading, isStreaming, streamingMode, streamingSegments, streamingText, isStreamingReasoning, streamingReasoning]);
 
     return (
         <AnimatePresence>
@@ -258,6 +329,10 @@ export default function AppModeOverlay() {
                         }}
                         messages={displayMessages}
                         isLoading={showLoading}
+                        isStreaming={isStreaming}
+                        streamingText={streamingText}
+                        streamingReasoning={streamingReasoning}
+                        isStreamingReasoning={isStreamingReasoning}
                         input={input}
                         onInputChange={setInput}
                         onSend={handleSend}

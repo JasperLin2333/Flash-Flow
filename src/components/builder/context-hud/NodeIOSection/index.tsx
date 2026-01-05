@@ -43,23 +43,17 @@ export function NodeIOSection({
     });
 
     return (
-        <div className="space-y-4 mt-6 pt-5 border-t border-gray-100">
+        <div className={`space-y-4 ${nodeType === 'output' ? 'mt-0' : 'mt-8 pt-5 border-t border-gray-100'}`}>
             {/* Output 节点专用配置 */}
             {nodeType === 'output' && onUpdateInputMappings && (
-                <div>
-                    <h4 className={`${LABEL_CLASS} mb-2 flex items-center gap-1.5`}>
-                        <Settings className="w-3 h-3" />
-                        输出配置
-                    </h4>
-                    <OutputNodeConfig
-                        inputMappings={nodeData?.inputMappings as OutputInputMappings | undefined}
-                        onUpdateInputMappings={(mappings) => onUpdateInputMappings(mappings)}
-                        isExecuting={nodeData?.status === 'running'}
-                    />
-                </div>
+                <OutputNodeConfig
+                    inputMappings={nodeData?.inputMappings as OutputInputMappings | undefined}
+                    onUpdateInputMappings={(mappings) => onUpdateInputMappings(mappings)}
+                    isExecuting={nodeData?.status === 'running'}
+                />
             )}
 
-            {/* 1. 需要的上游输入（Tool 节点可编辑，但不包括 output 节点） */}
+            {/* 1. 参数配置（用户手动配置，不包括 output 节点） */}
             {!isEntryNode && nodeType !== 'output' && upstreamInputs.length > 0 && (
                 <UpstreamInputsSection
                     nodeType={nodeType}

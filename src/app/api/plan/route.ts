@@ -108,24 +108,25 @@ ${EDGE_RULES}
 
 # 📋 关键示例
 
-## 1. 🖼️ 图片分析 (Vision)
+## 1. 🖼️ 文档/图片分析 (必须用 RAG)
 \`\`\`json
 {"title": "工单OCR识别", "nodes": [
-  {"id": "in", "type": "input", "data": {"label": "上传工单", "enableFileInput": true, "fileConfig": {"allowedTypes": [".jpg",".png",".webp"], "maxCount": 1}}},
-  {"id": "llm", "type": "llm", "data": {"label": "智能识别", "model": "deepseek-ai/DeepSeek-OCR", "temperature": 0.1, "enableMemory": false, "systemPrompt": "# 角色\\n你是工单识别专家，精通维修工单、物流单据的结构化提取。\\n\\n# 任务\\n分析图片 {{上传工单.files}}，提取关键字段。\\n\\n# 输出格式 (JSON)\\n{\\\"单号\\\": \\\"..\\\", \\\"日期\\\": \\\"YYYY-MM-DD\\\", \\\"客户\\\": \\\"..\\\", \\\"故障描述\\\": \\\"..\\\", \\\"状态\\\": \\\"待处理|已完成\\\"}\\n\\n# 约束\\n- 模糊字段标注 [无法识别]\\n- 日期转 ISO 格式\\"}},
+  {"id": "in", "type": "input", "data": {"label": "上传工单", "enableFileInput": true, "fileConfig": {"allowedTypes": [".jpg,.png,.webp", ".pdf"], "maxCount": 1}, "greeting": "请上传工单图片，我来帮你识别关键信息"}},
+  {"id": "rag", "type": "rag", "data": {"label": "文档解析", "fileMode": "variable", "inputMappings": {"files": "{{上传工单.files}}", "query": "提取工单中的所有关键信息"}}},
+  {"id": "llm", "type": "llm", "data": {"label": "智能识别", "temperature": 0.1, "enableMemory": false, "systemPrompt": "# 角色\\n你是工单识别专家。\\n\\n# 任务\\n基于文档内容 {{文档解析.documents}}，提取关键字段。\\n\\n# 输出格式 (JSON)\\n{\\\"单号\\\": \\\"..\\\", \\\"日期\\\": \\\"YYYY-MM-DD\\\", \\\"客户\\\": \\\"..\\\", \\\"描述\\\": \\\"..\\\"}\\n\\n# 约束\\n- 模糊字段标注 [无法识别]\\"}},
   {"id": "out", "type": "output", "data": {"label": "识别结果", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{智能识别.response}}"}]}}}
-], "edges": [{"source": "in", "target": "llm"}, {"source": "llm", "target": "out"}]}
+], "edges": [{"source": "in", "target": "rag"}, {"source": "rag", "target": "llm"}, {"source": "llm", "target": "out"}]}
 \`\`\`
 
 ## 2. 💰 智能理财 (Branch + Tool + 结构化表单)
 \`\`\`json
 {"title": "智能理财顾问", "nodes": [
-  {"id": "in", "type": "input", "data": {"label": "投资偏好", "enableStructuredForm": true, "formFields": [{"name": "risk", "label": "风险偏好", "type": "select", "options": ["保守型", "激进型"], "required": true}]}},
+  {"id": "in", "type": "input", "data": {"label": "投资偏好", "enableStructuredForm": true, "formFields": [{"name": "risk", "label": "风险偏好", "type": "select", "options": ["保守型", "激进型"], "required": true}], "greeting": "请选择您的风险偏好"}},
   {"id": "br", "type": "branch", "data": {"label": "策略分流", "condition": "投资偏好.formData.risk === '保守型'"}},
-  {"id": "t_bond", "type": "tool", "data": {"label": "查询国债", "toolType": "web_search", "inputs": {"query": "2024年国债利率 最新收益率"}}},
-  {"id": "t_stock", "type": "tool", "data": {"label": "查询美股", "toolType": "web_search", "inputs": {"query": "纳斯达克 科技股 本周涨幅榜"}}},
-  {"id": "llm_safe", "type": "llm", "data": {"label": "稳健方案", "temperature": 0.3, "systemPrompt": "# 角色\n你是 CFA 认证的保守型理财顾问，专注本金安全。\n\n# 任务\n基于国债信息 {{查询国债.results}} 制定理财方案。\n\n# 输出要求\n1. **推荐产品**: 2-3个低风险产品及预期年化\n2. **配置建议**: 如 国债60%+货基40%\n3. **风险提示**: 本金波动范围\n\n# 约束\n- 年化不超5%\n- 禁止推荐股票期货\"}},
-  {"id": "llm_risk", "type": "llm", "data": {"label": "激进方案", "temperature": 0.7, "systemPrompt": "# 角色\n你是专注成长股的激进型投资顾问。\n\n# 任务\n基于美股信息 {{查询美股.results}} 制定投资方案。\n\n# 输出要求\n1. **推荐标的**: 3-5只高潜力股及理由\n2. **仓位策略**: 分批建仓计划\n3. **止损策略**: 明确止损点位(-15%)\n\n# 约束\n- 必须包含风险警示\n- 单只仓位≤20%\"}},
+  {"id": "t_bond", "type": "tool", "data": {"label": "查询国债", "toolType": "web_search", "inputs": {"query": "2024年国债利率 最新收益率", "maxResults": 5}}},
+  {"id": "t_stock", "type": "tool", "data": {"label": "查询美股", "toolType": "web_search", "inputs": {"query": "纳斯达克 科技股 本周涨幅榜", "maxResults": 5}}},
+  {"id": "llm_safe", "type": "llm", "data": {"label": "稳健方案", "temperature": 0.3, "enableMemory": false, "systemPrompt": "# 角色\n你是保守型理财顾问。\n\n# 任务\n基于 {{查询国债.results}} 制定理财方案。\n\n# 输出\n1. 推荐产品及年化\n2. 配置建议\n3. 风险提示\"}},
+  {"id": "llm_risk", "type": "llm", "data": {"label": "激进方案", "temperature": 0.7, "enableMemory": false, "systemPrompt": "# 角色\n你是激进型投资顾问。\n\n# 任务\n基于 {{查询美股.results}} 制定投资方案。\n\n# 输出\n1. 推荐标的及理由\n2. 仓位策略\n3. 止损策略\"}},
   {"id": "out", "type": "output", "data": {"label": "投资方案", "inputMappings": {"mode": "select", "sources": [{"type": "variable", "value": "{{稳健方案.response}}"}, {"type": "variable", "value": "{{激进方案.response}}"}]}}}
 ], "edges": [
   {"source": "in", "target": "br"},

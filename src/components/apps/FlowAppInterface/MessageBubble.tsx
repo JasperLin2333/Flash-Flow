@@ -57,13 +57,6 @@ export const MessageBubble = memo(function MessageBubble({ role, content, reason
     const [previewImage, setPreviewImage] = useState<string | null>(null);
     const [isReasoningExpanded, setIsReasoningExpanded] = useState(false);
 
-    // 自动展开正在流式输出的思考过程
-    useEffect(() => {
-        if (isStreamingReasoning) {
-            setIsReasoningExpanded(true);
-        }
-    }, [isStreamingReasoning]);
-
     // 处理图片下载
     const handleDownload = useCallback(async (url: string, fileName: string) => {
         try {

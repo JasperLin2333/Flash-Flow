@@ -1,10 +1,24 @@
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import type { AppNode, FlowContext, ToolNodeData } from "@/types/flow";
 import { executeToolAction } from "@/app/actions/tools";
-import { validateToolInputs, type ToolType } from "@/lib/tools/registry";
+import { TOOL_REGISTRY, type ToolType } from "@/lib/tools/registry";
 import { replaceVariables } from "@/lib/promptParser";
 import { useFlowStore } from "@/store/flowStore";
 import { collectVariables } from "./utils/variableUtils";
+
+/**
+ * Type guard for ToolNodeData
+ */
+function isToolNodeData(data: unknown): data is ToolNodeData {
+    return typeof data === 'object' && data !== null && 'toolType' in data;
+}
+
+/**
+ * Validate tool type is registered
+ */
+function isValidToolType(toolType: unknown): toolType is ToolType {
+    return typeof toolType === 'string' && toolType in TOOL_REGISTRY;
+}
 
 export class ToolNodeExecutor extends BaseNodeExecutor {
     async execute(
@@ -14,15 +28,20 @@ export class ToolNodeExecutor extends BaseNodeExecutor {
     ): Promise<ExecutionResult> {
         const { result, time } = await this.measureTime(async () => {
 
-            const data = node.data as ToolNodeData;
-            const toolType = data.toolType as ToolType;
+            // Use type guards for safer type checking
+            if (!isToolNodeData(node.data)) {
+                throw new Error("Invalid node data for Tool node");
+            }
+            const data = node.data;
+
+            if (!isValidToolType(data.toolType)) {
+                throw new Error("Tool type is not configured or invalid");
+            }
+            const toolType = data.toolType;
+
             // Check for mock data in argument OR in context (passed by executionActions)
             const mockInputs = mockData || (context.mock as Record<string, unknown>);
             let inputs = mockInputs || data.inputs || {};
-
-            if (!toolType) {
-                throw new Error("Tool type is not configured");
-            }
 
             // ========== 使用公共函数收集所有上游变量 ==========
             const storeState = useFlowStore.getState();
@@ -44,12 +63,7 @@ export class ToolNodeExecutor extends BaseNodeExecutor {
                 inputs = replacedInputs;
             }
 
-            // FIX P3: 在执行前验证参数（调试模式已在 UI 层验证，此处是正式执行的二次验证）
-            const validation = validateToolInputs(toolType, inputs);
-            if (!validation.success) {
-                throw new Error(`参数验证失败: ${validation.error}`);
-            }
-
+            // 参数验证由 executeToolAction (Server Action) 层统一处理
             const executionResult = await executeToolAction({
                 toolType,
                 inputs,

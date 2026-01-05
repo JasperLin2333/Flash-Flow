@@ -1,189 +1,280 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useFlowStore } from "@/store/flowStore";
-import type { OutputNodeData, OutputInputMappings, AppNode, FlowState } from "@/types/flow";
-import { Play, AlertCircle, Eye } from "lucide-react";
+import type { OutputNodeData, AppNode, FlowState, ContentSource } from "@/types/flow";
+import { getOutputModeLabel } from "@/lib/outputModeConstants";
+import { Loader2, Paperclip, X, Play } from "lucide-react";
+import { useFileUpload } from "@/hooks/useFileUpload";
+import { showWarning } from "@/utils/errorNotify";
+import { getFileExtension } from "@/utils/fileUtils";
 
-/**
- * Output 节点调试弹窗
- * 允许用户填写 mock 变量值来预览 Output 节点的输出
- */
+// Output 节点附件的限制配置
+const OUTPUT_MAX_FILE_COUNT = 20;
+const OUTPUT_MAX_SIZE_MB = 100;
+
+type FileItem = { name: string; url: string; size?: number; type?: string };
+
 export default function OutputDebugDialog() {
-    const open = useFlowStore((s: FlowState) => s.outputDebugDialogOpen);
-    const close = useFlowStore((s: FlowState) => s.closeOutputDebugDialog);
-    const nodeId = useFlowStore((s: FlowState) => s.outputDebugNodeId);
+    // Use unified dialog API
+    const open = useFlowStore((s: FlowState) => s.activeDialog === 'output');
+    const nodeId = useFlowStore((s: FlowState) => s.activeNodeId);
     const nodes = useFlowStore((s: FlowState) => s.nodes);
-    const setDebugData = useFlowStore((s: FlowState) => s.setOutputDebugData);
-    const confirmRun = useFlowStore((s: FlowState) => s.confirmOutputDebugRun);
+    const closeDialog = useFlowStore((s: FlowState) => s.closeDialog);
+    const setDialogData = useFlowStore((s: FlowState) => s.setDialogData);
+    const confirmDialogRun = useFlowStore((s: FlowState) => s.confirmDialogRun);
+    const updateNodeData = useFlowStore((s: FlowState) => s.updateNodeData);
 
-    const [mockVariables, setMockVariables] = useState<Record<string, string>>({});
+    const [contentValues, setContentValues] = useState<string[]>([]);
+    const [files, setFiles] = useState<FileItem[]>([]);
+
+    // Use shared file upload hook
+    const currentFlowId = useFlowStore((s: FlowState) => s.currentFlowId);
+    const { isUploading, uploadFiles } = useFileUpload(nodeId, currentFlowId || "temp", {
+        maxSizeMB: OUTPUT_MAX_SIZE_MB,
+        maxCount: OUTPUT_MAX_FILE_COUNT,
+    });
 
     // 获取当前节点和配置
     const currentNode = nodes.find((n: AppNode) => n.id === nodeId);
     const nodeData = currentNode?.data as OutputNodeData | undefined;
     const inputMappings = nodeData?.inputMappings;
-    const nodeName = nodeData?.label || 'Output';
 
-    // 解析需要的变量引用（根据当前模式）
-    const requiredVariables = useMemo(() => {
-        if (!inputMappings) return [];
-
-        const variables: string[] = [];
-        const varRegex = /\{\{(.+?)\}\}/g;
-        const mode = inputMappings.mode || 'direct';
-
-        // 只有 template 模式才检查 template 字段
-        if (mode === 'template' && inputMappings.template) {
-            const matches = inputMappings.template.matchAll(varRegex);
-            for (const match of matches) {
-                if (!variables.includes(match[1])) {
-                    variables.push(match[1]);
-                }
-            }
-        }
-
-        // direct, select, merge 模式才检查 sources 字段
-        if (mode !== 'template' && inputMappings.sources) {
-            for (const source of inputMappings.sources) {
-                if (source.type === 'variable' && source.value) {
-                    const matches = source.value.matchAll(varRegex);
-                    for (const match of matches) {
-                        if (!variables.includes(match[1])) {
-                            variables.push(match[1]);
-                        }
-                    }
-                }
-            }
-        }
-
-        // attachments 始终检查（独立于 mode）
-        if (inputMappings.attachments) {
-            for (const attachment of inputMappings.attachments) {
-                if (attachment.type === 'variable' && attachment.value) {
-                    const matches = attachment.value.matchAll(varRegex);
-                    for (const match of matches) {
-                        if (!variables.includes(match[1])) {
-                            variables.push(match[1]);
-                        }
-                    }
-                }
-            }
-        }
-
-        return variables;
-    }, [inputMappings]);
-
-    // 当弹窗打开时重置输入
+    // Load existing data when dialog opens
     useEffect(() => {
-        if (!open || !nodeId) {
-            setMockVariables({});
+        if (!open || !nodeData) {
+            setContentValues([]);
+            setFiles([]);
             return;
         }
-        // 初始化 mock 变量为空字符串
-        const initial: Record<string, string> = {};
-        requiredVariables.forEach(v => {
-            initial[v] = '';
-        });
-        setMockVariables(initial);
-    }, [open, nodeId, requiredVariables]);
 
-    const handleVariableChange = (varName: string, value: string) => {
-        setMockVariables(prev => ({
-            ...prev,
-            [varName]: value
-        }));
+        // Load content sources
+        const mode = inputMappings?.mode || 'direct';
+        if (mode === 'template') {
+            setContentValues([inputMappings?.template || '']);
+        } else {
+            const sources = inputMappings?.sources || [];
+            if (sources.length > 0) {
+                setContentValues(sources.map(s => s.value || ''));
+            } else {
+                setContentValues(['']); // Default one empty input
+            }
+        }
+
+        // Load existing attachments (as static files)
+        const existingAttachments = inputMappings?.attachments || [];
+        const staticFiles: FileItem[] = existingAttachments
+            .filter(a => a.type === 'static' && a.value)
+            .map(a => ({ name: a.value.split('/').pop() || 'file', url: a.value }));
+        setFiles(staticFiles);
+
+    }, [open, nodeId, nodeData, inputMappings]);
+
+    const handleContentChange = (index: number, value: string) => {
+        const newValues = [...contentValues];
+        newValues[index] = value;
+        setContentValues(newValues);
+    };
+
+    // File Upload Logic (using shared hook)
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFiles = Array.from(e.target.files || []);
+        if (selectedFiles.length === 0 || !nodeId) return;
+
+        const result = await uploadFiles(selectedFiles, files.length);
+
+        // Show errors if any
+        if (result.errors.length > 0) {
+            result.errors.forEach(err => showWarning("上传问题", err));
+        }
+
+        // Add successfully uploaded files
+        if (result.files.length > 0) {
+            const updatedFiles: FileItem[] = [
+                ...files,
+                ...result.files.map(f => ({ name: f.name, url: f.url, size: f.size, type: f.type }))
+            ];
+            setFiles(updatedFiles);
+
+            // Persist to node data immediately
+            const newAttachments = updatedFiles.map(f => ({ type: 'static' as const, value: f.url }));
+            const currentMode = inputMappings?.mode || 'direct';
+            const updates: Partial<OutputNodeData> = {
+                inputMappings: {
+                    mode: currentMode,
+                    ...inputMappings,
+                    attachments: newAttachments
+                }
+            };
+            updateNodeData(nodeId, updates);
+        }
+
+        e.target.value = "";
+    };
+
+    const removeFile = (index: number) => {
+        const newFiles = [...files];
+        newFiles.splice(index, 1);
+        setFiles(newFiles);
+
+        // Persist to node data
+        if (nodeId) {
+            const newAttachments = newFiles.map(f => ({ type: 'static' as const, value: f.url }));
+            const currentMode = inputMappings?.mode || 'direct';
+            const updates: Partial<OutputNodeData> = {
+                inputMappings: {
+                    mode: currentMode,
+                    ...inputMappings,
+                    attachments: newAttachments
+                }
+            };
+            updateNodeData(nodeId, updates);
+        }
     };
 
     const handleConfirm = () => {
-        setDebugData({ mockVariables });
-        confirmRun();
-    };
+        if (!nodeId) return;
 
-    // 获取输出模式的中文描述
-    const getModeLabel = (mode?: string) => {
-        switch (mode) {
-            case 'direct': return '直接引用';
-            case 'select': return '分支选择';
-            case 'merge': return '内容合并';
-            case 'template': return '模板渲染';
-            default: return '直接引用';
+        // Save content values to node
+        const mode = inputMappings?.mode || 'direct';
+        const existingSources = inputMappings?.sources || [];
+
+        if (mode === 'template') {
+            // 模板模式：直接更新模板内容
+            const updates: Partial<OutputNodeData> = {
+                inputMappings: { ...inputMappings, mode, template: contentValues[0] || '' }
+            };
+            updateNodeData(nodeId, updates);
+        } else {
+            // sources 模式：保留原有的 source 类型（variable/static），仅更新 value
+            const newSources: ContentSource[] = contentValues.map((val, i) => {
+                const existingSource = existingSources[i];
+                return {
+                    // 保留原有类型，如果是新增的则默认为 static（因为是手动输入的值）
+                    type: existingSource?.type || 'static',
+                    value: val,
+                    label: existingSource?.label
+                };
+            });
+            const updates: Partial<OutputNodeData> = {
+                inputMappings: { ...inputMappings, mode, sources: newSources }
+            };
+            updateNodeData(nodeId, updates);
         }
+
+        setDialogData({ mockVariables: {} });
+        confirmDialogRun();
     };
 
-    const hasVariables = requiredVariables.length > 0;
-    const allFilled = requiredVariables.every(v => mockVariables[v]?.trim());
+
+
+    const isValid = contentValues.length > 0 && contentValues.every(v => v.trim());
 
     return (
-        <Dialog open={open} onOpenChange={(val) => { if (!val) close(); }}>
-            <DialogContent className="sm:max-w-[550px] max-h-[85vh] overflow-y-auto rounded-2xl border border-gray-200 shadow-xl">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 font-bold text-base">
-                        <AlertCircle className="w-5 h-5 text-orange-600" />
-                        测试 Output 节点
+        <Dialog open={open} onOpenChange={(val) => { if (!val && !isUploading) closeDialog(); }}>
+            <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none rounded-2xl border border-gray-200 shadow-xl">
+                <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 bg-white">
+                    <DialogTitle className="text-xl font-bold text-gray-900">
+                        测试节点
                     </DialogTitle>
-                    <DialogDescription className="text-xs text-gray-500">
-                        正在调试节点 <span className="font-semibold text-gray-700">{nodeName}</span>
-                        <span className="ml-2 px-1.5 py-0.5 bg-gray-100 rounded text-[10px]">
-                            {getModeLabel(inputMappings?.mode)}
-                        </span>
-                    </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 py-4">
-                    {/* Mock 变量输入 */}
-                    {hasVariables ? (
-                        <div className="space-y-3">
-                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">填写测试变量</div>
-                            <div className="space-y-2">
-                                {requiredVariables.map((varName) => (
-                                    <div key={varName} className="space-y-1">
-                                        <Label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
-                                            <code className="bg-gray-100 px-1 py-0.5 rounded text-[10px]">{`{{${varName}}}`}</code>
-                                            {!mockVariables[varName]?.trim() && (
-                                                <span className="text-red-500 text-[10px]">(必填)</span>
-                                            )}
-                                        </Label>
-                                        <Input
-                                            placeholder={`输入 ${varName} 的测试值...`}
-                                            value={mockVariables[varName] || ''}
-                                            onChange={(e) => handleVariableChange(varName, e.target.value)}
-                                            className={`text-sm placeholder:text-sm placeholder:text-gray-400 ${!mockVariables[varName]?.trim()
-                                                ? 'border-red-200 focus:border-red-400'
-                                                : 'border-gray-200'
-                                                }`}
-                                        />
+                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 settings-scrollbar">
+                    {/* Content Input Section */}
+                    <div className="space-y-4">
+                        {contentValues.map((val, idx) => (
+                            <div key={idx} className="space-y-2">
+                                <Label className="text-sm font-medium text-gray-700 block">
+                                    {contentValues.length === 1 ? '输出内容' : `内容 #${idx + 1}`}
+                                    <span className="text-gray-400 ml-2 text-xs font-normal">(必填)</span>
+                                </Label>
+                                <Textarea
+                                    placeholder="请输入内容..."
+                                    value={val}
+                                    onChange={(e) => handleContentChange(idx, e.target.value)}
+                                    className="min-h-[120px] text-sm resize-none focus-visible:ring-1 focus-visible:ring-black border-gray-200 rounded-lg p-3"
+                                    disabled={isUploading}
+                                />
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* File Upload Section (Matching RAG) */}
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                            <Label className="text-sm font-medium text-gray-700">
+                                附件
+                                <span className="text-gray-400 ml-2 text-xs font-normal">(可选)</span>
+                            </Label>
+                            <div className="relative">
+                                <input
+                                    type="file"
+                                    multiple
+                                    className="hidden"
+                                    id={`output-file-upload-${nodeId}`}
+                                    onChange={handleFileSelect}
+                                    disabled={isUploading}
+                                />
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs gap-1.5 border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+                                    onClick={() => document.getElementById(`output-file-upload-${nodeId}`)?.click()}
+                                    disabled={isUploading}
+                                >
+                                    <Paperclip className="w-3.5 h-3.5" />
+                                    添加文件
+                                </Button>
+                            </div>
+                        </div>
+
+                        {/* File List */}
+                        {files.length > 0 ? (
+                            <div className="grid grid-cols-1 gap-2">
+                                {files.map((file, i) => (
+                                    <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg group hover:border-gray-200 transition-colors">
+                                        <div className="flex items-center gap-3 overflow-hidden">
+                                            <div className="w-8 h-8 rounded bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                                                <span className="text-[10px] font-bold text-gray-500 uppercase">
+                                                    {getFileExtension(file.name).replace('.', '') || 'FILE'}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-col min-w-0">
+                                                <span className="text-sm text-gray-700 font-medium truncate" title={file.name}>{file.name}</span>
+                                                {file.size && <span className="text-xs text-gray-400">{(file.size / 1024).toFixed(0)}KB</span>}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => removeFile(i)}
+                                            className="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                                            disabled={isUploading}
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
                                     </div>
                                 ))}
                             </div>
-                        </div>
-                    ) : (
-                        <div className="text-center py-6 text-gray-400">
-                            <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                            <p className="text-sm">此配置不需要变量输入</p>
-                            <p className="text-xs mt-1">可直接运行测试</p>
-                        </div>
-                    )}
+                        ) : (
+                            <div className="text-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-gray-400 text-xs">
+                                暂无文件，请添加
+                            </div>
+                        )}
+                    </div>
                 </div>
 
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={close}
-                        className="border-gray-300 text-gray-700 hover:bg-gray-50"
-                    >
+                <DialogFooter className="px-6 py-4 border-t border-gray-100 bg-white shrink-0">
+                    <Button variant="ghost" onClick={closeDialog} disabled={isUploading} className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
                         取消
                     </Button>
                     <Button
                         onClick={handleConfirm}
-                        disabled={hasVariables && !allFilled}
-                        className="gap-2 bg-black text-white hover:bg-black/85 active:bg-black/95 font-semibold transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isUploading || !isValid}
+                        className="bg-black text-white hover:bg-black/90 px-6 rounded-lg font-medium shadow-sm transition-all"
                     >
-                        <Play className="w-3 h-3" />
-                        运行测试
+                        {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Play className="w-4 h-4" /> 运行</>}
                     </Button>
                 </DialogFooter>
             </DialogContent>

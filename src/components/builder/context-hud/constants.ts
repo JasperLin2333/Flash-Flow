@@ -25,8 +25,26 @@ export const formSchema = z.object({
     }).optional(),
     formFields: z.array(z.any()).optional(),
     greeting: z.string().optional(),  // 招呼语
+    // RAG node specific fields
+    retrievalMode: z.string().optional(),
+    retrievalVariable: z.string().optional(),
+    retrievalVariable2: z.string().optional(),
+    retrievalVariable3: z.string().optional(),
     // Branch node specific fields
     condition: z.string().optional(),
+    // ImageGen node specific fields
+    prompt: z.string().optional(),
+    negativePrompt: z.string().optional(),
+    imageSize: z.string().optional(),
+    cfg: z.number().optional(),
+    numInferenceSteps: z.number().optional(),
+    referenceImageMode: z.string().optional(),
+    referenceImageUrl: z.string().optional(),
+    referenceImageUrl2: z.string().optional(),
+    referenceImageUrl3: z.string().optional(),
+    referenceImageVariable: z.string().optional(),
+    referenceImage2Variable: z.string().optional(),
+    referenceImage3Variable: z.string().optional(),
 });
 
 
@@ -43,13 +61,14 @@ export const INPUT_CLASS = "bg-gray-50 border-gray-200 text-gray-900";
 // ============ Node Output Field Definitions ============
 export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: string }[]> = {
     input: [
-        { field: "user_input", description: "用户输入的文本内容" },
+        { field: "user_input", description: "输入的文本内容" },
 
-        { field: "files", description: "用户上传的文件列表，可通过 files[n] 获取单个文件" },
-        { field: "formData", description: "结构化表单，通过 formData.字段名 引用" },
+        { field: "files", description: "上传的文件列表，可通过 files[n] 获取单个文件" },
+        { field: "formData", description: "快捷表单，可通过 字段名.formData.字段名 引用" },
     ],
     llm: [
         { field: "response", description: "AI生成的回复内容" },
+        { field: "reasoning", description: "思考内容" },
     ],
     rag: [
         { field: "documents", description: "文件中找到的相关内容" },
@@ -63,7 +82,7 @@ export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: 
         { field: "text", description: "最终输出的文本内容" },
     ],
     imagegen: [
-        { field: "imageUrl", description: "生成图片的 URL" },
+        { field: "imageUrl", description: "生成的图片" },
     ],
 };
 
@@ -72,7 +91,7 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     web_search: {
         inputs: [
             { field: "query", description: "搜索内容", required: true },
-            { field: "maxResults", description: "最多找多少个网页", required: false },
+            { field: "maxResults", description: "最多找多少个网页（1-10）", required: true },
         ],
         outputs: [
             { field: "results", description: "搜索的结果" },
@@ -92,8 +111,8 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
         inputs: [
             {
                 field: "operation",
-                description: "操作类型：now(获取当前时间)、format(格式化)、diff(日期差)、add(日期加减)",
-                required: false,
+                description: "操作类型",
+                required: true,
                 type: "enum" as const,
                 enumOptions: ["now", "format", "diff", "add"],
                 enumLabels: { now: "获取当前时间", format: "日期格式化", diff: "计算日期差", add: "日期加减" },
@@ -153,7 +172,7 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     url_reader: {
         inputs: [
             { field: "url", description: "想要读取的网页地址", required: true },
-            { field: "maxLength", description: "最多返回多少字", required: false },
+            { field: "maxLength", description: "最多返回多少字（不支持变量，100 - 50,000）", required: false },
         ],
         outputs: [
             { field: "url", description: "网页地址" },
@@ -176,8 +195,8 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     },
 };
 
-// ============ 节点需要的上游输入（不包括已有表单配置的参数） ============
-// 注意：systemPrompt、model、temperature 等已在表单中配置，这里只显示需要从上游获取的数据
+// ============ 节点参数配置（需要手动配置的输入参数） ============
+// 用户需在此处手动配置参数值或变量引用，不会自动获取上游数据
 // Output 节点使用专用的 OutputNodeConfig 组件配置
 export const NODE_UPSTREAM_INPUTS: Record<NodeKind, { field: string; description: string; required: boolean }[]> = {
     input: [],  // 入口节点，无需上游输入
@@ -185,8 +204,7 @@ export const NODE_UPSTREAM_INPUTS: Record<NodeKind, { field: string; description
         { field: "user_input", description: "用户提示词", required: false },
     ],
     rag: [
-        { field: "query", description: "想要从文件中找出什么", required: true },
-        { field: "files", description: "动态文件引用（APP页面上传的文件）", required: false },
+        { field: "query", description: "针对文件的提问", required: true },
     ],
     tool: [], // 动态根据工具类型生成
     branch: [],  // condition 表达式已说明数据来源

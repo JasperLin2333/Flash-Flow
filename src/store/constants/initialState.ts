@@ -25,33 +25,12 @@ export const INITIAL_FLOW_STATE = {
     copilotStep: 0,
     copilotBackdrop: "overlay" as const,
 
-    // LLM Debug Dialog 初始状态
-    llmDebugDialogOpen: false,
-    llmDebugNodeId: null,
-    llmDebugInputs: {},
+    // ============ 统一弹窗状态 (Unified Dialog State) ============
+    activeDialog: null as import("@/types/flow").DialogType | null,
+    activeNodeId: null as string | null,
+    dialogData: {} as Record<string, unknown>,
 
-    // RAG Debug Dialog
-    ragDebugDialogOpen: false,
-    ragDebugNodeId: null,
-    ragDebugInputs: {},
-
-    // Tool Debug Dialog
-    toolDebugDialogOpen: false,
-    toolDebugNodeId: null,
-    toolDebugInputs: {},
-
-    // Input Debug Dialog
-    inputDebugDialogOpen: false,
-    inputDebugNodeId: null,
-    inputDebugData: { text: '', files: [], formData: {} },
-
-    // Output Debug Dialog
-    outputDebugDialogOpen: false,
-    outputDebugNodeId: null,
-    outputDebugData: { mockVariables: {} },
-
-    inputPromptOpen: false,
-    inputPromptTargetNodeId: null,  // null = 显示所有 Input 节点
+    // Input Prompt 状态 (保留) - REMOVED
 
     // Clipboard state for copy/paste
     clipboard: null,
@@ -73,4 +52,8 @@ export const INITIAL_FLOW_STATE = {
 
     // 执行锁（内部使用，防止并发执行）
     _executionLock: false,
+
+    // Node-level execution control (for single-node testing)
+    runningNodeIds: new Set<string>(),
+    nodeAbortControllers: new Map<string, AbortController>(),
 };

@@ -7,14 +7,32 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isValidImageValue } from "@/store/executors/utils/validationUtils";
+import {
+    MODEL_CAPABILITIES,
+    DEFAULT_IMAGEGEN_CAPABILITIES,
+    type ImageGenModelCapabilities
+} from "@/services/imageGenModelsAPI";
+import { IMAGEGEN_CONFIG } from "@/store/constants/imageGenConstants";
 
 // SiliconFlow API Configuration
-const SILICONFLOW_API_URL = "https://api.siliconflow.cn/v1/images/generations";
+// SiliconFlow API Configuration
+const SILICONFLOW_API_URL = process.env.SILICONFLOW_API_URL || "https://api.siliconflow.cn/v1/images/generations";
 
 // Supabase Storage Configuration
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const STORAGE_BUCKET = "generated-images";
+
+/**
+ * Subset of capabilities needed for API parameter filtering
+ */
+interface APIModelCapabilities {
+    supportsNegativePrompt: boolean;
+    supportsImageSize: boolean;
+    supportsReferenceImage: boolean;
+    supportsInferenceSteps: boolean;
+}
 
 /**
  * Request body for image generation API
@@ -43,6 +61,8 @@ interface GenerateImageRequest {
     image?: string;   // 对应前端 referenceImageUrl (主参考图 URL)
     image2?: string;  // 对应前端 referenceImageUrl2 (第二张参考图, 仅 Edit-2509)
     image3?: string;  // 对应前端 referenceImageUrl3 (第三张参考图, 仅 Edit-2509)
+    // 前端传递的模型能力（优先使用，回退到硬编码默认值）
+    capabilities?: APIModelCapabilities;
 }
 
 interface SiliconFlowResponse {
@@ -54,7 +74,7 @@ interface SiliconFlowResponse {
 export async function POST(req: NextRequest) {
     try {
         const body: GenerateImageRequest = await req.json();
-        const { model, prompt, negativePrompt, imageSize, cfg, cfgParam, numInferenceSteps, userId, image, image2, image3 } = body;
+        const { model, prompt, negativePrompt, imageSize, cfg, cfgParam, numInferenceSteps, userId, image, image2, image3, capabilities: frontendCapabilities } = body;
 
         // Validate required fields
         if (!prompt) {
@@ -98,20 +118,25 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // Get model capabilities
+        // Priority: frontend-passed capabilities > hardcoded lookup > default
+        const modelId = model || IMAGEGEN_CONFIG.DEFAULT_MODEL;
+        const capabilities = frontendCapabilities || MODEL_CAPABILITIES[modelId] || DEFAULT_IMAGEGEN_CAPABILITIES;
+
         // Build request body dynamically based on model capabilities
         const requestBody: Record<string, unknown> = {
-            model: model || "Kwai-Kolors/Kolors",
+            model: modelId,
             prompt,
             batch_size: 1,
         };
 
-        // Add negative prompt if provided
-        if (negativePrompt) {
+        // Add negative prompt only if model supports it
+        if (negativePrompt && capabilities.supportsNegativePrompt) {
             requestBody.negative_prompt = negativePrompt;
         }
 
-        // Add image size only if provided (some models don't support it)
-        if (imageSize) {
+        // Add image size only if model supports it
+        if (imageSize && capabilities.supportsImageSize) {
             requestBody.image_size = imageSize;
         }
 
@@ -120,37 +145,56 @@ export async function POST(req: NextRequest) {
             requestBody[cfgParam] = cfg;
         }
 
-        // Add inference steps if provided
-        if (numInferenceSteps) {
+        // Add inference steps only if model supports it
+        if (numInferenceSteps && capabilities.supportsInferenceSteps) {
             requestBody.num_inference_steps = numInferenceSteps;
         }
 
-        // Add reference images (for img2img models)
-        if (image) {
-            requestBody.image = image;
-        }
-        if (image2) {
-            requestBody.image2 = image2;
-        }
-        if (image3) {
-            requestBody.image3 = image3;
+        // Using shared isValidImageValue from validationUtils
+
+        // Add reference images ONLY if model supports them AND values are valid
+        if (capabilities.supportsReferenceImage) {
+            if (image && isValidImageValue(image)) {
+                requestBody.image = image;
+            }
+            if (image2 && isValidImageValue(image2)) {
+                requestBody.image2 = image2;
+            }
+            if (image3 && isValidImageValue(image3)) {
+                requestBody.image3 = image3;
+            }
         }
 
         // Call SiliconFlow API
-        const siliconFlowResponse = await fetch(SILICONFLOW_API_URL, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-        });
+        let siliconFlowResponse;
+        try {
+            siliconFlowResponse = await fetch(SILICONFLOW_API_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(requestBody),
+            });
+        } catch (fetchError) {
+            console.error("[generate-image] Network error connecting to SiliconFlow:", fetchError);
+            const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
+
+            // Check for common network errors
+            if (errorMessage.includes("fetch failed") || errorMessage.includes("SSL") || errorMessage.includes("ECONNREFUSED")) {
+                return NextResponse.json(
+                    { error: `连接 SiliconFlow 服务失败 (${SILICONFLOW_API_URL})。请检查网络连接或 VPN 设置。\n错误详情: ${errorMessage}` },
+                    { status: 502 } // Bad Gateway
+                );
+            }
+            throw fetchError; // Re-throw to main catch block
+        }
 
         if (!siliconFlowResponse.ok) {
             const errorText = await siliconFlowResponse.text();
             console.error("[generate-image] SiliconFlow API error:", errorText);
             return NextResponse.json(
-                { error: `图片生成失败: ${siliconFlowResponse.status}` },
+                { error: `图片生成失败 (${siliconFlowResponse.status}): ${errorText}` },
                 { status: siliconFlowResponse.status }
             );
         }

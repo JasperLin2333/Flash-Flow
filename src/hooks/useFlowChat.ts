@@ -12,7 +12,7 @@ import type { AppNode } from '@/types/flow';
 
 // ============ Constants ============
 const MESSAGES = {
-    ERROR_EXECUTION: "工作流执行失败，请稍后重试。",
+    ERROR_EXECUTION: "画布工作流出错",
     EMPTY_OUTPUT: "工作流已完成，但未生成输出。",
 } as const;
 
@@ -188,7 +188,13 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
             const freshState = useFlowStore.getState();
             let responseText = "";
             let responseAttachments: import("@/components/apps/FlowAppInterface/constants").Attachment[] = [];
-            let responseReasoning: string | null = null;
+            // Check Output Node mode to determine if we should show reasoning
+            const outputNode = freshState.nodes.find(n => n.type === 'output');
+            const outputMode = (outputNode?.data as any)?.inputMappings?.mode || 'direct';
+            // Only show reasoning in direct or select modes
+            const shouldShowReasoning = outputMode === 'direct' || outputMode === 'select';
+
+            const responseReasoning = shouldShowReasoning ? (freshState.streamingReasoning || null) : null;
             let tokenUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null = null;
 
             if (freshState.executionStatus === "completed") {
@@ -196,13 +202,13 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 responseText = output.text;
                 responseAttachments = output.attachments;
 
-                // Extract reasoning and token usage from LLM nodes in context
+                // NOTE: Reasoning 现在需要在 Output 节点模板中显式引用 {{节点.reasoning}}
+                // 不再自动从 flowContext 提取
+
+                // Extract token usage from LLM nodes in context
                 for (const [nodeId, nodeOutput] of Object.entries(freshState.flowContext)) {
                     if (nodeId.startsWith('_')) continue;
                     const data = nodeOutput as Record<string, unknown>;
-                    if (data?.reasoning && typeof data.reasoning === 'string') {
-                        responseReasoning = data.reasoning;
-                    }
                     if (data?.usage && typeof data.usage === 'object') {
                         tokenUsage = data.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number };
                     }

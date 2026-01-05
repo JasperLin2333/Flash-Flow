@@ -56,7 +56,7 @@ export async function POST(req: Request) {
                 messages.push({ role: "user", content: JSON.stringify(input) });
             }
         } else {
-            messages.push({ role: "user", content: "Start" });
+            messages.push({ role: "user", content: "" });
         }
 
         // Determine provider based on model
@@ -73,11 +73,11 @@ export async function POST(req: Request) {
                 // 如果有系统提示词，追加到系统提示词；否则添加一条系统指令
                 const systemMsg = messages.find(m => m.role === 'system');
                 if (systemMsg && typeof systemMsg.content === 'string') {
-                    systemMsg.content += "\nIMPORTANT: The output must be a valid JSON object.";
+                    systemMsg.content += "\n重要：输出必须是一个有效的 JSON 对象。";
                 } else {
                     messages.unshift({
                         role: "system",
-                        content: "The output must be a valid JSON object."
+                        content: "重要：输出必须是一个有效的 JSON 对象。"
                     });
                 }
             }

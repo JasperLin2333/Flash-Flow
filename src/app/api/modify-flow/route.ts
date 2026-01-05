@@ -7,41 +7,117 @@ import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } fro
 import { SMART_RULES, VARIABLE_RULES, NODE_SPECS, EDGE_RULES, CORE_CHECKLIST, EFFICIENCY_RULES } from "@/lib/prompts";
 import { WorkflowZodSchema } from "@/lib/schemas/workflow";
 
-export async function POST(req: Request) {
-  // Clone request for quota operations
-  const reqClone = req.clone();
+// ============ Patch Mode Handler ============
+async function handlePatchMode(
+  prompt: string,
+  currentNodes: any[],
+  currentEdges: any[],
+  client: OpenAI,
+  model: string
+) {
+  // 构建精简的节点上下文（只显示关键信息）
+  const compactNodes = currentNodes.map(n => ({
+    id: n.id,
+    type: n.type,
+    label: n.data?.label || n.type,
+    // 只保留可修改的核心配置
+    config: {
+      ...(n.type === 'llm' && {
+        model: n.data?.model,
+        temperature: n.data?.temperature,
+        enableMemory: n.data?.enableMemory,
+        historyRounds: n.data?.historyRounds,
+      }),
+      ...(n.type === 'input' && {
+        enableTextInput: n.data?.enableTextInput,
+        enableFileInput: n.data?.enableFileInput,
+      }),
+      ...(n.type === 'imagegen' && {
+        model: n.data?.model,
+        creativity: n.data?.creativity,
+      }),
+    }
+  }));
+
+  const patchPrompt = `你是工作流修改专家。根据用户需求，精准输出需要修改的节点配置。
+
+# 当前节点
+\`\`\`json
+${JSON.stringify(compactNodes, null, 2)}
+\`\`\`
+
+# 用户需求
+${prompt}
+
+# 输出规则（重要！）
+1. **仅输出需要修改的字段**，不要输出完整工作流
+2. 使用 patches 数组格式
+3. nodeId 必须使用节点的真实 ID
+4. data 只包含需要更新的字段
+
+# 输出格式
+\`\`\`json
+{
+  "patches": [
+    { "nodeId": "node-xxx", "data": { "字段": "新值" } }
+  ]
+}
+\`\`\`
+
+如需添加节点：
+\`\`\`json
+{
+  "action": "add",
+  "nodeType": "llm",
+  "nodeData": { ... },
+  "connectAfter": "上游节点ID"
+}
+\`\`\`
+
+如需删除节点：
+\`\`\`json
+{
+  "action": "delete",
+  "target": "要删除的节点ID"
+}
+\`\`\`
+`;
+
+  const completion = await client.chat.completions.create({
+    model,
+    temperature: 0.1,
+    messages: [
+      { role: "system", content: patchPrompt },
+      { role: "user", content: "请输出 JSON patches。" },
+    ],
+    response_format: { type: "json_object" },
+  });
+
+  const content = completion.choices?.[0]?.message?.content || "{}";
 
   try {
-    // Authentication check
-    const user = await getAuthenticatedUser(req);
-    if (!user) {
-      return unauthorizedResponse();
-    }
+    return JSON.parse(content);
+  } catch {
+    // 解析失败，返回空以触发 fallback
+    return { error: "parse_failed" };
+  }
+}
 
-    // Server-side quota check for flow generations
-    const quotaCheck = await checkQuotaOnServer(req, user.id, "flow_generations");
-    if (!quotaCheck.allowed) {
-      return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "Flow 生成次数");
-    }
+// ============ Full Mode Handler (原有逻辑) ============
+async function handleFullMode(
+  prompt: string,
+  currentNodes: any[],
+  currentEdges: any[],
+  client: OpenAI,
+  model: string
+) {
+  const currentWorkflowJSON = JSON.stringify(
+    { nodes: currentNodes, edges: currentEdges },
+    null,
+    2
+  );
 
-    const body = await reqClone.json();
-    const { prompt, currentNodes, currentEdges } = body;
-
-    if (!prompt || !currentNodes || !currentEdges) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
-
-    // 构建当前工作流的完整 JSON 上下文
-    const currentWorkflowJSON = JSON.stringify(
-      {
-        nodes: currentNodes,
-        edges: currentEdges,
-      },
-      null,
-      2
-    );
-
-    const system = `你是工作流修改专家。根据用户的修改需求，基于当前工作流上下文，精准生成修改后的完整 JSON 工作流。
+  const system = `你是工作流修改专家。根据用户的修改需求，基于当前工作流上下文，精准生成修改后的完整 JSON 工作流。
 
 # 📋 当前工作流上下文
 \`\`\`json
@@ -93,12 +169,64 @@ ${CORE_CHECKLIST}
 \`\`\`
 `;
 
-    // 将用户请求注入到 system prompt 中
-    const finalSystemPrompt = system + "\\n\\n# 用户请求\\n" + prompt;
+  const finalSystemPrompt = system + "\\n\\n# 用户请求\\n" + prompt;
+  const userMsg = "请按照 system prompt 中的规则解析用户需求并生成 JSON 指令。";
 
-    const userMsg = "请按照 system prompt 中的规则解析用户需求并生成 JSON 指令。";
+  const completion = await client.chat.completions.create({
+    model,
+    temperature: 0.1,
+    messages: [
+      { role: "system", content: finalSystemPrompt },
+      { role: "user", content: userMsg },
+    ],
+    response_format: { type: "json_object" },
+  });
 
-    let content = "{}";
+  const content = completion.choices?.[0]?.message?.content || "{}";
+
+  let jsonText = content;
+  const match = content.match(/\{[\s\S]*\}/);
+  if (match) jsonText = match[0];
+
+  try {
+    const instruction = JSON.parse(jsonText);
+
+    // Validation logging
+    const validation = WorkflowZodSchema.safeParse(instruction);
+    if (!validation.success && process.env.NODE_ENV === 'development') {
+      console.warn("Modify-Flow Schema Validation Failed:", validation.error);
+    }
+
+    return instruction;
+  } catch {
+    return { action: "unknown" };
+  }
+}
+
+// ============ Main Handler ============
+export async function POST(req: Request) {
+  const reqClone = req.clone();
+
+  try {
+    // Authentication check
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
+      return unauthorizedResponse();
+    }
+
+    // Server-side quota check
+    const quotaCheck = await checkQuotaOnServer(req, user.id, "flow_generations");
+    if (!quotaCheck.allowed) {
+      return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "Flow 生成次数");
+    }
+
+    const body = await reqClone.json();
+    // mode 默认为 "full" 保持向后兼容
+    const { prompt, currentNodes, currentEdges, mode = "full" } = body;
+
+    if (!prompt || !currentNodes || !currentEdges) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
 
     // Dynamic provider resolution
     const defaultModel = process.env.DEFAULT_LLM_MODEL || "deepseek-ai/DeepSeek-V3.2";
@@ -109,45 +237,25 @@ ${CORE_CHECKLIST}
       apiKey: config.getApiKey(),
       baseURL: config.baseURL
     });
-    const completion = await client.chat.completions.create({
-      model: defaultModel,
-      temperature: 0.1,
-      messages: [
-        { role: "system", content: finalSystemPrompt },
-        { role: "user", content: userMsg },
-      ],
-      response_format: { type: "json_object" },
-    });
-    content = completion.choices?.[0]?.message?.content || "{}";
 
-    // 提取JSON
-    let jsonText = content;
-    // With JSON mode, match is less critical but kept as safety layer
-    const match = content.match(/\{[\s\S]*\}/);
-    if (match) jsonText = match[0];
+    // 根据 mode 选择处理方式
+    let result: any;
+    if (mode === "patch") {
+      result = await handlePatchMode(prompt, currentNodes, currentEdges, client, defaultModel);
 
-    let instruction: any = {};
-    try {
-      instruction = JSON.parse(jsonText);
-
-      // Strict validation logging
-      // Note: modify-flow might return instruction object OR workflow, 
-      // but current prompt says "输出修改后的完整工作流 JSON", so valid workflow is expected.
-      const validation = WorkflowZodSchema.safeParse(instruction);
-      if (!validation.success) {
-        if (process.env.NODE_ENV === 'development') {
-          console.warn("Modify-Flow Schema Validation Failed:", validation.error);
-        }
+      // 如果 patch 模式解析失败，返回特殊标记让前端 fallback
+      if (result.error === "parse_failed") {
+        result = await handleFullMode(prompt, currentNodes, currentEdges, client, defaultModel);
       }
-
-    } catch {
-      instruction = { action: "unknown" };
+    } else {
+      // Full mode（原有逻辑）
+      result = await handleFullMode(prompt, currentNodes, currentEdges, client, defaultModel);
     }
 
     // Increment quota after successful modification
     await incrementQuotaOnServer(req, user.id, "flow_generations");
 
-    return NextResponse.json(instruction);
+    return NextResponse.json(result);
   } catch (e) {
     if (process.env.NODE_ENV === 'development') {
       console.error("Modify flow error:", e);

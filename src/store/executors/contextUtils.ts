@@ -1,4 +1,5 @@
 import type { FlowContext, AppNode } from "@/types/flow";
+import { TEXT_FIELD_PRIORITY, BRANCH_METADATA_FIELDS } from "@/types/nodeOutputFields";
 
 /**
  * 从 FlowContext 中提取上游节点数据
@@ -27,23 +28,7 @@ export function getUpstreamEntries(context: FlowContext): [string, unknown][] {
     );
 }
 
-/**
- * 字段提取优先级配置
- * 按顺序尝试提取，返回第一个非空字符串值
- * 
- * 这些字段名对应各节点类型的标准输出:
- * - text: OutputNodeExecutor 的输出字段
- * - response: LLMNodeExecutor 的输出字段
- * - user_input: InputNodeExecutor 的输出字段
- * - query: RAGNodeExecutor 的输出字段
- */
-const TEXT_FIELD_PRIORITY = ['text', 'response', 'user_input', 'query'] as const;
 
-/**
- * Branch 节点的元数据字段，应该被过滤掉
- * 这些字段是 BranchNodeExecutor 添加的，不应该出现在最终输出中
- */
-const BRANCH_METADATA_FIELDS = ['conditionResult', 'passed', 'value'] as const;
 
 /**
  * 从上游数据中提取文本内容

@@ -3,48 +3,67 @@ import { FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescripti
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { NODE_FORM_STYLES, type BaseNodeFormProps } from "./shared";
+import { useMemo } from "react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { validateCondition } from "@/lib/branchConditionParser";
 
-const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS } = NODE_FORM_STYLES;
+const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS, TEXTAREA: TEXTAREA_CLASS } = NODE_FORM_STYLES;
 
 export function BranchNodeForm({ form }: BaseNodeFormProps) {
+    const conditionValue = form.watch("condition") as string | undefined;
+
+    const validationResult = useMemo(() => {
+        return validateCondition(conditionValue || "");
+    }, [conditionValue]);
+
     return (
         <div className="space-y-4">
-            <div className="space-y-4">
-                <FormField
-                    control={form.control}
-                    name="label"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel className={LABEL_CLASS}>节点名称</FormLabel>
-                            <FormControl>
-                                <Input {...field} className={INPUT_CLASS} placeholder="分支节点" />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
+            <FormField
+                control={form.control}
+                name="label"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel className={LABEL_CLASS}>节点名称</FormLabel>
+                        <FormControl>
+                            <Input {...field} className={INPUT_CLASS} placeholder="分支节点" />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
 
-                <FormField
-                    control={form.control}
-                    name="condition"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel className={LABEL_CLASS}>判断条件</FormLabel>
-                            <FormControl>
-                                <Textarea
-                                    {...field}
-                                    className={`${INPUT_CLASS} h-9 min-h-0 py-2 font-mono`}
-                                    placeholder='节点名.字段名.length > 5'
-                                />
-                            </FormControl>
-                            <FormDescription className="text-[10px] text-gray-400">
-                                支持格式: 节点名.字段.includes(&quot;值&quot;), .startsWith(), .endsWith(), === , !==, &gt;, &lt;, &gt;=, &lt;=
+            <FormField
+                control={form.control}
+                name="condition"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel className={LABEL_CLASS}>判断条件</FormLabel>
+                        <FormControl>
+                            <Textarea
+                                {...field}
+                                className={`${TEXTAREA_CLASS} h-16 min-h-0 py-2 font-mono ${!validationResult.valid ? 'border-amber-400 focus:ring-amber-400' : ''}`}
+                                placeholder='节点名.字段名.length > 5'
+                            />
+                        </FormControl>
+                        {validationResult.valid ? (
+                            <FormDescription className="text-[10px] text-gray-400 space-y-0.5">
+                                <span className="flex items-center gap-1">
+                                    {conditionValue?.trim() && (
+                                        <CheckCircle2 className="w-3 h-3 text-green-500" />
+                                    )}
+                                    <span>示例: 节点名.字段 &gt; 10, 节点名.text.includes(&quot;关键词&quot;), A.x === &apos;值&apos; &amp;&amp; B.y &gt; 0</span>
+                                </span>
                             </FormDescription>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-            </div>
+                        ) : (
+                            <FormDescription className="text-[10px] text-amber-600 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                {validationResult.error}
+                            </FormDescription>
+                        )}
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
         </div>
     );
 }

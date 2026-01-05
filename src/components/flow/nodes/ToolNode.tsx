@@ -8,12 +8,10 @@ import { useFlowStore } from "@/store/flowStore";
 import { useShallow } from "zustand/shallow";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { TOOL_REGISTRY, type ToolType } from "@/lib/tools/registry";
+import { TOOL_REGISTRY, DEFAULT_TOOL_TYPE, type ToolType } from "@/lib/tools/registry";
 import type { ToolNodeData, AppNode } from "@/types/flow";
 import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
-
-// 统一 Handle 样式：包含 z-index 和扩展点击区域
-const HANDLE_STYLE = "w-2.5 h-2.5 !bg-white !border-[1.5px] !border-gray-400 transition-all duration-150 hover:scale-125 z-50 after:content-[''] after:absolute after:-inset-4 after:rounded-full";
+import { HANDLE_STYLE } from "../constants";
 
 // ============ Tool Node Component ============
 
@@ -21,13 +19,17 @@ const ToolNode = ({ id, data, selected }: NodeProps) => {
     const nodeData = data as ToolNodeData;
     // PERFORMANCE: Only subscribe to function references, not data
     // nodes is fetched on-demand in handleTestNode to avoid re-renders
-    const { openToolDebugDialog, runNode } = useFlowStore(
+    const { openToolDebugDialog, runNode, runningNodeIds } = useFlowStore(
         useShallow((s) => ({
             openToolDebugDialog: s.openToolDebugDialog,
             runNode: s.runNode,
+            runningNodeIds: s.runningNodeIds,
         }))
     );
-    const toolType = (nodeData.toolType as ToolType) || "web_search";
+
+    // Check if this node is currently running
+    const isNodeRunning = runningNodeIds.has(id as string);
+    const toolType = (nodeData.toolType as ToolType) || DEFAULT_TOOL_TYPE;
     const toolConfig = TOOL_REGISTRY[toolType];
     const ToolIcon = toolConfig?.icon || Wrench;
 
@@ -70,13 +72,21 @@ const ToolNode = ({ id, data, selected }: NodeProps) => {
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 rounded-full hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-all duration-150"
+                                disabled={isNodeRunning}
+                                className={cn(
+                                    "h-6 w-6 rounded-full transition-all duration-150",
+                                    isNodeRunning
+                                        ? "bg-transparent text-gray-300 cursor-not-allowed"
+                                        : "hover:bg-gray-200 text-gray-600 hover:text-gray-900"
+                                )}
                                 onClick={handleTestNode}
                             >
                                 <Play className="w-3 h-3" />
                             </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="top">测试工具</TooltipContent>
+                        <TooltipContent side="top">
+                            {isNodeRunning ? "运行中..." : "测试"}
+                        </TooltipContent>
                     </Tooltip>
                 </TooltipProvider>
             </div>

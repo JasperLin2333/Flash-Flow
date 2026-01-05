@@ -1,6 +1,6 @@
 "use client";
 import { useMemo } from "react";
-import type { NodeKind, AppEdge, AppNode } from "@/types/flow";
+import type { NodeKind } from "@/types/flow";
 import type { NodeIOSectionProps, UpstreamVariable, UpstreamInputState, ReferencedVariable } from "../../types";
 import {
     NODE_OUTPUT_FIELDS,
@@ -8,8 +8,6 @@ import {
     NODE_UPSTREAM_INPUTS,
 } from "../../constants";
 import { extractVariablesFromText, flattenObjectToVariables, flattenInputNodeOutput } from "../../utils";
-import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
-import { useState, useEffect } from "react";
 
 // 输出字段类型
 export interface OutputField {
@@ -39,11 +37,8 @@ export function useNodeIO({
     flowContext,
 }: Pick<NodeIOSectionProps, 'nodeId' | 'nodeType' | 'nodeData' | 'nodes' | 'edges' | 'flowContext'>): UseNodeIOResult {
 
-    const [models, setModels] = useState<LLMModel[]>([]);
 
-    useEffect(() => {
-        llmModelsAPI.listModels().then(setModels);
-    }, []);
+
 
     // 计算上游节点及其可用变量
     const upstreamVariables = useMemo((): UpstreamVariable[] => {
@@ -101,7 +96,9 @@ export function useNodeIO({
                 } else {
                     // 其他节点类型使用通用的递归展开
                     const flattened = flattenObjectToVariables(upOutput as Record<string, unknown>, upLabel, upId);
-                    variables.push(...flattened);
+                    // FIX: 过滤掉 reasoning 字段
+                    const filtered = flattened.filter(v => v.field !== 'reasoning' && !v.field.startsWith('reasoning.'));
+                    variables.push(...filtered);
                 }
             } else {
                 // 没有执行输出时，显示预期字段
@@ -119,9 +116,8 @@ export function useNodeIO({
 
                     // 针对 LLM 节点的 reasoning 字段进行动态过滤
                     if (upNode.type === 'llm' && field === 'reasoning') {
-                        const upModelId = (upNode.data as any)?.model;
-                        const model = models.find(m => m.model_id === upModelId);
-                        if (model && !model.capabilities.hasReasoning) return;
+                        // 始终过滤掉 reasoning，不在前端显示
+                        return;
                     }
 
                     if (!field.startsWith('(')) {
@@ -191,7 +187,7 @@ export function useNodeIO({
         });
 
         return variables;
-    }, [nodeId, nodes, edges, flowContext, models]);
+    }, [nodeId, nodes, edges, flowContext]);
 
     // 当前节点的输出字段定义（根据节点类型动态生成）
     const outputFields = useMemo((): OutputField[] => {
@@ -236,11 +232,8 @@ export function useNodeIO({
 
         // 针对当前 LLM 节点的 reasoning 字段进行动态过滤
         if (nodeType === 'llm') {
-            const currentModelId = nodeData?.model as string | undefined;
-            const model = models.find(m => m.model_id === currentModelId);
-            if (model && !model.capabilities.hasReasoning) {
-                return fields.filter(f => f.field !== 'reasoning');
-            }
+            // 始终隐藏 reasoning 字段
+            return fields.filter(f => f.field !== 'reasoning');
         }
 
         // Output 节点：如果配置了 attachments，添加 attachments 输出字段
@@ -261,9 +254,9 @@ export function useNodeIO({
         }
 
         return fields;
-    }, [nodeType, nodeData?.toolType, nodeData?.enableTextInput, nodeData?.enableFileInput, nodeData?.enableStructuredForm, nodeData?.model, nodeData?.inputMappings, models]);
+    }, [nodeType, nodeData?.toolType, nodeData?.enableTextInput, nodeData?.enableFileInput, nodeData?.enableStructuredForm, nodeData?.inputMappings]);
 
-    // 计算当前节点需要的上游输入（检查是否满足）
+    // 计算当前节点的参数配置（检查是否满足）
     const upstreamInputs = useMemo((): UpstreamInputState[] => {
         const inputs: UpstreamInputState[] = [];
         const upstreamFieldNames = new Set(upstreamVariables.map(v => v.field));
@@ -329,10 +322,26 @@ export function useNodeIO({
                     // 检查是否已配置值或引用了变量
                     const hasValue = valueStr !== '';
                     const isSatisfied = hasValue && varsValid;
+                    let isRequired = inp.required;
+
+                    // 特殊处理 datetime 工具的动态必填逻辑
+                    if (toolType === 'datetime') {
+                        const operation = (configuredInputs?.['operation'] as string) || 'now';
+                        if (inp.field === 'date') {
+                            isRequired = ['format', 'diff', 'add'].includes(operation);
+                        } else if (inp.field === 'targetDate') {
+                            isRequired = operation === 'diff';
+                        } else if (inp.field === 'amount' || inp.field === 'unit') {
+                            isRequired = operation === 'add';
+                        } else if (inp.field === 'format') {
+                            isRequired = operation === 'format';
+                        }
+                    }
+
                     inputs.push({
                         field: inp.field,
                         description: inp.description,
-                        required: inp.required,
+                        required: isRequired,
                         isSatisfied,
                         configuredValue: valueStr,
                         isToolInput: true,
@@ -392,6 +401,21 @@ export function useNodeIO({
                     });
                 });
             }
+
+            const inputMappings = nodeData?.inputMappings as Record<string, string> | undefined;
+            if (inputMappings?.user_input) {
+                const vars = extractVariablesFromText(inputMappings.user_input);
+                vars.forEach(varName => {
+                    const isSatisfied = upstreamFieldNames.has(varName) ||
+                        upstreamFullNames.has(varName) ||
+                        varName.includes('.');
+                    refs.push({
+                        field: varName,
+                        description: "用户提示词中引用",
+                        isSatisfied,
+                    });
+                });
+            }
         }
 
         // Tool 节点：检测工具输入参数中的变量
@@ -440,7 +464,7 @@ export function useNodeIO({
             }
         }
 
-        // RAG 节点：检测 inputMappings 中的变量引用
+        // RAG 节点：检测 inputMappings 和 retrievalVariable 中的变量引用
         if (nodeType === 'rag') {
             const inputMappings = nodeData?.inputMappings as Record<string, string> | undefined;
             if (inputMappings?.query) {
@@ -456,19 +480,29 @@ export function useNodeIO({
                     });
                 });
             }
-            if (inputMappings?.files) {
-                const vars = extractVariablesFromText(inputMappings.files);
-                vars.forEach(varName => {
-                    const isSatisfied = upstreamFieldNames.has(varName) ||
-                        upstreamFullNames.has(varName) ||
-                        varName.includes('.');
-                    refs.push({
-                        field: varName,
-                        description: "文件引用中引用",
-                        isSatisfied,
+
+            // 检查新的 retrievalVariable 字段
+            const retrievalVars = [
+                { val: nodeData?.retrievalVariable as string, label: "知识源 1" },
+                { val: nodeData?.retrievalVariable2 as string, label: "知识源 2" },
+                { val: nodeData?.retrievalVariable3 as string, label: "知识源 3" }
+            ];
+
+            retrievalVars.forEach(({ val, label }) => {
+                if (val) {
+                    const vars = extractVariablesFromText(val);
+                    vars.forEach(varName => {
+                        const isSatisfied = upstreamFieldNames.has(varName) ||
+                            upstreamFullNames.has(varName) ||
+                            varName.includes('.');
+                        refs.push({
+                            field: varName,
+                            description: `${label}中引用`,
+                            isSatisfied,
+                        });
                     });
-                });
-            }
+                }
+            });
         }
 
         // ImageGen 节点：检测 prompt 和 negativePrompt 中的变量引用

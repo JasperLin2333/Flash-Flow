@@ -2,14 +2,14 @@
 import { Send, Paperclip, BookOpen, X, File as FileIcon, Image as ImageIcon, FileText } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
+import { NodeForm } from "../run/NodeForm";
 
 interface PromptBubbleProps {
   value: string;
@@ -54,7 +54,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [formPopoverOpen, setFormPopoverOpen] = useState(false);
+  const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -132,16 +132,31 @@ export default function PromptBubble(props: PromptBubbleProps) {
     return placeholder;
   };
 
+  const handleSubmit = () => {
+    if (canSubmit) {
+      onSubmit();
+
+      // Reset form data to defaults
+      const resetFormData: Record<string, unknown> = {};
+      formFields.forEach((field) => {
+        if (field.defaultValue) {
+          resetFormData[field.name] = field.defaultValue;
+        }
+      });
+      setFormData(resetFormData);
+      onFormDataChange?.(resetFormData);
+    }
+  };
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.nativeEvent.isComposing) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        // Allow submit only when canSubmit is true
-        if (canSubmit) onSubmit();
+        handleSubmit();
       }
     },
-    [onSubmit, canSubmit]
+    [handleSubmit]
   );
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -320,10 +335,10 @@ export default function PromptBubble(props: PromptBubbleProps) {
 
           {/* Form Config */}
           {enableStructuredForm && formFields.length > 0 && (
-            <Popover open={formPopoverOpen} onOpenChange={setFormPopoverOpen}>
+            <Dialog open={formDialogOpen} onOpenChange={setFormDialogOpen}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
+                  <DialogTrigger asChild>
                     <Button
                       type="button"
                       variant="ghost"
@@ -339,7 +354,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
                     >
                       <BookOpen className="w-4 h-4" />
                     </Button>
-                  </PopoverTrigger>
+                  </DialogTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="w-fit p-3 space-y-1.5">
                   <p className="font-semibold text-sm">填写表单</p>
@@ -358,103 +373,34 @@ export default function PromptBubble(props: PromptBubbleProps) {
                   </div>
                 </TooltipContent>
               </Tooltip>
-              <PopoverContent className="w-80 p-4 space-y-3" side="top" align="start">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">填写表单</h4>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => setFormPopoverOpen(false)}
-                  >
-                    <X className="w-3 h-3" />
-                  </Button>
+
+              <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden bg-white rounded-2xl border border-gray-100 shadow-xl">
+                <DialogHeader className="px-6 pt-6 pb-2">
+                  <DialogTitle className="text-xl font-bold text-gray-900 tracking-tight">填写表单</DialogTitle>
+                </DialogHeader>
+
+                <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
+                  <NodeForm
+                    fields={formFields}
+                    formData={formData}
+                    formErrors={formErrors}
+                    onChange={handleFieldChange}
+                  />
                 </div>
 
-                {formFields.map((field) => {
-                  const hasError = !!formErrors[field.name];
-                  return (
-                    <div key={field.name} className="space-y-2">
-                      <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
-                        {field.label}
-                        {field.required && <span className="text-red-500">*</span>}
-                      </label>
-
-                      {field.type === "select" ? (
-                        <Select
-                          value={formData[field.name] as string || ""}
-                          onValueChange={(val) => handleFieldChange(field.name, val)}
-                        >
-                          <SelectTrigger className={`${hasError ? "border-red-500" : "border-gray-200"} h-9`}>
-                            <SelectValue placeholder="请选择" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(field as SelectFieldConfig).options
-                              .filter(opt => {
-                                const val = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
-                                return val && val.trim() !== '';
-                              })
-                              .map((opt) => {
-                                const optValue = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
-                                const optLabel = typeof opt === 'object' && opt !== null ? (opt as { label: string }).label : opt;
-                                return (
-                                  <SelectItem key={optValue} value={optValue}>
-                                    {optLabel}
-                                  </SelectItem>
-                                );
-                              })}
-                          </SelectContent>
-                        </Select>
-                      ) : field.type === "multi-select" ? (
-                        <div className={`border rounded-md p-2 space-y-2 max-h-40 overflow-y-auto ${hasError ? "border-red-500" : "border-gray-200"}`}>
-                          {(field as MultiSelectFieldConfig).options.map((opt) => {
-                            const optValue = typeof opt === 'object' && opt !== null ? (opt as { value: string }).value : opt;
-                            const optLabel = typeof opt === 'object' && opt !== null ? (opt as { label: string }).label : opt;
-                            const currentVals = (formData[field.name] as string[]) || [];
-                            return (
-                              <div key={optValue} className="flex items-center space-x-2">
-                                <input
-                                  type="checkbox"
-                                  id={`${field.name}-${optValue}`}
-                                  checked={currentVals.includes(optValue)}
-                                  onChange={(e) => {
-                                    const checked = e.target.checked;
-                                    let newVals = [...currentVals];
-                                    if (checked) {
-                                      newVals.push(optValue);
-                                    } else {
-                                      newVals = newVals.filter(v => v !== optValue);
-                                    }
-                                    handleFieldChange(field.name, newVals);
-                                  }}
-                                  className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"
-                                />
-                                <label
-                                  htmlFor={`${field.name}-${optValue}`}
-                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                                >
-                                  {optLabel}
-                                </label>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      ) : (
-                        <Input
-                          placeholder={"请输入..."}
-                          value={(formData[field.name] as string) || ""}
-                          onChange={(e) => handleFieldChange(field.name, e.target.value)}
-                          className={`${hasError ? "border-red-500" : "border-gray-200"} h-9`}
-                        />
-                      )}
-
-                      {hasError && <p className="text-xs text-red-500">{formErrors[field.name]}</p>}
-                    </div>
-                  );
-                })}
-              </PopoverContent>
-            </Popover>
+                <DialogFooter className="px-6 py-4 bg-gray-50/50 border-t border-gray-100 flex justify-end gap-2">
+                  <DialogClose asChild>
+                    <Button variant="outline" className="rounded-xl">取消</Button>
+                  </DialogClose>
+                  <Button
+                    onClick={() => setFormDialogOpen(false)}
+                    className="rounded-xl bg-black text-white hover:bg-black/90 shadow-lg shadow-black/10"
+                  >
+                    确认
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
         </div>
 
@@ -463,7 +409,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
           type="button"
           onClick={(e) => {
             e.preventDefault();
-            if (canSubmit) onSubmit();
+            handleSubmit();
           }}
           disabled={!canSubmit}
           className={cn(

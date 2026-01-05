@@ -90,7 +90,7 @@ export function UpstreamInputsSection({
                     value={configuredValue}
                     onValueChange={handleChange}
                 >
-                    <SelectTrigger className="w-full text-[10px] font-mono h-8 border-gray-200 bg-white focus:border-gray-400 focus:ring-1 focus:ring-gray-200">
+                    <SelectTrigger className="w-full text-[10px] font-mono px-2 py-1.5 h-auto min-h-[29px] border rounded shadow-none border-gray-200 bg-white focus:border-gray-400 focus:ring-1 focus:ring-gray-200">
                         <SelectValue placeholder="请选择" />
                     </SelectTrigger>
                     <SelectContent>
@@ -121,7 +121,7 @@ export function UpstreamInputsSection({
         <div>
             <h4 className={`${LABEL_CLASS} mb-2 flex items-center gap-1.5`}>
                 <Settings className="w-3 h-3" />
-                {nodeType === 'tool' ? '工具参数配置' : '需要的上游输入'}
+                参数配置
             </h4>
             <div className="space-y-1.5">
                 {upstreamInputs.map((input, idx) => {
@@ -170,7 +170,7 @@ export function UpstreamInputsSection({
                                 ) : input.isSatisfied ? (
                                     <Check className="w-3 h-3 text-green-500 shrink-0" />
                                 ) : input.required ? (
-                                    <span className="text-[9px] text-orange-500 shrink-0">需配置</span>
+                                    <span className="text-[9px] text-orange-500 shrink-0">必填</span>
                                 ) : (
                                     <span className="text-[9px] text-gray-400 shrink-0">可选</span>
                                 )}

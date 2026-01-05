@@ -4,14 +4,15 @@
 
 RAG（检索增强生成）节点使用 Google Gemini API 进行智能文档检索和问答，支持两种工作模式：
 
-1.  **静态模式 (Static Mode)**：使用 Builder 中预先上传到 File Search Store 的知识库文件。适用于固定知识库的问答场景（如企业文档库、产品手册）。
-2.  **动态模式 (Dynamic Mode)**：从上游节点（通常是 Input 节点）实时引用用户上传的文件，使用 Gemini 多模态 API 直接处理。适用于针对用户临时上传文件的即时问答场景。
+1.  **静态模式 (Static Mode)**：使用 Builder 中预先上传到 File Search Store 的知识库文件。用户还可以明确选择"静态上传"模式。
+2.  **变量引用模式 (Variable Mode)**：从上游节点（通常是 Input 节点）实时引用用户上传的文件。用户可以明确选择"变量引用"模式。
 
 ### 模式选择机制
 
-系统根据 `inputMappings.files` 配置自动判断运行模式：
-- 如果配置了 `inputMappings.files` 且解析出有效的文件 URL → **动态模式**
-- 如果未配置动态文件引用 → **静态模式**（使用预配置的 File Search Store）
+系统优先使用用户在 UI上显式选择的模式：
+- **变量引用模式 (`fileMode: 'variable'`)**: 强制使用动态文件引用。
+- **静态上传模式 (`fileMode: 'static'`)**: 强制使用预上传的文件。
+- **自动/兼容模式**: 如果未显式指定模式（旧版节点），则根据是否配置了动态文件引用自动判断。
 
 ## 核心参数
 
@@ -20,7 +21,10 @@ RAG（检索增强生成）节点使用 Google Gemini API 进行智能文档检�
 | 参数名 | 类型 | 必填 | 默认值 | 描述 |
 |-------|------|-----|-------|------|
 | `label` | string | ✅ | `"RAG"` | 节点显示名称 |
-| `files` | File[] | ❌ | `[]` | 知识库文件元数据列表（仅静态模式）<br/>包含 `{id?, name, size?, type?, url?}` |
+| `fileMode` | string | ❌ | - | 模式选择：`'static'` (静态) \| `'variable'` (变量) |
+| `files` | File[] | ❌ | `[]` | 知识库文件 (槽位1) |
+| `files2` | File[] | ❌ | `[]` | 知识库文件 (槽位2) |
+| `files3` | File[] | ❌ | `[]` | 知识库文件 (槽位3) |
 | `fileSearchStoreName` | string | ❌ | - | File Search Store 完整名称<br/>格式：`fileSearchStores/xxx`<br/>（由 API 自动创建和管理） |
 | `fileSearchStoreId` | string | ❌ | - | Store 显示 ID（用户友好标识）<br/>格式：`store-{nodeId}-{timestamp}` |
 | `maxTokensPerChunk` | number | ❌ | `200` | 文档分块大小（50-500 tokens）<br/>影响检索精度和性能 |
@@ -40,7 +44,9 @@ RAG（检索增强生成）节点使用 Google Gemini API 进行智能文档检�
 | 参数名 | 类型 | 必填 | 描述 | 示例 |
 |-------|------|-----|------|------|
 | `query` | string | ❌ | 检索查询内容模板<br/>支持变量引用和纯文本 | `{{用户输入.user_input}}`<br/>`{{LLM.output}}` |
-| `files` | string | ❌ | 动态文件引用（触发动态模式）<br/>引用上游节点的文件数组 | `{{用户输入.files}}`<br/>`{{Input节点.files}}` |
+| `files` | string | ❌ | 动态文件引用 (槽位1) | `{{用户输入.files}}` |
+| `files2` | string | ❌ | 动态文件引用 (槽位2) | `{{API.files}}` |
+| `files3` | string | ❌ | 动态文件引用 (槽位3) | `{{Other.files}}` |
 
 #### 变量解析规则
 
@@ -77,37 +83,57 @@ RAG（检索增强生成）节点使用 Google Gemini API 进行智能文档检�
 解析 inputMappings
   ↓
 解析查询内容（query）
-  ├─ 优先使用 mockData.query（调试模式）
-  ├─ 其次使用 inputMappings.query 模板
-  └─ 降级到从上游上下文自动提取
   ↓
-检查查询是否为空
-  ├─ 是 → 返回错误
-  └─ 否 → 继续
+收集所有动态文件 (files, files2, files3)
   ↓
-解析动态文件（inputMappings.files）
-  ├─ 有效文件 > 0 → 动态模式
-  └─ 无有效文件 → 静态模式
+判断执行模式 (ragData.fileMode)
+  ├─ 'variable' (变量模式)
+  │    └─ 检查是否有有效动态文件
+  │         ├─ 是 → **动态模式** (Multimodal API)
+  │         └─ 否 → 报错
+  │
+  ├─ 'static' (静态模式)
+  │    └─ **静态模式** (File Search Store)
+  │
+  └─ undefined (兼容模式)
+       └─ 是否有有效动态文件?
+            ├─ 是 → **动态模式**
+            └─ 否 → **静态模式**
 ```
 
 ### 1. 模式选择逻辑
 
 ```typescript
-// RAGNodeExecutor.ts - execute 方法
-const dynamicFiles = this.resolveDynamicFiles(inputMappings?.files, context);
+// RAGNodeExecutor.ts - execute logic
 
-if (dynamicFiles && dynamicFiles.length > 0) {
-    // 动态模式：使用多模态 API
-    return await this.executeWithMultimodal(query, dynamicFiles);
+// 1. 收集所有动态文件
+let allDynamicFiles = [];
+['files', 'files2', 'files3'].forEach(key => {
+    // 解析 inputMappings[key] 并添加到 allDynamicFiles
+});
+
+// 2. 根据 fileMode 决定策略
+const fileMode = ragData.fileMode;
+
+if (fileMode === 'variable') {
+    // 显式变量模式：必须有动态文件
+    return executeWithMultimodal(query, allDynamicFiles);
+} else if (fileMode === 'static') {
+    // 显式静态模式：忽略动态文件，使用 Store
+    return executeWithFileSearch(query, ragData);
 } else {
-    // 静态模式：使用 File Search Store
-    return await this.executeWithFileSearch(query, ragData);
+    // 自动判断 (Fallback)
+    if (allDynamicFiles.length > 0) {
+        return executeWithMultimodal(query, allDynamicFiles);
+    } else {
+        return executeWithFileSearch(query, ragData);
+    }
 }
 ```
 
-**判断条件**：
-- `inputMappings.files` 存在 **且** 解析出至少 1 个包含有效 `url` 的文件 → **动态模式**
-- 否则 → **静态模式**
+**关键点**：
+- 支持 `files`, `files2`, `files3` 三个动态文件来源，执行时会自动合并。
+- 显式 `fileMode` 优先级最高。
 
 ### 2. 查询内容解析
 

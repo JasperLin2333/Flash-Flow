@@ -57,30 +57,25 @@ export function isToolNodeParametersConfigured(node: AppNode): boolean {
     const toolConfig = TOOL_REGISTRY[toolType];
     if (!toolConfig || !toolConfig.schema) return false;
 
-    // 解析 schema 获取所有字段及其是否为必填
-    const shape = (toolConfig.schema as z.ZodObject<z.ZodRawShape>)._def.shape;
-    if (!shape) return true; // 如果无法解析 schema，默认认为配置完整
-
+    // Get configured inputs
     const configuredInputs = (data?.inputs as Record<string, unknown>) || {};
 
-    // 检查所有必填字段
-    for (const [fieldName, fieldSchema] of Object.entries(shape)) {
-        const zField = fieldSchema as z.ZodTypeAny;
-        const isOptional = zField.isOptional();
+    // Use Zod's safeParse to validate the inputs against the schema
+    // This handles:
+    // 1. Discriminated unions (selecting correct sub-schema)
+    // 2. Coercion (strings to numbers)
+    // 3. Optional vs Required fields
+    // 4. String length checks (min(1))
 
-        // 跳过可选字段
-        if (isOptional) continue;
+    // We need to clone inputs to avoid mutating the original store data during parse/coerce
+    // although safeParse usually returns a new object, it's safer to pass a clean copy
+    const inputsToValidate = { ...configuredInputs };
 
-        // 必填字段必须有值
-        const value = configuredInputs[fieldName];
-        const valueStr = value !== undefined ? String(value).trim() : '';
-
-        // 参数值为空或仅空格，则视为未配置
-        if (!valueStr) return false;
-    }
-
-    return true;
+    const result = toolConfig.schema.safeParse(inputsToValidate);
+    return result.success;
 }
+
+
 
 export function createDebugDialogActions(
     nodeType: NodeType,

@@ -8,12 +8,101 @@
 
 | 参数名 | 类型 | 必填 | 默认值 | 描述 |
 |-------|------|-----|-------|------|
-| `label` | string | ✅ | - | 节点显示名称 |
+| `label` | string | ❌ | - | 节点显示名称 |
 | `condition` | string | ❌ | `""` | 判断条件表达式 (见下文) |
-| `customOutputs` | array | ❌ | `[]` | 用户自定义输出变量列表 `{name, value}` |
+
+**类型定义** (`src/types/flow.ts`):
+```typescript
+export interface BranchNodeData extends BaseNodeData {
+  condition: string; // JavaScript expression, e.g., "input.text.length > 10"
+}
+```
 
 > [!NOTE]
 > 如果 `condition` 为空，节点默认返回 `true`，以保证流程连通性。
+
+## 完整 JSON 示例
+
+### 节点配置示例
+
+```json
+{
+  "id": "branch-age-check",
+  "type": "branch",
+  "position": { "x": 500, "y": 200 },
+  "data": {
+    "label": "年龄检查",
+    "condition": "用户信息.age > 18"
+  }
+}
+```
+
+### 运行节点的完整请求示例
+
+**场景**: 测试年龄判断分支节点
+
+```json
+{
+  "nodeId": "branch-age-check",
+  "mockInputData": {
+    "用户信息": {
+      "name": "张三",
+      "age": 25,
+      "verified": true
+    }
+  }
+}
+```
+
+**执行输出**:
+```json
+{
+  "passed": true,
+  "condition": "用户信息.age > 18",
+  "conditionResult": true,
+  "name": "张三",
+  "age": 25,
+  "verified": true
+}
+```
+
+### 复杂条件示例
+
+**使用 AND 逻辑**:
+```json
+{
+  "id": "branch-combined",
+  "type": "branch",
+  "data": {
+    "label": "综合验证",
+    "condition": "用户.age >= 18 && 用户.verified === true"
+  }
+}
+```
+
+**使用 OR 逻辑**:
+```json
+{
+  "id": "branch-media-type",
+  "type": "branch",
+  "data": {
+    "label": "媒体类型检测",
+    "condition": "输入.type === 'image' || 输入.type === 'video'"
+  }
+}
+```
+
+**字符串方法**:
+```json
+{
+  "id": "branch-refund-intent",
+  "type": "branch",
+  "data": {
+    "label": "退款意图检测",
+    "condition": "意图分析.response.includes('退款')"
+  }
+}
+```
 
 ## 核心执行逻辑 (Execution Logic)
 
@@ -110,12 +199,15 @@
 *   **小于**: `NodeName.field < 100`
 *   **小于等于**: `NodeName.field <= 50`
 
-### 4. 嵌套属性访问
+### 4. 嵌套属性与数组访问
 
-支持多级路径访问。
+支持多级路径、数组索引及内置属性访问。
 
-*   `NodeName.data.result.score > 0.8`
-*   `NodeName.response.length > 5` (字符串长度判断)
+*   **嵌套对象**: `NodeName.data.result.score > 0.8`
+*   **数组索引**: 使用点号访问 (不支持 `[0]` 语法)
+    *   `NodeName.items.0.name === 'item1'` (访问 items 数组第 1 个元素的 name)
+*   **属性访问**:
+    *   `NodeName.response.length > 5` (字符串/数组长度)
 
 ### 5. 逻辑组合 (AND/OR)
 
@@ -131,7 +223,7 @@
 *   `输入.type === 'image' || 输入.type === 'video'` (图片或视频)
 
 > [!IMPORTANT]
-> **语法注意**: 运算符前后需要空格 (` && ` 而非 `&&`)
+> **语法严苛要求**: 逻辑运算符前后**必须保留空格** (` && ` 而非 `&&`)，否则解析器无法正确识别拆分条件。
 
 [!TIP]
 > **最佳实践**：
@@ -509,7 +601,12 @@ sequenceDiagram
 
 ### 当前版本特性
 
-**v2.1（最新）**
+**v2.2（当前）**
+- ✅ **数组索引支持**：支持 `Node.list.0` 格式访问数组元素
+- ✅ **属性访问支持**：支持 `.length` 等标准属性访问
+- ✅ **文档更新**：完善数组访问与逻辑运算符使用说明
+
+**v2.1**
 - ✅ **支持逻辑运算符** `&&` (AND) 和 `||` (OR)
 - ✅ 单个 Branch 节点可处理复杂条件组合
 - ✅ 递归求值，支持多条件链式组合

@@ -2,61 +2,10 @@ import type { AppNode, RAGNodeData, FlowContext } from "@/types/flow";
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { extractInputFromContext } from "./contextUtils";
 import { useFlowStore } from "@/store/flowStore";
-import { collectVariablesRaw } from "./utils/variableUtils";
-
-/**
- * 解析变量模板，从全局 flowContext 中提取值
- * 使用公共的 collectVariablesRaw 函数实现全局变量解析
- */
-function resolveVariableTemplate(
-    template: string,
-    context: FlowContext,
-    globalVariables: Record<string, unknown>
-): unknown {
-    // 匹配 {{变量名}} 格式
-    const match = template.match(/^\{\{(.+?)\}\}$/);
-    if (!match) return template;
-
-    const varPath = match[1].trim();
-
-    // 直接从预收集的全局变量中查找
-    if (varPath in globalVariables) {
-        return globalVariables[varPath];
-    }
-
-    // 支持嵌套路径（如 nodeLabel.files[0].url）
-    // 先尝试找到基础变量，再解析嵌套路径
-    if (varPath.includes('.')) {
-        const parts = varPath.split('.');
-        // 尝试不同长度的前缀
-        for (let i = parts.length - 1; i >= 1; i--) {
-            const baseKey = parts.slice(0, i).join('.');
-            if (baseKey in globalVariables) {
-                const baseValue = globalVariables[baseKey];
-                const remainingPath = parts.slice(i).join('.');
-                return getNestedValue(baseValue as Record<string, unknown>, remainingPath);
-            }
-        }
-    }
-
-    return undefined;
-}
-
-/**
- * 从嵌套对象中获取值，支持 field.subfield 和 array[index] 语法
- */
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-    const parts = path.split(/\.|\[/).map(p => p.replace(/\]$/, ''));
-    let current: unknown = obj;
-
-    for (const part of parts) {
-        if (current === null || current === undefined) return undefined;
-        if (typeof current !== 'object') return undefined;
-        current = (current as Record<string, unknown>)[part];
-    }
-
-    return current;
-}
+import { collectVariablesRaw, resolveVariableTemplate } from "./utils/variableUtils";
+import { quotaService } from "@/services/quotaService";
+import { authService } from "@/services/authService";
+import { useQuotaStore } from "@/store/quotaStore";
 
 /**
  * RAG 节点执行器
@@ -67,11 +16,21 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
  */
 export class RAGNodeExecutor extends BaseNodeExecutor {
     async execute(node: AppNode, context: FlowContext, mockData?: Record<string, unknown>): Promise<ExecutionResult> {
+        // Quota check - RAG uses LLM quota (llm_executions)
+        const quotaError = await this.checkQuota();
+        if (quotaError) {
+            return quotaError;
+        }
+
         const { result, time } = await this.measureTime(async () => {
             const ragData = node.data as RAGNodeData;
 
-            // 解析 inputMappings
-            const inputMappings = (ragData as Record<string, unknown>)?.inputMappings as Record<string, string> | undefined;
+            // 统一获取 store 状态（避免重复调用）
+            const { nodes, flowContext: globalFlowContext } = useFlowStore.getState();
+            const globalVariables = collectVariablesRaw(context, globalFlowContext, nodes);
+
+            // 解析 inputMappings（使用类型安全的访问）
+            const inputMappings = ragData.inputMappings;
 
             // 1. 解析查询内容（优先使用 mockData）
             let query: string;
@@ -80,9 +39,6 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
                 query = mockData.query;
             } else {
                 // 正常模式：从 inputMappings 解析
-                // 获取全局 flowContext 和所有节点
-                const { nodes: allNodes, flowContext: globalFlowContext } = useFlowStore.getState();
-                const globalVariables = collectVariablesRaw(context, globalFlowContext, allNodes);
                 query = this.resolveQuery(inputMappings?.query, context, globalVariables);
             }
 
@@ -92,19 +48,53 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
                 };
             }
 
-            // 2. 检查是否有动态文件引用
-            // 需要重新获取全局变量（如果还没有的话）
-            const storeState = useFlowStore.getState();
-            const globalVars = collectVariablesRaw(context, storeState.flowContext, storeState.nodes);
-            const dynamicFiles = this.resolveDynamicFiles(inputMappings?.files, context, globalVars);
+            // 2. 检查动态文件引用（支持最多3个来源）
+            let allDynamicFiles: Array<{ name: string; url: string; type?: string }> = [];
 
-            if (dynamicFiles && dynamicFiles.length > 0) {
-                // 使用多模态 API 处理动态文件
-                return await this.executeWithMultimodal(query, dynamicFiles);
-            } else {
-                // 使用 File Search Store 处理静态文件
-                return await this.executeWithFileSearch(query, ragData);
+            // 遍历 files, files2, files3
+            const fileKeys = ['files', 'files2', 'files3'] as const;
+            for (const key of fileKeys) {
+                const template = inputMappings?.[key];
+                if (template) {
+                    const files = this.resolveDynamicFiles(template, context, globalVariables);
+                    if (files) {
+                        allDynamicFiles.push(...files);
+                    }
+                }
             }
+
+            // 模式处理策略
+            const fileMode = ragData.fileMode; // 'variable' | 'static' | undefined
+
+            let response: Record<string, unknown>;
+
+            // 策略 1: 明确指定为 "变量模式"
+            if (fileMode === 'variable') {
+                if (allDynamicFiles.length > 0) {
+                    response = await this.executeWithMultimodal(query, allDynamicFiles);
+                } else {
+                    return { error: "当前为变量模式，但未检测到有效的文件输入。请检查 inputMappings 配置。" };
+                }
+            }
+            // 策略 2: 明确指定为 "静态模式"
+            else if (fileMode === 'static') {
+                response = await this.executeWithFileSearch(query, ragData);
+            }
+            // 策略 3: Legacy/未定义 (自动回退逻辑 - 保持向后兼容)
+            else {
+                if (allDynamicFiles.length > 0) {
+                    response = await this.executeWithMultimodal(query, allDynamicFiles);
+                } else {
+                    response = await this.executeWithFileSearch(query, ragData);
+                }
+            }
+
+            // 成功时刷新配额 UI
+            if (!response.error) {
+                this.refreshQuota();
+            }
+
+            return response;
         });
 
         return {
@@ -272,6 +262,50 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
             return {
                 error: `文档搜索失败: ${errorMessage}`
             };
+        }
+    }
+
+    /**
+     * 检查配额（使用 LLM 配额）
+     */
+    private async checkQuota(): Promise<ExecutionResult | null> {
+        try {
+            const user = await authService.getCurrentUser();
+            if (!user) {
+                return {
+                    output: { error: "请先登录以使用 RAG 功能" },
+                    executionTime: 0,
+                };
+            }
+
+            const quotaCheck = await quotaService.checkQuota(user.id, "llm_executions");
+            if (!quotaCheck.allowed) {
+                return {
+                    output: { error: `LLM 执行次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。` },
+                    executionTime: 0,
+                };
+            }
+        } catch (e) {
+            return {
+                output: { error: "配额检查失败，请稍后重试或联系支持" },
+                executionTime: 0,
+            };
+        }
+        return null;
+    }
+
+    /**
+     * 刷新配额 UI（服务端已扣减）
+     */
+    private async refreshQuota() {
+        try {
+            const user = await authService.getCurrentUser();
+            if (user) {
+                const { refreshQuota } = useQuotaStore.getState();
+                await refreshQuota(user.id);
+            }
+        } catch (e) {
+            // Quota UI refresh failed - non-critical
         }
     }
 }

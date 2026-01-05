@@ -6,8 +6,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
 import { Form } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
-import { X } from "lucide-react";
-import type { NodeKind } from "@/types/flow";
+import { X, Play, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import type { NodeKind, ExecutionStatus, LLMNodeData, RAGNodeData, InputNodeData } from "@/types/flow";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
+import { handleNodeTest } from "@/store/utils/nodeTestUtils";
 
 // Node form components
 import { LLMNodeForm } from "../node-forms/LLMNodeForm";
@@ -35,8 +39,26 @@ const PANEL_MIN_WIDTH = 280;
 const PANEL_MAX_WIDTH = 800;
 const PANEL_RIGHT_OFFSET = 24; // 6 * 4 = 24px (right-6 in tailwind)
 
+const STATUS_ICON: Record<ExecutionStatus, React.ReactNode> = {
+    idle: <div className="w-2 h-2 rounded-full bg-muted-foreground/30" />,
+    running: <Loader2 className="w-3 h-3 text-foreground animate-spin" />,
+    completed: <CheckCircle2 className="w-3 h-3 text-foreground" />,
+    error: <AlertCircle className="w-3 h-3 text-destructive" />,
+};
+
 export default function ContextHUD() {
-    const { selectedNodeId, nodes, edges, updateNodeData, setSelectedNode, flowContext } = useFlowStore();
+    const {
+        selectedNodeId,
+        nodes,
+        edges,
+        updateNodeData,
+        setSelectedNode,
+        flowContext,
+        runNode,
+        runningNodeIds,
+        openDialog,      // Unified Dialog Action
+        openInputPrompt, // Keep for standard input test
+    } = useFlowStore();
     const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
     // Panel width state for resizable functionality
@@ -104,6 +126,19 @@ export default function ContextHUD() {
             inputs: type === "tool" && has("inputs") ? (d as { inputs?: Record<string, unknown> }).inputs || {} : {},
             // Branch node specific fields
             condition: type === "branch" && has("condition") ? String((d as Record<string, unknown>).condition || "") : "",
+            // ImageGen node specific fields
+            prompt: type === "imagegen" && has("prompt") ? String((d as any).prompt || "") : "",
+            negativePrompt: type === "imagegen" && has("negativePrompt") ? String((d as any).negativePrompt || "") : "",
+            imageSize: type === "imagegen" && has("imageSize") ? String((d as any).imageSize || "1024x1024") : "1024x1024",
+            cfg: type === "imagegen" && (d as any).cfg != null ? Number((d as any).cfg) : undefined,
+            numInferenceSteps: type === "imagegen" && (d as any).numInferenceSteps != null ? Number((d as any).numInferenceSteps) : undefined,
+            referenceImageMode: type === "imagegen" && has("referenceImageMode") ? String((d as any).referenceImageMode || "static") : "static",
+            referenceImageUrl: type === "imagegen" && has("referenceImageUrl") ? String((d as any).referenceImageUrl || "") : "",
+            referenceImageUrl2: type === "imagegen" && has("referenceImageUrl2") ? String((d as any).referenceImageUrl2 || "") : "",
+            referenceImageUrl3: type === "imagegen" && has("referenceImageUrl3") ? String((d as any).referenceImageUrl3 || "") : "",
+            referenceImageVariable: type === "imagegen" && has("referenceImageVariable") ? String((d as any).referenceImageVariable || "") : "",
+            referenceImage2Variable: type === "imagegen" && has("referenceImage2Variable") ? String((d as any).referenceImage2Variable || "") : "",
+            referenceImage3Variable: type === "imagegen" && has("referenceImage3Variable") ? String((d as any).referenceImage3Variable || "") : "",
         });
     }, [selectedNodeId, form]);
 
@@ -149,6 +184,27 @@ export default function ContextHUD() {
     const executionOutput = selectedNode ? flowContext[selectedNode.id] : undefined;
     const nodeLabel = selectedNode?.data?.label as string | undefined;
 
+    // Check if this node is currently running
+    const isNodeRunning = selectedNodeId ? runningNodeIds.has(selectedNodeId) : false;
+    const nodeStatus = (selectedNode?.data?.status as ExecutionStatus) || "idle";
+
+    const handleTestNode = () => {
+        if (!selectedNodeId || !selectedNode) return;
+
+        // Unified test logic using the same utility as CustomNode
+        handleNodeTest(
+            selectedNodeId,
+            selectedNode,
+            nodes,
+            edges,
+            {
+                openDialog,
+                openInputPrompt,
+                runNode
+            }
+        );
+    };
+
     return (
         <AnimatePresence mode="wait">
             {selectedNode && type && (
@@ -171,9 +227,47 @@ export default function ContextHUD() {
                     />
 
                     <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white">
-                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                            {type} 节点
-                        </span>
+                        <div className="flex items-center gap-4">
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                                {{
+                                    input: "输入",
+                                    llm: "大模型",
+                                    rag: "知识库",
+                                    output: "输出",
+                                    tool: "工具",
+                                    branch: "条件分支",
+                                    imagegen: "图像生成",
+                                }[type] || type}节点
+                            </span>
+                            <div className="flex items-center gap-1">
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                disabled={isNodeRunning}
+                                                className={cn(
+                                                    "h-6 w-6 rounded-full transition-all duration-150",
+                                                    isNodeRunning
+                                                        ? "bg-transparent text-gray-300 cursor-not-allowed"
+                                                        : "hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+                                                )}
+                                                onClick={handleTestNode}
+                                            >
+                                                <Play className="w-3 h-3" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom">
+                                            {isNodeRunning ? "运行中..." : "测试"}
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                                <div className="flex items-center justify-center w-5 h-5">
+                                    {STATUS_ICON[nodeStatus]}
+                                </div>
+                            </div>
+                        </div>
                         <Button
                             variant="ghost"
                             size="icon"
@@ -187,7 +281,7 @@ export default function ContextHUD() {
                     <div className="flex-1 overflow-y-auto min-h-0">
                         {/* Use key here to ensure content refreshes when switching between nodes of same type if needed, 
                             though form.reset handles values. Adding key helps with scroll reset. */}
-                        <div className="p-5 space-y-6" key={selectedNode.id}>
+                        <div className="p-5 space-y-4" key={selectedNode.id}>
                             <Form {...form}>
                                 <form className="space-y-4">
                                     {type === "llm" && <LLMNodeForm form={form} />}
@@ -229,6 +323,4 @@ export default function ContextHUD() {
         </AnimatePresence>
     );
 }
-
-// Re-export types for convenience
 export * from "./types";

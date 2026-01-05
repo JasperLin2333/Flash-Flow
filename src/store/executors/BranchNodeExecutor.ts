@@ -3,23 +3,21 @@ import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { getUpstreamData } from "./contextUtils";
 import { useFlowStore } from "@/store/flowStore";
 import { buildGlobalNodeLookupMap } from "./utils/variableUtils";
-
-// ============ Pre-compiled Regex Patterns ============
-// Pre-compile at module level to avoid recreation on each call
-const NODE_PATH_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.([\w.]+)/;
-const INCLUDES_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.includes\(['"](.+)['"]\)$/;
-const STARTS_WITH_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.startsWith\(['"](.+)['"]\)$/;
-const ENDS_WITH_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\.endsWith\(['"](.+)['"]\)$/;
-const STRICT_EQUAL_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*===\s*['"]?(.+?)['"]?$/;
-const NOT_EQUAL_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*!==\s*['"]?(.+?)['"]?$/;
-const COMPARISON_PATTERN = /^([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*\.[\w.]+)\s*(>=|<=|>|<)\s*(-?\d+\.?\d*)$/;
-
-/**
- * (已废弃，使用公共的 buildGlobalNodeLookupMap 代替)
- * 构建节点查找 Map，用于 O(1) 查找
- * Map key 可以是 nodeId 或 label（支持大小写不敏感）
- */
-// 保留旧函数以便向后兼容，但实际上已经不再使用
+import {
+    NODE_PATH_PATTERN,
+    INCLUDES_PATTERN,
+    STARTS_WITH_PATTERN,
+    ENDS_WITH_PATTERN,
+    STRICT_EQUAL_PATTERN,
+    NOT_EQUAL_PATTERN,
+    COMPARISON_PATTERN,
+    CONSTANT_BOOL_PATTERN,
+    LITERAL_COMPARE_PATTERN,
+    LITERAL_EQUAL_PATTERN,
+    LITERAL_NOT_EQUAL_PATTERN,
+    parseCompareValue,
+    getNestedValue,
+} from "@/lib/branchConditionParser";
 
 /**
  * 安全表达式求值器
@@ -164,49 +162,52 @@ function safeEvaluateCondition(
         }
     }
 
+    // Pattern 7: Literal Equality (1 === 1, 'a' === 'a', true === true)
+    const literalEqualMatch = trimmed.match(LITERAL_EQUAL_PATTERN);
+    if (literalEqualMatch) {
+        const left = parseCompareValue(literalEqualMatch[1]);
+        const right = parseCompareValue(literalEqualMatch[2]);
+        return left === right;
+    }
+
+    // Pattern 8: Literal Inequality
+    const literalNotEqualMatch = trimmed.match(LITERAL_NOT_EQUAL_PATTERN);
+    if (literalNotEqualMatch) {
+        const left = parseCompareValue(literalNotEqualMatch[1]);
+        const right = parseCompareValue(literalNotEqualMatch[2]);
+        return left !== right;
+    }
+
+    // Pattern 9: Literal Comparison (1 > 2)
+    const literalCompareMatch = trimmed.match(LITERAL_COMPARE_PATTERN);
+    if (literalCompareMatch) {
+        const left = parseFloat(literalCompareMatch[1]);
+        const operator = literalCompareMatch[2];
+        const right = parseFloat(literalCompareMatch[3]);
+
+        if (isNaN(left) || isNaN(right)) return false;
+
+        switch (operator) {
+            case '>': return left > right;
+            case '>=': return left >= right;
+            case '<': return left < right;
+            case '<=': return left <= right;
+            default: return false;
+        }
+    }
+
+    // Pattern 10: Constant Boolean
+    if (CONSTANT_BOOL_PATTERN.test(trimmed)) {
+        return trimmed === 'true';
+    }
+
     // 不支持的表达式格式
     console.warn(`[BranchNodeExecutor] Unsupported condition format: ${condition}`);
     console.warn('[BranchNodeExecutor] Supported formats: nodeName.x.includes("y"), nodeName.x > 5, nodeName.x === "value"');
     return false;
 }
 
-/**
- * 安全地获取嵌套对象属性值
- * 例如: getNestedValue(obj, 'response.text') -> obj.response.text
- */
-function getNestedValue(obj: unknown, path: string): unknown {
-    if (!obj || typeof obj !== 'object') return undefined;
 
-    const parts = path.split('.');
-    let current: unknown = obj;
-
-    for (const part of parts) {
-        if (current === null || current === undefined) return undefined;
-        if (typeof current !== 'object') return undefined;
-        current = (current as Record<string, unknown>)[part];
-    }
-
-    return current;
-}
-
-/**
- * 解析比较值，处理字符串引号和数字
- */
-function parseCompareValue(raw: string): string | number | boolean {
-    const trimmed = raw.trim();
-
-    // 布尔值
-    if (trimmed === 'true') return true;
-    if (trimmed === 'false') return false;
-
-    // 数字
-    if (/^-?\d+\.?\d*$/.test(trimmed)) {
-        return parseFloat(trimmed);
-    }
-
-    // 字符串 (去除引号)
-    return trimmed.replace(/^['"]|['"]$/g, '');
-}
 
 /**
  * Branch 节点执行器

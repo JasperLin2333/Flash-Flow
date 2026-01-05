@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Send, Paperclip, BookOpen, X } from "lucide-react";
+import { Send, Paperclip, BookOpen, X, Play } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import { NodeForm } from "./NodeForm";
 import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
 import { showWarning } from "@/utils/errorNotify";
 
@@ -22,7 +24,7 @@ interface InputBarProps {
 }
 
 export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange, disabled, className }: InputBarProps) {
-    const [formPopoverOpen, setFormPopoverOpen] = useState(false);
+    const [formDialogOpen, setFormDialogOpen] = useState(false);
     const [formData, setFormData] = useState<Record<string, unknown>>({});
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -129,7 +131,7 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
 
         // 如果有必填字段未填写，阻止发送
         if (hasRequiredFields && !allRequiredFilled) {
-            setFormPopoverOpen(true);
+            setFormDialogOpen(true);
             validateForm(); // 显示错误信息
             return;
         }
@@ -153,6 +155,17 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
         }
+
+        // Reset form data to defaults
+        const resetFormData: Record<string, unknown> = inputNode.formData || {};
+        formFields.forEach((field) => {
+            if (field.defaultValue && !(field.name in resetFormData)) {
+                resetFormData[field.name] = field.defaultValue;
+            }
+        });
+        setFormData(resetFormData);
+        // Also notify parent of change if needed, though usually just for local state here
+        onFormDataChange?.(resetFormData);
     };
 
 
@@ -160,11 +173,12 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
     return (
         <div className={`flex items-end gap-2 ${className || ""}`}>
             {/* Left: Form trigger button (if structured form enabled) */}
+            {/* Left: Form trigger button (if structured form enabled) */}
             {enableStructuredForm && (
-                <Popover open={formPopoverOpen} onOpenChange={setFormPopoverOpen}>
+                <Dialog open={formDialogOpen} onOpenChange={setFormDialogOpen}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <PopoverTrigger asChild>
+                            <DialogTrigger asChild>
                                 <Button
                                     variant="outline"
                                     size="icon"
@@ -176,7 +190,7 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
                                     <BookOpen className="w-4 h-4" />
                                     {isFormFilled && <div className="absolute top-1 right-1 w-2 h-2 bg-green-400 rounded-full" />}
                                 </Button>
-                            </PopoverTrigger>
+                            </DialogTrigger>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="w-fit p-3 space-y-1.5">
                             <p className="font-semibold text-sm">📋 填写表单</p>
@@ -192,108 +206,39 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
                             </div>
                         </TooltipContent>
                     </Tooltip>
-                    <PopoverContent className="w-80 p-4 space-y-3" side="top" align="start">
-                        <div className="flex items-center justify-between">
-                            <h4 className="text-sm font-semibold">填写表单</h4>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => setFormPopoverOpen(false)}
-                            >
-                                <X className="w-3 h-3" />
-                            </Button>
+
+                    <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden bg-white rounded-2xl border border-gray-100 shadow-xl">
+                        <DialogHeader className="px-6 pt-6 pb-2">
+                            <DialogTitle className="text-xl font-bold text-gray-900 tracking-tight">填写表单</DialogTitle>
+                        </DialogHeader>
+
+                        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
+                            <NodeForm
+                                fields={formFields}
+                                formData={formData}
+                                formErrors={formErrors}
+                                onChange={(name, val) => {
+                                    const newData = { ...formData, [name]: val };
+                                    setFormData(newData);
+                                    setFormErrors(prev => ({ ...prev, [name]: "" }));
+                                    onFormDataChange?.(newData);
+                                }}
+                            />
                         </div>
 
-                        {formFields.map((field) => {
-                            const hasError = !!formErrors[field.name];
-
-                            return (
-                                <div key={field.name} className="space-y-2">
-                                    <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
-                                        {field.label}
-                                        {field.required && <span className="text-red-500">*</span>}
-                                    </label>
-
-                                    {field.type === "select" ? (
-                                        <Select
-                                            value={formData[field.name] as string || ""}
-                                            onValueChange={(val) => {
-                                                const newData = { ...formData, [field.name]: val };
-                                                setFormData(newData);
-                                                setFormErrors(prev => ({ ...prev, [field.name]: "" }));
-                                                onFormDataChange?.(newData);
-                                            }}
-                                        >
-                                            <SelectTrigger
-                                                className={`${hasError ? "border-red-500" : "border-gray-200"} h-9`}
-                                            >
-                                                <SelectValue placeholder="请选择" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {(field as SelectFieldConfig).options.map((opt) => (
-                                                    <SelectItem key={opt} value={opt}>
-                                                        {opt}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    ) : field.type === "multi-select" ? (
-                                        <div className={`border rounded-md p-2 space-y-2 max-h-40 overflow-y-auto ${hasError ? "border-red-500" : "border-gray-200"}`}>
-                                            {(field as MultiSelectFieldConfig).options.map((opt) => {
-                                                const currentVals = (formData[field.name] as string[]) || [];
-                                                return (
-                                                    <div key={opt} className="flex items-center space-x-2">
-                                                        <input
-                                                            type="checkbox"
-                                                            id={`${field.name}-${opt}`}
-                                                            checked={currentVals.includes(opt)}
-                                                            onChange={(e) => {
-                                                                const checked = e.target.checked;
-                                                                let newVals = [...currentVals];
-                                                                if (checked) {
-                                                                    newVals.push(opt);
-                                                                } else {
-                                                                    newVals = newVals.filter(v => v !== opt);
-                                                                }
-                                                                const newData = { ...formData, [field.name]: newVals };
-                                                                setFormData(newData);
-                                                                setFormErrors(prev => ({ ...prev, [field.name]: "" }));
-                                                                onFormDataChange?.(newData);
-                                                            }}
-                                                            className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"
-                                                        />
-                                                        <label
-                                                            htmlFor={`${field.name}-${opt}`}
-                                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                                                        >
-                                                            {opt}
-                                                        </label>
-                                                    </div>
-                                                )
-                                            })}
-                                        </div>
-                                    ) : (
-                                        <Input
-                                            placeholder={"请输入..."}
-                                            value={(formData[field.name] as string) || ""}
-                                            onChange={(e) => {
-                                                const newData = { ...formData, [field.name]: e.target.value };
-                                                setFormData(newData);
-                                                setFormErrors(prev => ({ ...prev, [field.name]: "" }));
-                                                onFormDataChange?.(newData);
-                                            }}
-                                            className={`${hasError ? "border-red-500" : "border-gray-200"} h-9`}
-                                        />
-                                    )}
-
-                                    {hasError && <p className="text-xs text-red-500">{formErrors[field.name]}</p>}
-                                </div>
-                            );
-                        })}
-
-                    </PopoverContent>
-                </Popover>
+                        <DialogFooter className="px-6 py-4 bg-gray-50/50 border-t border-gray-100 flex justify-end gap-2">
+                            <DialogClose asChild>
+                                <Button variant="outline" className="rounded-xl">取消</Button>
+                            </DialogClose>
+                            <Button
+                                onClick={() => setFormDialogOpen(false)}
+                                className="rounded-xl bg-black text-white hover:bg-black/90 shadow-lg shadow-black/10"
+                            >
+                                确认
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             )}
 
             {/* Center: Main input area with optional file attachment */}

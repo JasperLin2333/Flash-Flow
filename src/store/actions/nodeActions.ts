@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import type { AppNode, AppNodeData, NodeKind, FlowState } from "@/types/flow";
+import type { AppNode, AppNodeData, NodeKind, FlowState, LLMNodeData, BranchNodeData, ImageGenNodeData, OutputNodeData, RAGNodeData } from "@/types/flow";
 import { getDefaultNodeData } from "../utils/nodeDefaults";
 import { toast } from "@/hooks/use-toast";
 import { NODE_LAYOUT } from "../constants/layout";
@@ -7,6 +7,178 @@ import { NODE_LAYOUT } from "../constants/layout";
 // Zustand store action creator types
 type SetState = (partial: ((state: FlowState) => Partial<FlowState>) | Partial<FlowState>) => void;
 type GetState = () => FlowState;
+
+/**
+ * Escape regex special characters
+ */
+function escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Update variable references in all nodes when a node label changes.
+ * Replaces {{oldLabel.xxx}} with {{newLabel.xxx}} in all relevant fields.
+ * 
+ * @param nodes - All nodes in the flow
+ * @param oldLabel - The old node label
+ * @param newLabel - The new node label
+ * @returns Updated nodes array
+ */
+function updateVariableReferences(
+    nodes: AppNode[],
+    oldLabel: string,
+    newLabel: string
+): AppNode[] {
+    // Create regex to match {{oldLabel.xxx}} pattern
+    const pattern = new RegExp(`\\{\\{\\s*${escapeRegExp(oldLabel)}\\.`, 'g');
+    const replacement = `{{${newLabel}.`;
+
+    const replaceInString = (str: string | undefined): string | undefined => {
+        if (!str) return str;
+        return str.replace(pattern, replacement);
+    };
+
+    return nodes.map(node => {
+        const nodeType = node.type;
+        let updated = false;
+        const newData = { ...node.data };
+
+        // LLM node: systemPrompt, inputMappings.user_input
+        if (nodeType === 'llm') {
+            const llmData = newData as LLMNodeData;
+            const newSystemPrompt = replaceInString(llmData.systemPrompt);
+            if (newSystemPrompt !== llmData.systemPrompt) {
+                (newData as LLMNodeData).systemPrompt = newSystemPrompt || '';
+                updated = true;
+            }
+            // inputMappings
+            const inputMappings = (newData as Record<string, unknown>).inputMappings as Record<string, string> | undefined;
+            if (inputMappings?.user_input) {
+                const newUserInput = replaceInString(inputMappings.user_input);
+                if (newUserInput !== inputMappings.user_input) {
+                    (newData as Record<string, unknown>).inputMappings = {
+                        ...inputMappings,
+                        user_input: newUserInput
+                    };
+                    updated = true;
+                }
+            }
+        }
+
+        // RAG node: inputMappings.query, inputMappings.files
+        if (nodeType === 'rag') {
+            const inputMappings = (newData as Record<string, unknown>).inputMappings as Record<string, string> | undefined;
+            if (inputMappings) {
+                let ragUpdated = false;
+                const updatedMappings = { ...inputMappings };
+                if (inputMappings.query) {
+                    const newQuery = replaceInString(inputMappings.query);
+                    if (newQuery !== inputMappings.query) {
+                        updatedMappings.query = newQuery || '';
+                        ragUpdated = true;
+                    }
+                }
+                if (inputMappings.files) {
+                    const newFiles = replaceInString(inputMappings.files);
+                    if (newFiles !== inputMappings.files) {
+                        updatedMappings.files = newFiles || '';
+                        ragUpdated = true;
+                    }
+                }
+                if (ragUpdated) {
+                    (newData as Record<string, unknown>).inputMappings = updatedMappings;
+                    updated = true;
+                }
+            }
+        }
+
+        // Branch node: condition
+        if (nodeType === 'branch') {
+            const branchData = newData as BranchNodeData;
+            const newCondition = replaceInString(branchData.condition);
+            if (newCondition !== branchData.condition) {
+                (newData as BranchNodeData).condition = newCondition || '';
+                updated = true;
+            }
+        }
+
+        // ImageGen node: prompt, negativePrompt, referenceImageVariable
+        if (nodeType === 'imagegen') {
+            const imgData = newData as ImageGenNodeData;
+            const newPrompt = replaceInString(imgData.prompt);
+            if (newPrompt !== imgData.prompt) {
+                (newData as ImageGenNodeData).prompt = newPrompt || '';
+                updated = true;
+            }
+            const newNegPrompt = replaceInString(imgData.negativePrompt);
+            if (newNegPrompt !== imgData.negativePrompt) {
+                (newData as ImageGenNodeData).negativePrompt = newNegPrompt;
+                updated = true;
+            }
+            const newRefVar = replaceInString(imgData.referenceImageVariable);
+            if (newRefVar !== imgData.referenceImageVariable) {
+                (newData as ImageGenNodeData).referenceImageVariable = newRefVar;
+                updated = true;
+            }
+        }
+
+        // Output node: inputMappings.sources[].value, inputMappings.template, inputMappings.attachments[].value
+        if (nodeType === 'output') {
+            const outputData = newData as OutputNodeData;
+            const inputMappings = outputData.inputMappings;
+            if (inputMappings) {
+                let outputUpdated = false;
+                const updatedMappings = { ...inputMappings };
+
+                // Update template
+                if (inputMappings.template) {
+                    const newTemplate = replaceInString(inputMappings.template);
+                    if (newTemplate !== inputMappings.template) {
+                        updatedMappings.template = newTemplate;
+                        outputUpdated = true;
+                    }
+                }
+
+                // Update sources
+                if (inputMappings.sources && inputMappings.sources.length > 0) {
+                    const newSources = inputMappings.sources.map(source => {
+                        const newValue = replaceInString(source.value);
+                        if (newValue !== source.value) {
+                            outputUpdated = true;
+                            return { ...source, value: newValue || '' };
+                        }
+                        return source;
+                    });
+                    if (outputUpdated) {
+                        updatedMappings.sources = newSources;
+                    }
+                }
+
+                // Update attachments
+                if (inputMappings.attachments && inputMappings.attachments.length > 0) {
+                    const newAttachments = inputMappings.attachments.map(att => {
+                        const newValue = replaceInString(att.value);
+                        if (newValue !== att.value) {
+                            outputUpdated = true;
+                            return { ...att, value: newValue || '' };
+                        }
+                        return att;
+                    });
+                    if (outputUpdated) {
+                        updatedMappings.attachments = newAttachments;
+                    }
+                }
+
+                if (outputUpdated) {
+                    (newData as OutputNodeData).inputMappings = updatedMappings;
+                    updated = true;
+                }
+            }
+        }
+
+        return updated ? { ...node, data: newData } : node;
+    });
+}
 
 export const createNodeActions = (set: SetState, get: GetState) => ({
     /**
@@ -85,7 +257,8 @@ export const createNodeActions = (set: SetState, get: GetState) => ({
      * 更新节点数据
      */
     updateNodeData: (id: string, data: Partial<AppNodeData>) => {
-        const node = get().nodes.find((n: AppNode) => n.id === id);
+        const nodes = get().nodes;
+        const node = nodes.find((n: AppNode) => n.id === id);
         if (!node) {
             return;
         }
@@ -105,10 +278,22 @@ export const createNodeActions = (set: SetState, get: GetState) => ({
             }
         }
 
+        // 检测 Label 变更，自动更新其他节点的变量引用
+        const oldLabel = node.data?.label as string | undefined;
+        const newLabel = data.label as string | undefined;
+        const isLabelChanged = newLabel && oldLabel && newLabel !== oldLabel;
+
+        let updatedNodes = nodes.map((n: AppNode) =>
+            n.id === id ? { ...n, data: { ...(n.data || {}), ...data } } : n
+        );
+
+        // 如果 Label 变更，更新所有引用该节点的变量
+        if (isLabelChanged) {
+            updatedNodes = updateVariableReferences(updatedNodes, oldLabel, newLabel);
+        }
+
         set({
-            nodes: get().nodes.map((n: AppNode) =>
-                n.id === id ? { ...n, data: { ...(n.data || {}), ...data } } : n
-            ),
+            nodes: updatedNodes,
             saveStatus: "saving",
         });
         get().scheduleSave();

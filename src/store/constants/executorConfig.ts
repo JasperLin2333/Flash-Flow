@@ -13,8 +13,6 @@ export const LLM_EXECUTOR_CONFIG = {
     },
     /** 默认温度参数 */
     DEFAULT_TEMPERATURE: 0.7,
-    /** 默认 Top P 参数 */
-    DEFAULT_TOP_P: 1.0,
     /** 是否默认启用对话记忆 */
     DEFAULT_MEMORY_ENABLED: false,
     /** 默认最大记忆轮数 */

@@ -1,4 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
+import type { ToolType } from "@/lib/tools/registry";
 
 export type NodeKind =
   | "input"
@@ -28,11 +29,20 @@ export interface LLMNodeData extends BaseNodeData {
   memoryMaxTurns?: number;          // 最大记忆轮数，默认 10
   // 高级输出配置
   responseFormat?: 'text' | 'json_object'; // 响应格式（已实现 UI）
+  // 输入映射配置
+  inputMappings?: {
+    user_input?: string;  // 支持变量引用，如 {{输入.formData.用户输入}}
+  };
 }
 
 export interface RAGNodeData extends BaseNodeData {
-  // 文件信息
+  // 文件模式
+  fileMode?: 'variable' | 'static';  // 默认 'static'
+
+  // 文件信息（静态模式，最多3个槽位）
   files?: { id?: string; name: string; size?: number; type?: string; url?: string }[];
+  files2?: { id?: string; name: string; size?: number; type?: string; url?: string }[];
+  files3?: { id?: string; name: string; size?: number; type?: string; url?: string }[];
 
   // Gemini File Search Store 信息
   fileSearchStoreName?: string;  // Store 名称（如 "fileSearchStores/abc123"）
@@ -43,6 +53,14 @@ export interface RAGNodeData extends BaseNodeData {
   // 搜索配置
   maxTokensPerChunk?: number;    // 每个块的最大 token 数，默认 200
   maxOverlapTokens?: number;     // 块之间的重叠 token 数，默认 20
+
+  // 输入映射配置
+  inputMappings?: {
+    query?: string;   // 检索查询内容（如 {{输入.user_input}}）
+    files?: string;   // 动态文件引用1（如 {{输入.files}}）
+    files2?: string;  // 动态文件引用2
+    files3?: string;  // 动态文件引用3
+  };
 
   // 执行结果
   query?: string;                // 最后一次搜索的查询
@@ -134,12 +152,19 @@ export interface OutputInputMappings {
 }
 
 export interface OutputNodeData extends BaseNodeData {
+  /** 
+   * @deprecated 此字段已废弃，不再用于节点配置。
+   * 输出内容现通过 inputMappings 配置动态生成。
+   * 
+   * ⚠️ 注意：执行器输出的 flowContext[nodeId].text 是不同的字段，正常使用。
+   * 详见 OutputNodeExecutor.ts 和 RunOutputs.tsx。
+   */
   text?: string;
   inputMappings?: OutputInputMappings;
 }
 
 export interface ToolNodeData extends BaseNodeData {
-  toolType?: string; // e.g., "web_search" | "calculator"
+  toolType?: ToolType; // Type-safe tool type from registry
   inputs?: Record<string, unknown>; // Dynamic inputs based on tool schema
 }
 
@@ -226,6 +251,26 @@ export interface DebugInputs {
   [variableName: string]: DebugInputValue;
 }
 
+export interface ImageGenDebugInputs {
+  prompt: string;
+  negativePrompt?: string;
+}
+
+// ============ Unified Dialog State Types ============
+
+export type DialogType = 'llm' | 'rag' | 'tool' | 'input' | 'output' | 'branch' | 'imagegen';
+
+// 各类型弹窗的数据结构（用于类型安全）
+export interface DialogDataMap {
+  llm: DebugInputs;
+  rag: DebugInputs;
+  tool: Record<string, unknown>;
+  input: { text?: string; files?: File[]; formData?: Record<string, unknown> };
+  output: { mockVariables?: Record<string, any> };
+  branch: { mockData: string };
+  imagegen: ImageGenDebugInputs;
+}
+
 
 // Complete FlowStore State Type
 export type FlowState = {
@@ -265,34 +310,19 @@ export type FlowState = {
   // Internal execution lock
   _executionLock?: boolean;
 
-  // LLM Debug Dialog 状态
-  llmDebugDialogOpen: boolean;
-  llmDebugNodeId: string | null;
-  llmDebugInputs: DebugInputs;
+  // Node-level execution control (for single-node testing)
+  runningNodeIds: Set<string>;  // Currently running node IDs
+  nodeAbortControllers: Map<string, AbortController>;  // Per-node abort controllers
 
-  // RAG Debug Dialog 状态
-  ragDebugDialogOpen: boolean;
-  ragDebugNodeId: string | null;
-  ragDebugInputs: DebugInputs;
+  // ============ 统一弹窗状态 (Unified Dialog State) ============
+  activeDialog: DialogType | null;     // 当前打开的弹窗类型
+  activeNodeId: string | null;         // 当前操作的节点 ID
+  dialogData: Record<string, unknown>; // 弹窗数据 (动态类型)
 
-  // Tool Debug Dialog 状态（使用简单的 key-value 格式）
-  toolDebugDialogOpen: boolean;
-  toolDebugNodeId: string | null;
-  toolDebugInputs: Record<string, unknown>;
+  // Input Prompt 状态 (保留，因为有特殊逻辑) - DEPRECATED/REMOVED, mapped to Unified
+  // inputPromptOpen: boolean;
+  // inputPromptTargetNodeId: string | null;  // null = 显示所有 Input 节点
 
-  // Input Debug Dialog 状态
-  inputDebugDialogOpen: boolean;
-  inputDebugNodeId: string | null;
-  inputDebugData: { text?: string; files?: File[]; formData?: Record<string, unknown> };
-
-  // Output Debug Dialog 状态
-  outputDebugDialogOpen: boolean;
-  outputDebugNodeId: string | null;
-  outputDebugData: { mockVariables?: Record<string, string> };
-
-  // Input Prompt 状态
-  inputPromptOpen: boolean;
-  inputPromptTargetNodeId: string | null;  // null = 显示所有 Input 节点
 
   // Node Actions
   addNode: (type: NodeKind, position: { x: number; y: number }, data?: Partial<AppNodeData>) => void;
@@ -315,6 +345,7 @@ export type FlowState = {
   // Execution Actions
   runFlow: (sessionId?: string) => Promise<void>;
   runNode: (id: string, mockInputData?: Record<string, unknown>) => Promise<void>;
+
   resetExecution: (clearInputs?: boolean) => void;
 
   // Copilot Actions
@@ -335,40 +366,62 @@ export type FlowState = {
   // Flow meta setters
   setFlowIcon: (kind?: "emoji" | "lucide" | "image", name?: string, url?: string) => void;
 
-  // LLM Debug Actions
+  // ============ 统一弹窗动作 (Unified Dialog Actions) ============
+  openDialog: <T extends DialogType>(type: T, nodeId: string, data?: Partial<DialogDataMap[T]>) => void;
+  closeDialog: () => void;
+  setDialogData: (data: Record<string, unknown>) => void;
+  confirmDialogRun: (extraData?: Record<string, unknown>) => Promise<void>;
+
+  // ============ 向后兼容动作 (Deprecated - 内部使用 openDialog/closeDialog) ============
+  // @deprecated - 请使用 openDialog('llm', nodeId) 代替
   openLLMDebugDialog: (nodeId: string) => void;
   closeLLMDebugDialog: () => void;
   setLLMDebugInputs: (inputs: DebugInputs) => void;
   confirmLLMDebugRun: () => Promise<void>;
 
-  // RAG Debug Actions
+  // @deprecated - 请使用 openDialog('rag', nodeId) 代替
   openRAGDebugDialog: (nodeId: string) => void;
   closeRAGDebugDialog: () => void;
   setRAGDebugInputs: (inputs: DebugInputs) => void;
   confirmRAGDebugRun: () => Promise<void>;
 
-  // Tool Debug Actions
+  // @deprecated - 请使用 openDialog('tool', nodeId) 代替
   openToolDebugDialog: (nodeId: string) => void;
   closeToolDebugDialog: () => void;
   setToolDebugInputs: (inputs: Record<string, unknown>) => void;
   confirmToolDebugRun: () => Promise<void>;
 
-  // Input Debug Actions
+  // @deprecated - 请使用 openDialog('input', nodeId) 代替
   openInputDebugDialog: (nodeId: string) => void;
   closeInputDebugDialog: () => void;
   setInputDebugData: (data: { text?: string; files?: File[]; formData?: Record<string, unknown> }) => void;
   confirmInputDebugRun: () => Promise<void>;
 
-  // Output Debug Actions
+  // @deprecated - 请使用 openDialog('output', nodeId) 代替
   openOutputDebugDialog: (nodeId: string) => void;
   closeOutputDebugDialog: () => void;
   setOutputDebugData: (data: { mockVariables?: Record<string, string> }) => void;
   confirmOutputDebugRun: () => Promise<void>;
 
-  // Input Prompt Actions
-  openInputPrompt: (nodeId?: string) => void;  // nodeId=undefined 表示所有 Input 节点
+  // @deprecated - 请使用 openDialog('branch', nodeId) 代替
+  openBranchDebugDialog: (nodeId: string) => void;
+  closeBranchDebugDialog: () => void;
+  confirmBranchDebugRun: (mockData: string) => Promise<void>;
+
+  // @deprecated - 请使用 openDialog('imagegen', nodeId) 代替
+  openImageGenDebugDialog: (nodeId: string) => void;
+  closeImageGenDebugDialog: () => void;
+  setImageGenDebugInputs: (inputs: ImageGenDebugInputs) => void;
+  confirmImageGenDebugRun: () => Promise<void>;
+
+  // Input Prompt Actions (保留，因为有特殊逻辑)
+  /** @deprecated 请使用 openDialog('input', nodeId) 代替。nodeId=undefined 表示所有 Input 节点 */
+  openInputPrompt: (nodeId?: string) => void;
+  /** @deprecated 请使用 closeDialog() 代替 */
   closeInputPrompt: () => void;
+  /** @deprecated 请使用 confirmDialogRun() 代替 */
   confirmInputRun: () => Promise<void>;
+
 
   // Streaming Actions
   setStreamingText: (text: string) => void;
@@ -388,3 +441,75 @@ export type FlowState = {
   initSelectStreaming: (sourceIds: string[]) => void;
   tryLockSource: (sourceId: string) => boolean;
 };
+
+// ============ Type Guard Utilities ============
+// These functions provide type-safe access to node data based on node type
+
+/**
+ * Type guard for LLM node data
+ * Use instead of `data as LLMNodeData` for safer type handling
+ */
+export function isLLMNode(node: AppNode): node is AppNode & { data: LLMNodeData } {
+  return node.type === 'llm';
+}
+
+/**
+ * Type guard for RAG node data
+ */
+export function isRAGNode(node: AppNode): node is AppNode & { data: RAGNodeData } {
+  return node.type === 'rag';
+}
+
+/**
+ * Type guard for Input node data
+ */
+export function isInputNode(node: AppNode): node is AppNode & { data: InputNodeData } {
+  return node.type === 'input';
+}
+
+/**
+ * Type guard for Output node data
+ */
+export function isOutputNode(node: AppNode): node is AppNode & { data: OutputNodeData } {
+  return node.type === 'output';
+}
+
+/**
+ * Type guard for Tool node data
+ */
+export function isToolNode(node: AppNode): node is AppNode & { data: ToolNodeData } {
+  return node.type === 'tool';
+}
+
+/**
+ * Type guard for Branch node data
+ */
+export function isBranchNode(node: AppNode): node is AppNode & { data: BranchNodeData } {
+  return node.type === 'branch';
+}
+
+/**
+ * Type guard for ImageGen node data
+ */
+export function isImageGenNode(node: AppNode): node is AppNode & { data: ImageGenNodeData } {
+  return node.type === 'imagegen';
+}
+
+/**
+ * Get typed node data based on node kind
+ * Returns properly typed data or undefined if type doesn't match
+ */
+export function getTypedNodeData<T extends NodeKind>(
+  node: AppNode,
+  expectedType: T
+): T extends 'llm' ? LLMNodeData :
+  T extends 'rag' ? RAGNodeData :
+  T extends 'input' ? InputNodeData :
+  T extends 'output' ? OutputNodeData :
+  T extends 'tool' ? ToolNodeData :
+  T extends 'branch' ? BranchNodeData :
+  T extends 'imagegen' ? ImageGenNodeData :
+  AppNodeData | undefined {
+  if (node.type !== expectedType) return undefined as any;
+  return node.data as any;
+}

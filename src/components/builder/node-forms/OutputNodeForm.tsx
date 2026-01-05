@@ -15,7 +15,7 @@ export function OutputNodeForm({ form }: BaseNodeFormProps) {
           <FormItem>
             <FormLabel className={LABEL_CLASS}>节点名称</FormLabel>
             <FormControl>
-              <Input {...field} className={`font-medium ${INPUT_CLASS}`} />
+              <Input {...field} className={INPUT_CLASS} />
             </FormControl>
             <FormMessage />
           </FormItem>

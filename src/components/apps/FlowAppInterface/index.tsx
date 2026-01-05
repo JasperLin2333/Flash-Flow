@@ -38,6 +38,19 @@ export default memo(function FlowAppInterface({
     const inputNode = nodes.find(n => n.type === "input");
     const inputNodeData = inputNode?.data as InputNodeData | undefined;
 
+    // Handle central form send (with formData)
+    const handleCentralFormSend = (data: { text: string; files?: File[]; formData?: Record<string, unknown> }) => {
+        if (inputNode) {
+            updateNodeData(inputNode.id, {
+                text: data.text,
+                formData: data.formData,
+                files: undefined // Central form currently doesn't support file upload, logic can be added later
+            });
+        }
+        // Then trigger the actual send
+        onSend([]);
+    };
+
     // Handle send with files and form data
     const handleSend = () => {
         if (inputNode) {
@@ -62,6 +75,9 @@ export default memo(function FlowAppInterface({
         setSelectedFiles((prev) => prev.filter((f) => f !== fileToRemove));
     };
 
+    // Determine if we are in the "Central Form" state
+    const isCentralFormActive = messages.length === 0 && inputNodeData?.enableStructuredForm;
+
     return (
         <div className="flex flex-col flex-1 w-full h-full bg-white">
             <Header flowTitle={flowTitle} flowIcon={flowIcon} onClose={onClose} onGoHome={onGoHome} onNewConversation={onNewConversation} />
@@ -79,29 +95,42 @@ export default memo(function FlowAppInterface({
                     flowIcon={flowIcon}
                     inputNodeData={inputNodeData}
                     flowTitle={flowTitle}
+                    onSend={handleCentralFormSend}
+                    onFormDataChange={(formData) => {
+                        if (inputNode) {
+                            updateNodeData(inputNode.id, { formData });
+                        }
+                    }}
                 />
-                <div className={`${LAYOUT.spacing.input} bg-gray-50`}>
-                    <div className={`${LAYOUT.inputMaxWidth} mx-auto`}>
-                        <PromptBubble
-                            value={input}
-                            onChange={onInputChange}
-                            onSubmit={handleSend}
-                            placeholder={UI_TEXT.inputPlaceholder}
-                            disabled={isLoading}
-                            minRows={1}
-                            inputNodeData={inputNodeData}
-                            selectedFiles={selectedFiles}
-                            onFileSelect={handleFileSelect}
-                            onFileRemove={handleFileRemove}
-                            onFormDataChange={(formData) => {
-                                // 实时同步表单数据到 Input 节点
-                                if (inputNode) {
-                                    updateNodeData(inputNode.id, { formData });
-                                }
-                            }}
-                        />
+
+                {/* Only show bottom input bar if NOT in central form mode */}
+                {!isCentralFormActive && (
+                    <div className={`${LAYOUT.spacing.input} bg-gray-50 relative`}>
+                        {/* Gradient mask for smooth content scrolling */}
+                        <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-t from-gray-50 to-transparent -translate-y-full pointer-events-none z-10" />
+
+                        <div className={`${LAYOUT.inputMaxWidth} mx-auto`}>
+                            <PromptBubble
+                                value={input}
+                                onChange={onInputChange}
+                                onSubmit={handleSend}
+                                placeholder={UI_TEXT.inputPlaceholder}
+                                disabled={isLoading}
+                                minRows={1}
+                                inputNodeData={inputNodeData}
+                                selectedFiles={selectedFiles}
+                                onFileSelect={handleFileSelect}
+                                onFileRemove={handleFileRemove}
+                                onFormDataChange={(formData) => {
+                                    // 实时同步表单数据到 Input 节点
+                                    if (inputNode) {
+                                        updateNodeData(inputNode.id, { formData });
+                                    }
+                                }}
+                            />
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );
