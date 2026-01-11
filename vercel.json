@@ -2,8 +2,7 @@
     "buildCommand": "next build",
     "functions": {
         "src/app/api/**/*.ts": {
-            "maxDuration": 60,
-            "memory": 1024
+            "maxDuration": 60
         }
     },
     "headers": [

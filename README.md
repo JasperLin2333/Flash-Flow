@@ -1,5 +1,5 @@
 <p align="center">
-
+  <img src="public/images/首页.png" alt="Flash Flow Homepage" width="100%">
 </p>
 
 <h1 align="center">⚡ Flash Flow</h1>
@@ -9,7 +9,13 @@
 </p>
 
 <p align="center">
-
+  <a href="https://www.flashflow.com.cn/">
+    <img src="https://img.shields.io/badge/国内试用-点击跳转-blue?style=for-the-badge&logo=rocket" alt="国内试用">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://flash-flow-gray.vercel.app/flows">
+    <img src="https://img.shields.io/badge/国外试用-Click%20Here-green?style=for-the-badge&logo=vercel" alt="国外试用">
+  </a>
 </p>
 
 <br>
@@ -64,9 +70,11 @@ Flash Flow 是一款革命性的 AI 工作流生成平台。无需拖拽、无�
 
 ---
 
-## �🎬 产品展示
+## 🎬 产品展示
 
-
+<p align="center">
+  <img src="public/images/工作流.png" alt="Flash Flow Workflow" width="100%">
+</p>
 
 <br>
 
