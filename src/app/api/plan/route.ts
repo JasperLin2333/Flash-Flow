@@ -4,7 +4,7 @@ import { PlanRequestSchema } from "@/utils/validation";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
 import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
-import { SMART_RULES, VARIABLE_RULES, NODE_SPECS, EDGE_RULES, SCENARIO_RULES, CORE_CHECKLIST, EFFICIENCY_RULES } from "@/lib/prompts";
+import { CORE_RULES, PLAN_PROMPT, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES, FLOW_EXAMPLES, NEGATIVE_EXAMPLES } from "@/lib/prompts";
 import { WorkflowZodSchema } from "@/lib/schemas/workflow";
 
 // ============ 兜底策略配置 ============
@@ -86,63 +86,20 @@ export async function POST(req: Request) {
     // Import shared prompt modules
     // Note: Constants are imported from '@/lib/prompts' at the top of the file
 
-    const system = `你是工作流编排专家。根据用户需求描述，智能生成完整的 JSON 工作流。
 
-# 🧠 核心原则
+    const system = `${PLAN_PROMPT}
 
-1. **逻辑深度**: LLM SystemPrompt 必须包含具体的核心业务逻辑（角色/目标/约束），拒绝空洞内容。
-2. **场景适配**: 根据需求精准选择节点组合和参数。
-3. **模糊兜底**: 需求不明确时，优先生成 Input → LLM → Output 三节点直链，在 LLM 的 systemPrompt 中引导用户补充信息。
+${CORE_RULES}
 
-${EFFICIENCY_RULES}
-
-${SMART_RULES}
-
-${SCENARIO_RULES}
+${NODE_REFERENCE}
 
 ${VARIABLE_RULES}
 
-${NODE_SPECS}
-
 ${EDGE_RULES}
 
-# 📋 关键示例
+${FLOW_EXAMPLES}
 
-## 1. 🖼️ 文档/图片分析 (必须用 RAG)
-\`\`\`json
-{"title": "工单OCR识别", "nodes": [
-  {"id": "in", "type": "input", "data": {"label": "上传工单", "enableFileInput": true, "fileConfig": {"allowedTypes": [".jpg,.png,.webp", ".pdf"], "maxCount": 1}, "greeting": "请上传工单图片，我来帮你识别关键信息"}},
-  {"id": "rag", "type": "rag", "data": {"label": "文档解析", "fileMode": "variable", "inputMappings": {"files": "{{上传工单.files}}", "query": "提取工单中的所有关键信息"}}},
-  {"id": "llm", "type": "llm", "data": {"label": "智能识别", "temperature": 0.1, "enableMemory": false, "systemPrompt": "# 角色\\n你是工单识别专家。\\n\\n# 任务\\n基于文档内容 {{文档解析.documents}}，提取关键字段。\\n\\n# 输出格式 (JSON)\\n{\\\"单号\\\": \\\"..\\\", \\\"日期\\\": \\\"YYYY-MM-DD\\\", \\\"客户\\\": \\\"..\\\", \\\"描述\\\": \\\"..\\\"}\\n\\n# 约束\\n- 模糊字段标注 [无法识别]\\"}},
-  {"id": "out", "type": "output", "data": {"label": "识别结果", "inputMappings": {"mode": "direct", "sources": [{"type": "variable", "value": "{{智能识别.response}}"}]}}}
-], "edges": [{"source": "in", "target": "rag"}, {"source": "rag", "target": "llm"}, {"source": "llm", "target": "out"}]}
-\`\`\`
-
-## 2. 💰 智能理财 (Branch + Tool + 结构化表单)
-\`\`\`json
-{"title": "智能理财顾问", "nodes": [
-  {"id": "in", "type": "input", "data": {"label": "投资偏好", "enableStructuredForm": true, "formFields": [{"name": "risk", "label": "风险偏好", "type": "select", "options": ["保守型", "激进型"], "required": true}], "greeting": "请选择您的风险偏好"}},
-  {"id": "br", "type": "branch", "data": {"label": "策略分流", "condition": "投资偏好.formData.risk === '保守型'"}},
-  {"id": "t_bond", "type": "tool", "data": {"label": "查询国债", "toolType": "web_search", "inputs": {"query": "2024年国债利率 最新收益率", "maxResults": 5}}},
-  {"id": "t_stock", "type": "tool", "data": {"label": "查询美股", "toolType": "web_search", "inputs": {"query": "纳斯达克 科技股 本周涨幅榜", "maxResults": 5}}},
-  {"id": "llm_safe", "type": "llm", "data": {"label": "稳健方案", "temperature": 0.3, "enableMemory": false, "systemPrompt": "# 角色\n你是保守型理财顾问。\n\n# 任务\n基于 {{查询国债.results}} 制定理财方案。\n\n# 输出\n1. 推荐产品及年化\n2. 配置建议\n3. 风险提示\"}},
-  {"id": "llm_risk", "type": "llm", "data": {"label": "激进方案", "temperature": 0.7, "enableMemory": false, "systemPrompt": "# 角色\n你是激进型投资顾问。\n\n# 任务\n基于 {{查询美股.results}} 制定投资方案。\n\n# 输出\n1. 推荐标的及理由\n2. 仓位策略\n3. 止损策略\"}},
-  {"id": "out", "type": "output", "data": {"label": "投资方案", "inputMappings": {"mode": "select", "sources": [{"type": "variable", "value": "{{稳健方案.response}}"}, {"type": "variable", "value": "{{激进方案.response}}"}]}}}
-], "edges": [
-  {"source": "in", "target": "br"},
-  {"source": "br", "target": "t_bond", "sourceHandle": "true"}, {"source": "br", "target": "t_stock", "sourceHandle": "false"},
-  {"source": "t_bond", "target": "llm_safe"}, {"source": "t_stock", "target": "llm_risk"},
-  {"source": "llm_safe", "target": "out"}, {"source": "llm_risk", "target": "out"}
-]}
-\`\`\`
-
-${CORE_CHECKLIST}
-
-# 输出格式
-纯 JSON：
-\`\`\`json
-{"title": "...", "nodes": [...], "edges": [...]}
-\`\`\`
+${NEGATIVE_EXAMPLES}
 `;
 
     const userMsg = [

@@ -14,6 +14,7 @@ export const formSchema = z.object({
     // LLM node specific fields
     enableMemory: z.boolean().optional(),
     memoryMaxTurns: z.number().min(1).max(20).optional(),
+    responseFormat: z.enum(['text', 'json_object']).optional(), // JSON输出模式
     // Input node specific fields
     enableTextInput: z.boolean().optional(),
     enableFileInput: z.boolean().optional(),
@@ -64,7 +65,7 @@ export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: 
         { field: "user_input", description: "输入的文本内容" },
 
         { field: "files", description: "上传的文件列表，可通过 files[n] 获取单个文件" },
-        { field: "formData", description: "快捷表单，可通过 字段名.formData.字段名 引用" },
+        { field: "formData", description: "快捷表单，可通过 节点名.formData.字段名 引用" },
     ],
     llm: [
         { field: "response", description: "AI生成的回复内容" },

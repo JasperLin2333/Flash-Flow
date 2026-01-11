@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Trash2 } from "lucide-react";
 import { fileUploadService } from "@/services/fileUploadService";
 import { useFlowStore } from "@/store/flowStore";
 import { showError } from "@/utils/errorNotify";
@@ -16,7 +16,7 @@ import { useImageGenModel } from "@/hooks/useImageGenModel";
 import { IMAGEGEN_CONFIG } from "@/store/constants/imageGenConstants";
 import { ImageSlotUploader } from "./components/ImageSlotUploader";
 
-const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS } = NODE_FORM_STYLES;
+const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS, SLIDER_LABEL, SLIDER_VALUE } = NODE_FORM_STYLES;
 
 /**
  * ImageGen 节点配置表单 Props
@@ -249,7 +249,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
     };
 
     return (
-        <>
+        <div className="space-y-4">
             {/* 节点名称 */}
             <FormField
                 control={form.control}
@@ -298,7 +298,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                 </FormControl>
                                 <SelectContent>
                                     {models.map(model => (
-                                        <SelectItem key={model.id} value={model.model_id}>
+                                        <SelectItem key={model.id} value={model.model_id} className="cursor-pointer">
                                             {model.model_name}
                                         </SelectItem>
                                     ))}
@@ -327,7 +327,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                             <Textarea
                                 {...field}
                                 placeholder="描述你想生成的图片，例如：一只可爱的橘猫坐在窗台上看夕阳"
-                                className={`min-h-[80px] ${INPUT_CLASS} font-mono bg-white`}
+                                className={`min-h-[100px] ${INPUT_CLASS} font-mono bg-white`}
                             />
                         </FormControl>
                         <FormMessage />
@@ -352,7 +352,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                 <Textarea
                                     {...field}
                                     placeholder="例如：白色、手指、低质量、模糊（请勿填写“不要”）"
-                                    className={`min-h-[60px] ${INPUT_CLASS} font-mono bg-white`}
+                                    className={`min-h-[80px] ${INPUT_CLASS} font-mono bg-white`}
                                 />
                             </FormControl>
                             <FormMessage />
@@ -399,94 +399,96 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
             {/* 分隔线 - 仅当有高级参数时显示 */}
             {(modelCapabilities.cfgParam || modelCapabilities.supportsInferenceSteps) && (
                 <>
-                    <div className="border-t border-gray-100 my-2" />
+                    <div className={NODE_FORM_STYLES.SECTION_DIVIDER} />
 
                     {/* 高级参数标题 - 可折叠 */}
-                    <div
-                        className="flex items-center justify-between cursor-pointer py-2 hover:bg-gray-50 -mx-2 px-2 rounded-lg transition-colors"
-                        onClick={() => setShowAdvanced(!showAdvanced)}
-                    >
-                        <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">高级设置</h4>
-                        {showAdvanced ? (
-                            <ChevronUp className="w-3 h-3 text-gray-400" />
-                        ) : (
-                            <ChevronDown className="w-3 h-3 text-gray-400" />
-                        )}
-                    </div>
-
-                    {showAdvanced && (
-                        <div className="mt-2 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
-                            {/* 引导系数 (CFG) - 仅支持的模型显示 */}
-                            {modelCapabilities.cfgParam && (
-                                <FormField
-                                    control={form.control}
-                                    name="cfg"
-                                    render={({ field }) => {
-                                        return (
-                                            <FormItem>
-                                                <div className="flex items-center justify-between">
-                                                    <FormLabel className={LABEL_CLASS}>创意系数</FormLabel>
-                                                    <span className="text-xs text-gray-600 font-mono">
-                                                        {currentCfgQuality}%
-                                                    </span>
-                                                </div>
-                                                <FormControl>
-                                                    <Slider
-                                                        min={0}
-                                                        max={100}
-                                                        step={1}
-                                                        value={[currentCfgQuality]}
-                                                        onValueChange={(vals) => handleCfgQualityChange(vals[0])}
-                                                        className="py-2"
-                                                    />
-                                                </FormControl>
-                                                <p className="text-[9px] text-gray-400">
-                                                    越高越有创意，越低越接近提示词
-                                                </p>
-                                                <FormMessage />
-                                            </FormItem>
-                                        );
-                                    }}
-                                />
-                            )}
-
-                            {/* 推理步数 - 仅支持的模型显示 */}
-                            {modelCapabilities.supportsInferenceSteps && (
-                                <FormField
-                                    control={form.control}
-                                    name="numInferenceSteps"
-                                    render={({ field }) => {
-                                        // 这里的 field.value 是实际步数，但我们渲染的是基于 Quality 的 Slider
-                                        return (
-                                            <FormItem>
-                                                <div className="flex items-center justify-between">
-                                                    <FormLabel className={LABEL_CLASS}>生成质量</FormLabel>
-                                                    <span className="text-xs text-gray-600 font-mono">
-                                                        {currentQuality}%
-                                                    </span>
-                                                </div>
-                                                <FormControl>
-                                                    <Slider
-                                                        min={IMAGEGEN_CONFIG.QUALITY_MIN}
-                                                        max={IMAGEGEN_CONFIG.QUALITY_MAX}
-                                                        step={1}
-                                                        value={[currentQuality]}
-                                                        onValueChange={(vals) => handleQualityChange(vals[0])}
-                                                        className="py-2"
-                                                    />
-                                                </FormControl>
-                                                <div className="flex justify-between items-center text-[9px] text-gray-400 mt-1">
-                                                    <span>极速</span>
-                                                    <span>最佳</span>
-                                                </div>
-                                                <FormMessage />
-                                            </FormItem>
-                                        );
-                                    }}
-                                />
+                    <div className="space-y-2">
+                        <div
+                            className="flex items-center justify-between cursor-pointer group py-2"
+                            onClick={() => setShowAdvanced(!showAdvanced)}
+                        >
+                            <div className={`${LABEL_CLASS} px-1 group-hover:text-gray-900 transition-colors`}>高级设置</div>
+                            {showAdvanced ? (
+                                <ChevronUp className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                            ) : (
+                                <ChevronDown className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 transition-colors" />
                             )}
                         </div>
-                    )}
+
+                        {showAdvanced && (
+                            <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                                {/* 引导系数 (CFG) - 仅支持的模型显示 */}
+                                {modelCapabilities.cfgParam && (
+                                    <FormField
+                                        control={form.control}
+                                        name="cfg"
+                                        render={({ field }) => {
+                                            return (
+                                                <FormItem>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className={SLIDER_LABEL}>创意系数</span>
+                                                        <span className={SLIDER_VALUE}>
+                                                            {currentCfgQuality}%
+                                                        </span>
+                                                    </div>
+                                                    <FormControl>
+                                                        <Slider
+                                                            min={0}
+                                                            max={100}
+                                                            step={1}
+                                                            value={[currentCfgQuality]}
+                                                            onValueChange={(vals) => handleCfgQualityChange(vals[0])}
+                                                            className="py-2"
+                                                        />
+                                                    </FormControl>
+                                                    <p className="text-[9px] text-gray-400">
+                                                        越高越有创意，越低越接近提示词
+                                                    </p>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            );
+                                        }}
+                                    />
+                                )}
+
+                                {/* 推理步数 - 仅支持的模型显示 */}
+                                {modelCapabilities.supportsInferenceSteps && (
+                                    <FormField
+                                        control={form.control}
+                                        name="numInferenceSteps"
+                                        render={({ field }) => {
+                                            // 这里的 field.value 是实际步数，但我们渲染的是基于 Quality 的 Slider
+                                            return (
+                                                <FormItem>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className={SLIDER_LABEL}>生成质量</span>
+                                                        <span className={SLIDER_VALUE}>
+                                                            {currentQuality}%
+                                                        </span>
+                                                    </div>
+                                                    <FormControl>
+                                                        <Slider
+                                                            min={IMAGEGEN_CONFIG.QUALITY_MIN}
+                                                            max={IMAGEGEN_CONFIG.QUALITY_MAX}
+                                                            step={1}
+                                                            value={[currentQuality]}
+                                                            onValueChange={(vals) => handleQualityChange(vals[0])}
+                                                            className="py-2"
+                                                        />
+                                                    </FormControl>
+                                                    <div className="flex justify-between items-center text-[9px] text-gray-400 mt-1">
+                                                        <span>极速</span>
+                                                        <span>最佳</span>
+                                                    </div>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            );
+                                        }}
+                                    />
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </>
             )}
 
@@ -502,8 +504,8 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                             {Object.values(isUploading).some(Boolean) && <Loader2 className="w-4 h-4 animate-spin text-gray-500" />}
                         </div>
 
-                        {/* 模式切换 */}
-                        <div className="flex gap-2">
+                        {/* 模式切换 - Segmented Control */}
+                        <div className="flex p-1 bg-gray-100 rounded-lg gap-1">
                             <button
                                 type="button"
                                 onClick={() => {
@@ -512,9 +514,9 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                         updateNodeData(selectedNodeId, { referenceImageMode: "variable" });
                                     }
                                 }}
-                                className={`flex-1 py-1.5 px-3 text-xs rounded-lg border transition-all ${form.watch("referenceImageMode") === "variable"
-                                    ? "bg-blue-50 border-blue-300 text-blue-700"
-                                    : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                                className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all ${form.watch("referenceImageMode") === "variable"
+                                    ? "bg-white text-gray-900 shadow-sm"
+                                    : "text-gray-500 hover:text-gray-700"
                                     }`}
                             >
                                 变量引用
@@ -527,9 +529,9 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                         updateNodeData(selectedNodeId, { referenceImageMode: "static" });
                                     }
                                 }}
-                                className={`flex-1 py-1.5 px-3 text-xs rounded-lg border transition-all ${form.watch("referenceImageMode") !== "variable"
-                                    ? "bg-blue-50 border-blue-300 text-blue-700"
-                                    : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                                className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all ${form.watch("referenceImageMode") !== "variable"
+                                    ? "bg-white text-gray-900 shadow-sm"
+                                    : "text-gray-500 hover:text-gray-700"
                                     }`}
                             >
                                 静态上传
@@ -562,9 +564,9 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                             <button
                                                 type="button"
                                                 onClick={() => form.setValue("referenceImageVariable", "")}
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                                className={`absolute right-1 top-1/2 -translate-y-1/2 ${NODE_FORM_STYLES.REMOVE_BUTTON}`}
                                             >
-                                                <span className="text-sm">×</span>
+                                                <Trash2 className="w-3 h-3" />
                                             </button>
                                         )}
                                     </div>
@@ -596,9 +598,9 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                                     form.setValue("referenceImage2Variable", "");
                                                     setShowExtraImages(prev => Math.max(0, prev - 1));
                                                 }}
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                                className={`absolute right-1 top-1/2 -translate-y-1/2 ${NODE_FORM_STYLES.REMOVE_BUTTON}`}
                                             >
-                                                <span className="text-sm">×</span>
+                                                <Trash2 className="w-3 h-3" />
                                             </button>
                                         </div>
                                     </div>
@@ -630,9 +632,9 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                                     form.setValue("referenceImage3Variable", "");
                                                     setShowExtraImages(prev => Math.max(0, prev - 1));
                                                 }}
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                                className={`absolute right-1 top-1/2 -translate-y-1/2 ${NODE_FORM_STYLES.REMOVE_BUTTON}`}
                                             >
-                                                <span className="text-sm">×</span>
+                                                <Trash2 className="w-3 h-3" />
                                             </button>
                                         </div>
                                     </div>
@@ -649,7 +651,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                         <button
                                             type="button"
                                             onClick={() => setShowExtraImages(prev => Math.min(2, prev + 1))}
-                                            className="w-full py-1.5 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300 rounded-lg transition-colors flex items-center justify-center gap-1"
+                                            className={NODE_FORM_STYLES.ADD_BUTTON}
                                         >
                                             <span>+</span>
                                             添加参考图
@@ -707,7 +709,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                         onDelete={() => handleDeleteReferenceImage(3)}
                                         onRemoveSlot={() => {
                                             handleDeleteReferenceImage(3);
-                                            setShowExtraImages(prev => Math.max(1, prev - 1));
+                                            setShowExtraImages(prev => Math.max(0, prev - 1));
                                         }}
                                         inputId="ref-img-3"
                                     />
@@ -724,7 +726,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                         <button
                                             type="button"
                                             onClick={() => setShowExtraImages(prev => Math.min(2, prev + 1))}
-                                            className="w-full py-1.5 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300 rounded-lg transition-colors flex items-center justify-center gap-1"
+                                            className={NODE_FORM_STYLES.ADD_BUTTON}
                                         >
                                             <span>+</span>
                                             添加参考图
@@ -736,6 +738,6 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                     </div>
                 </>
             )}
-        </>
+        </div>
     );
 }

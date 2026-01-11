@@ -1,12 +1,17 @@
 "use client";
 import React, { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, X, ChevronDown } from "lucide-react";
+import { Plus, ChevronDown, X, Trash2 } from "lucide-react";
 import type { OutputMode, ContentSource, AttachmentSource, OutputInputMappings } from "@/types/flow";
 import { FormSeparator, NODE_FORM_STYLES } from "../node-forms/shared";
 import { OUTPUT_MODE_OPTIONS } from "@/lib/outputModeConstants";
 
-const { LABEL: LABEL_CLASS, CARD: CARD_CLASS, CARD_SPACING } = NODE_FORM_STYLES;
+const {
+    LABEL: LABEL_CLASS,
+    CARD_SPACING,
+    REMOVE_BUTTON,
+    ADD_BUTTON
+} = NODE_FORM_STYLES;
 
 // 使用共享常量
 const MODE_OPTIONS = OUTPUT_MODE_OPTIONS;
@@ -193,17 +198,17 @@ export function OutputNodeConfig({
                                     type="text"
                                     value={sources[0]?.value || ""}
                                     onChange={(e) => handleUpdateSource(0, e.target.value)}
-                                    placeholder="{{节点名.字段}} 或 {{response}}"
+                                    placeholder="{{变量名}}"
                                     disabled={isExecuting}
-                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
+                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
                                 />
                                 {sources[0]?.value && !isExecuting && (
                                     <button
                                         type="button"
                                         onClick={() => handleUpdateSource(0, "")}
-                                        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded-full text-gray-300 hover:text-gray-500 transition-colors"
+                                        className={`absolute right-1 top-1/2 -translate-y-1/2 ${REMOVE_BUTTON}`}
                                     >
-                                        <X className="w-3 h-3" />
+                                        <Trash2 className="w-4 h-4" />
                                     </button>
                                 )}
                             </div>
@@ -224,15 +229,15 @@ export function OutputNodeConfig({
                                                     onChange={(e) => handleUpdateSource(actualIndex, e.target.value)}
                                                     placeholder="{{变量名}}"
                                                     disabled={isExecuting}
-                                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-orange-300 focus:ring-1 focus:ring-orange-100 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
+                                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
                                                 />
                                                 <button
                                                     type="button"
                                                     onClick={() => handleRemoveSource(actualIndex)}
                                                     disabled={isExecuting}
-                                                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-red-50 rounded-full text-gray-300 hover:text-red-500 transition-colors"
+                                                    className={`absolute right-1 top-1/2 -translate-y-1/2 ${REMOVE_BUTTON}`}
                                                 >
-                                                    <X className="w-3 h-3" />
+                                                    <Trash2 className="w-4 h-4" />
                                                 </button>
                                             </div>
                                         </div>
@@ -240,17 +245,15 @@ export function OutputNodeConfig({
                                 })}
 
                                 {/* 添加按钮 */}
-                                <Button
+                                <button
                                     type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="w-full h-7 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300 rounded-lg"
+                                    className={ADD_BUTTON}
                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAddSource(); }}
                                     disabled={isExecuting}
                                 >
                                     <Plus className="w-3 h-3 mr-1" />
                                     添加来源
-                                </Button>
+                                </button>
                             </>
                         )}
                     </div>
@@ -284,34 +287,32 @@ export function OutputNodeConfig({
                                     type="text"
                                     value={attachment.value}
                                     onChange={(e) => handleUpdateAttachment(idx, e.target.value)}
-                                    placeholder="{{用户输入.files}}"
+                                    placeholder="{{文件URL变量}}"
                                     disabled={isExecuting}
-                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-purple-300 focus:ring-1 focus:ring-purple-100 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
+                                    className={`w-full h-8 text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 font-mono transition-all placeholder:text-gray-300 ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'bg-white'}`}
                                 />
                                 <button
                                     type="button"
                                     onClick={() => handleRemoveAttachment(idx)}
                                     disabled={isExecuting}
-                                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-red-50 rounded-full text-gray-300 hover:text-red-500 transition-colors"
+                                    className={`absolute right-1 top-1/2 -translate-y-1/2 ${REMOVE_BUTTON}`}
                                 >
-                                    <X className="w-3 h-3" />
+                                    <Trash2 className="w-4 h-4" />
                                 </button>
                             </div>
                         </div>
                     ))}
 
                     {/* 添加按钮 */}
-                    <Button
+                    <button
                         type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="w-full h-7 text-[10px] text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-300 rounded-lg"
+                        className={ADD_BUTTON}
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAddAttachment(); }}
                         disabled={isExecuting}
                     >
                         <Plus className="w-3 h-3 mr-1" />
                         添加附件来源
-                    </Button>
+                    </button>
                 </div>
                 <p className="text-[9px] text-gray-400 mt-1 pl-1">
                     引用文件URL变量

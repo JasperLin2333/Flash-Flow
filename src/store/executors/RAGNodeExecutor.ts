@@ -176,38 +176,13 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
         query: string,
         files: Array<{ name: string; url: string; type?: string }>
     ): Promise<Record<string, unknown>> {
-        try {
-            const response = await fetch("/api/rag/search", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    mode: "multimodal",
-                    query,
-                    files
-                })
-            });
+        const payload = {
+            mode: "multimodal",
+            query,
+            files
+        };
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `API 请求失败: ${response.status}`);
-            }
-
-            const searchResult = await response.json();
-
-            return {
-                query,
-                documents: searchResult.documents,
-                citations: searchResult.citations,
-                documentCount: searchResult.documents?.length || 0,
-                mode: 'multimodal'
-            };
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-
-            return {
-                error: `文件处理失败: ${errorMessage}`
-            };
-        }
+        return this.callSearchApi(payload, query, 'multimodal');
     }
 
     /**
@@ -224,22 +199,45 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
             };
         }
 
-        // 检查是否有文件上传
-        if (!ragData.files || ragData.files.length === 0) {
+        // 检查是否有文件上传（检查所有槽位）
+        const allStaticFiles = [
+            ...(ragData.files || []),
+            ...(ragData.files2 || []),
+            ...(ragData.files3 || [])
+        ];
+        if (allStaticFiles.length === 0) {
             return {
                 error: "知识库为空，请先上传至少一个文件。"
             };
         }
 
+        const payload = {
+            mode: "fileSearch",
+            query,
+            fileSearchStoreName: ragData.fileSearchStoreName
+        };
+
+        return this.callSearchApi(payload, query, 'fileSearch');
+    }
+
+    /**
+     * 统一的搜索 API 调用方法 (带超时保护)
+     */
+    private async callSearchApi(
+        payload: Record<string, unknown>,
+        query: string,
+        mode: string
+    ): Promise<Record<string, unknown>> {
+        const controller = new AbortController();
+        // 设置 60 秒超时，防止请求长期挂起
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
         try {
             const response = await fetch("/api/rag/search", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    mode: "fileSearch",
-                    query,
-                    fileSearchStoreName: ragData.fileSearchStoreName
-                })
+                body: JSON.stringify(payload),
+                signal: controller.signal
             });
 
             if (!response.ok) {
@@ -254,14 +252,19 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
                 documents: searchResult.documents,
                 citations: searchResult.citations,
                 documentCount: searchResult.documents?.length || 0,
-                mode: 'fileSearch'
+                mode
             };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-
+            // 区分超时错误
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                return { error: `搜索请求超时 (60s)，请稍后重试。` };
+            }
             return {
-                error: `文档搜索失败: ${errorMessage}`
+                error: `检索失败: ${errorMessage}`
             };
+        } finally {
+            clearTimeout(timeoutId);
         }
     }
 

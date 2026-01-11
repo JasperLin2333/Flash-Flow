@@ -60,10 +60,12 @@ export interface StructuredFormSectionProps {
 }
 
 // ============ Helper Functions ============
+// Bug 6 Fix: 生成更唯一的 name，确保 React key 从一开始就稳定
 export function createNewTextField(): TextFieldConfig {
+    const uniqueId = `field_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     return {
         type: "text",
-        name: `field_${Date.now()}`,
+        name: uniqueId,
         label: "新字段",
         required: false,
     };

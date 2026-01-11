@@ -53,7 +53,7 @@ interface GenerateImageRequest {
     negativePrompt?: string;
     imageSize?: string;
     cfg?: number;                        // 统一 CFG 值
-    cfgParam?: 'guidance_scale' | 'cfg'; // 指定使用哪个参数名
+    cfgParam?: 'guidance_scale' | 'cfg' | null; // 指定使用哪个参数名
     numInferenceSteps?: number;          // 推理步数
     userId?: string;
     // 参考图 (图生图) - 前端字段名: referenceImageUrl/2/3

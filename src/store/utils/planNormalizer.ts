@@ -25,8 +25,8 @@ function normalizeInputNode(node: PlanNode, data: PlanNodeData, label: string): 
 
         fileConfig = {
             allowedTypes: defaultTypes,
-            maxFileSize: fileConfig?.maxFileSize ?? 10,
-            maxFileCount: fileConfig?.maxFileCount ?? 5,
+            maxSizeMB: fileConfig?.maxSizeMB ?? 10,
+            maxCount: fileConfig?.maxCount ?? 5,
         };
     }
 
@@ -68,6 +68,7 @@ function normalizeLLMNode(node: PlanNode, data: PlanNodeData, label: string): Ap
         systemPrompt: String(getProp<string>(node, data, 'systemPrompt') || ""),
         enableMemory: getProp<boolean>(node, data, 'enableMemory') ?? false,
         memoryMaxTurns: getProp<number>(node, data, 'memoryMaxTurns') ?? 10,
+        responseFormat: getProp<string>(node, data, 'responseFormat') as 'text' | 'json_object' | undefined,
         inputMappings,
     } as AppNodeData;
 }
@@ -83,6 +84,7 @@ function normalizeRAGNode(node: PlanNode, data: PlanNodeData, label: string): Ap
         label,
         status: "idle",
         files: processedFiles,
+        fileMode: getProp<string>(node, data, 'fileMode') as 'variable' | 'static' | undefined,
         maxTokensPerChunk: getProp<number>(node, data, 'maxTokensPerChunk') ?? 200,
         maxOverlapTokens: getProp<number>(node, data, 'maxOverlapTokens') ?? 50,
         inputMappings: getProp<Record<string, string>>(node, data, 'inputMappings') || {},
@@ -98,6 +100,23 @@ function normalizeToolNode(node: PlanNode, data: PlanNodeData, label: string): A
     } as AppNodeData;
 }
 
+function normalizeImageGenNode(node: PlanNode, data: PlanNodeData, label: string): AppNodeData {
+    return {
+        label,
+        status: "idle",
+        model: String(getProp<string>(node, data, 'model') || "Kwai-Kolors/Kolors"),
+        prompt: String(getProp<string>(node, data, 'prompt') || ""),
+        negativePrompt: String(getProp<string>(node, data, 'negativePrompt') || ""),
+        imageSize: String(getProp<string>(node, data, 'imageSize') || "1024x1024"),
+        cfg: getProp<number>(node, data, 'cfg') ?? 7.5,
+        numInferenceSteps: getProp<number>(node, data, 'numInferenceSteps') ?? 25,
+        referenceImageMode: (getProp<string>(node, data, 'referenceImageMode') as any) || "static",
+        referenceImageVariable: String(getProp<string>(node, data, 'referenceImageVariable') || ""),
+        referenceImage2Variable: String(getProp<string>(node, data, 'referenceImage2Variable') || ""),
+        referenceImage3Variable: String(getProp<string>(node, data, 'referenceImage3Variable') || ""),
+    } as AppNodeData;
+}
+
 function createDefaultEdges(nodes: AppNode[]): AppEdge[] {
     const edges: AppEdge[] = [];
     const ins = nodes.filter((n) => n.type === "input");
@@ -106,6 +125,7 @@ function createDefaultEdges(nodes: AppNode[]): AppEdge[] {
     const llms = nodes.filter((n) => n.type === "llm");
     const branches = nodes.filter((n) => n.type === "branch");
     const tools = nodes.filter((n) => n.type === "tool");
+    const imagegens = nodes.filter((n) => n.type === "imagegen");
     const outs = nodes.filter((n) => n.type === "output");
 
     const chain: AppNode[] = [
@@ -114,6 +134,7 @@ function createDefaultEdges(nodes: AppNode[]): AppEdge[] {
         ...https,
         ...tools,
         ...llms,
+        ...imagegens,
         ...branches,
         ...outs.length ? [outs[0]] : []
     ];
@@ -167,6 +188,9 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
                 break;
             case "tool":
                 data = normalizeToolNode(rn, d, label);
+                break;
+            case "imagegen":
+                data = normalizeImageGenNode(rn, d, label);
                 break;
             case "output":
                 data = {
@@ -227,12 +251,12 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
     if (inputNode && edges.length > 0) {
         const nodesWithIncoming = new Set(edges.map(e => e.target));
         const orphanNodes = nodes.filter(n => n.type !== 'input' && !nodesWithIncoming.has(n.id));
-        
+
         for (const orphan of orphanNodes) {
             // 找到最合适的上游节点（优先级: input > llm > rag > tool > branch）
             const priorityOrder: NodeKind[] = ['input', 'rag', 'tool', 'llm', 'branch'];
             let bestSource = inputNode.id;
-            
+
             for (const priority of priorityOrder) {
                 const candidate = nodes.find(n => n.type === priority && n.id !== orphan.id);
                 if (candidate) {
@@ -240,7 +264,7 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
                     break;
                 }
             }
-            
+
             edges.push({
                 id: `e-${bestSource}-${orphan.id}-${nanoid(4)}`,
                 source: bestSource,
@@ -253,7 +277,7 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
     const promptLower = prompt.toLowerCase();
     const fileKeywords = ['上传', '文档', '文件', '图片', '截图', 'pdf', '财报', '报告', '合同', '表格', 'excel', 'word', '照片', '图像', '附件'];
     const needsFileInput = fileKeywords.some(kw => promptLower.includes(kw));
-    
+
     if (needsFileInput) {
         for (const node of nodes) {
             if (node.type === 'input') {
@@ -265,8 +289,8 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
                     if (!inputData.fileConfig) {
                         inputData.fileConfig = {
                             allowedTypes: ['image/*', '.pdf', '.doc', '.docx', '.txt', '.md', '.csv', '.xlsx'],
-                            maxFileSize: 50,
-                            maxFileCount: 10,
+                            maxSizeMB: 50,
+                            maxCount: 10,
                         };
                     }
                 }

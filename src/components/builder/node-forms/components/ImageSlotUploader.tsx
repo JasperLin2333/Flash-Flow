@@ -8,6 +8,7 @@
 "use client";
 import React, { useRef } from "react";
 import { ImagePlus, Trash2, Loader2 } from "lucide-react";
+import { NODE_FORM_STYLES } from "../shared";
 
 export interface ImageSlotUploaderProps {
     slotIndex: 1 | 2 | 3;
@@ -61,9 +62,9 @@ export function ImageSlotUploader({
                     <button
                         type="button"
                         onClick={onRemoveSlot}
-                        className="text-gray-400 hover:text-red-500"
+                        className={NODE_FORM_STYLES.REMOVE_BUTTON}
                     >
-                        <span className="text-xs">× 移除</span>
+                        <Trash2 className="w-4 h-4" />
                     </button>
                 )}
             </div>
@@ -88,16 +89,16 @@ export function ImageSlotUploader({
                         <p className="text-xs font-medium text-gray-700 truncate">
                             {isUploading ? "上传中..." : "参考图已上传"}
                         </p>
-                        <button
-                            type="button"
-                            onClick={onDelete}
-                            disabled={isUploading}
-                            className="mt-1 text-xs text-red-500 hover:text-red-700 flex items-center gap-1 transition-colors disabled:opacity-50"
-                        >
-                            <Trash2 className="w-3 h-3" />
-                            删除
-                        </button>
                     </div>
+                    {/* Delete Button */}
+                    <button
+                        type="button"
+                        onClick={onDelete}
+                        disabled={isUploading}
+                        className={NODE_FORM_STYLES.REMOVE_BUTTON}
+                    >
+                        <Trash2 className="w-4 h-4" />
+                    </button>
                 </div>
             ) : (
                 // Upload Area

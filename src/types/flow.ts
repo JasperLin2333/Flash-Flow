@@ -239,6 +239,7 @@ export interface FlowContextMeta {
 export interface FlowContext {
   [nodeId: string]: Record<string, unknown> | FlowContextMeta | undefined;
   _meta?: FlowContextMeta;
+  mock?: Record<string, unknown>;
 }
 
 // 扩展性调试输入数据类型（预留多模态支持）

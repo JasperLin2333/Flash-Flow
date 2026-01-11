@@ -1,215 +1,316 @@
-## 1️⃣ Input 节点（输入节点）
+# Input 节点设计与逻辑契约文档
 
-### 功能描述
-用户输入的入口节点，支持**文本输入**、**文件上传**、**结构化表单**三种输入模式，可单独或组合使用。
+> **文档版本**: v2.0 (Code-Synced)  
+> **审计基于**: `src/types/flow.ts` L111-130, `InputNodeExecutor.ts`, `inputValidation.ts`, `InputNodeForm/*`
 
-### 核心参数
+---
 
-| 参数名 | 类型 | 必填 | 默认值 | 描述 |
-|-------|------|-----|-------|------|
-| `label` | string | ✅ | - | 节点显示名称 |
-| `enableTextInput` | boolean | ❌ | `true` | 启用文本输入框 |
-| `enableFileInput` | boolean | ❌ | `false` | 启用文件上传 |
-| `enableStructuredForm` | boolean | ❌ | `false` | 启用结构化表单 |
-| `greeting` | string | ❌ | `""` | 招呼语/欢迎语，在对话页面显示，引导用户使用 |
-| `text` | string | ❌ | `""` | 用户输入的文本内容 (运行时数据) |
-| `fileConfig` | object | ❌ | 见下文 | 文件上传配置 (仅 `enableFileInput=true` 时生效) |
-| `formFields` | array | ❌ | `[]` | 结构化表单字段配置列表 (仅 `enableStructuredForm=true` 时生效) |
+## 1. 功能语意 (LLM-Ready Metadata)
 
-## 招呼语配置 (`greeting`)
+**生态位**: 工作流的**数据入口节点**（Data Entry Point）。负责收集用户运行时输入，将原始数据（文本/文件/表单）标准化为 JSON 结构，供下游节点消费。
 
-**功能说明**：
-- 在应用对话页面的空状态（无对话历史）时显示
-- 用于引导用户如何使用该助手，提升用户体验
-- 如未配置，显示默认提示文本
+**核心能力**:
+- 文本输入（默认启用）
+- 文件/图像上传
+- 结构化表单（下拉单选/多选、纯文本）
 
-**使用场景示例**：
-```
-「我可以帮你生成创意文案，请告诉我你的产品和目标受众！」
-「上传图片，我来帮你分析图片内容并生成描述。」
-```
+---
 
-### 文件上传配置 (`enableFileInput=true` 时)
+## 2. 核心参数契约 (Schema)
 
-`fileConfig` 对象配置参数：
+> **Source**: `src/types/flow.ts` → `InputNodeData` (L111-130)
 
-| 参数名 | 类型 | 默认值 | 描述 |
-|-------|------|-------|------|
-| `fileConfig.allowedTypes` | string[] | `["*/*"]` | 允许的文件类型列表（可多选） |
-| `fileConfig.maxSizeMB` | number | `100` | 单文件最大体积 (MB)，范围 1-100 |
-| `fileConfig.maxCount` | number | `10` | 最大文件数量，范围 1-10 |
+### 2.1 配置参数 (Builder 侧)
 
-**支持的文件类型 (allowedTypes 可选值)**:
-- `.png,.jpg,.jpeg,.webp` - 图片 (png, jpg, jpeg, webp)
-- `.pdf` - PDF 文档
-- `.doc,.docx` - Word 文档
-- `.xls,.xlsx` - Excel 表格
-- `.txt` - 文本文件
-- `.md` - Markdown
-- `.csv` - CSV 文件
-- `*/*` - 所有文件类型（未选择任何类型时的默认值）
+| 参数名 | TypeScript 类型 | 必填 | 默认值 | 描述 |
+|--------|----------------|------|--------|------|
+| `label` | `string \| undefined` | ❌ | `undefined` | 节点显示名称（继承自 `BaseNodeData`）|
+| `enableTextInput` | `boolean \| undefined` | ❌ | **隐式 `true`** | 启用文本输入框。代码逻辑: `enableTextInput !== false` |
+| `enableFileInput` | `boolean \| undefined` | ❌ | **隐式 `false`** | 启用文件上传。代码逻辑: `enableFileInput === true` |
+| `enableStructuredForm` | `boolean \| undefined` | ❌ | **隐式 `false`** | 启用结构化表单。代码逻辑: `enableStructuredForm === true` |
+| `greeting` | `string \| undefined` | ❌ | `undefined` | 招呼语/引导文案，空状态时显示 |
+| `fileConfig` | `FileInputConfig \| undefined` | ❌ | 见下文 | 文件上传配置对象 |
+| `formFields` | `FormFieldConfig[] \| undefined` | ❌ | `[]` | 结构化表单字段定义数组 |
 
-> [!TIP]
-> 在构建器中，文件类型以复选框形式呈现，可同时选择多种类型。
-> 如果取消选择所有类型，系统自动回退到 `*/*`（允许所有文件）。
+### 2.2 运行时数据 (App 侧)
 
-### 结构化表单配置 (`enableStructuredForm=true` 时)
+| 参数名 | TypeScript 类型 | 描述 |
+|--------|----------------|------|
+| `text` | `string \| undefined` | 用户输入的文本内容（即 Legacy `user_input`）|
+| `files` | `Array<{ name: string; size: number; type: string; url?: string }>` | 上传的文件元数据数组 |
+| `formData` | `Record<string, unknown> \| undefined` | 表单字段值的 KV 映射 |
 
-`formFields` 数组，每个字段包含以下配置：
+---
 
-| 字段参数 | 类型 | 必填 | 描述 |
-|---------|------|-----|------|
-| `type` | string | ✅ | 字段类型：`"text"` / `"select"` / `"multi-select"` |
-| `name` | string | ✅ | 变量名（推荐格式：`field_timestamp`，如 `field_123456`） |
-| `label` | string | ✅ | 显示标签（对用户展示的字段名称） |
-| `required` | boolean | ❌ | 是否必填（默认 `false`） |
+## 3. 嵌套类型定义
 
-**字段类型 (type) 及特有参数**:
+### 3.1 FileInputConfig
 
-| 字段类型 | type 值 | 额外参数 | 默认值 | 说明 |
-|---------|--------|---------|-------|------|
-| 文本输入 | `"text"` | `placeholder`, `defaultValue` | `defaultValue: ""` | 单行文本输入框 |
-| 单选下拉 | `"select"` | `options` (string[]), `defaultValue` | `defaultValue: options[0]` | 下拉单选框，用户只能选择一个选项 |
-| 多选下拉 | `"multi-select"` | `options` (string[]), `defaultValue` | `defaultValue: []` | 下拉多选框，用户可选择多个选项 |
-
-> [!NOTE]
-> **字段配置说明**：
-> - **变量名 (`name`)**: 用于在后续节点中引用该字段的值，如 `{{输入节点.formData.field_123456}}`
-> - **字段名 (`label`)**: 在用户界面展示的友好名称，如"目标受众"、"文案风格"等
-> - **选项列表 (`options`)**: 在构建器中以逗号分隔输入，系统会自动解析为字符串数组
-> - **关闭表单时**: 系统会自动清空 `formFields` 配置和运行时 `formData` 数据
-
-### 运行前校验 (Runtime Validation)
-
-点击"运行 Flow"时，系统会对 Input 节点的数据完整性进行检查。**目前仅针对结构化表单的必填项进行强制校验**。
-
-**校验规则**：
-
-1. **结构化表单校验**: 
-   - 启用了结构化表单 (`enableStructuredForm: true`)
-   - 存在 `required: true` 的字段未填写数据
-   - **判定标准**:
-     - `undefined` 或 `null` 视为未填写
-     - 空字符串 `""` 视为未填写 (包括仅空格)
-     - 空数组 `[]` 视为未填写
-     - **注意**: 数字 `0` 视为有效值
-
-2. **文本与文件输入**:
-   - `text` 输入：不做强制非空校验（即使启用，为空通常也可运行，取决于具体业务逻辑，但底层不拦截）
-   - `files` 上传：不做强制非空校验（未上传文件时 `files` 字段可能不存在或为空数组）
-
-**校验流程**：
+> **Source**: `src/types/flow.ts` L103-107
 
 ```typescript
-// 伪代码示例 (参考 src/store/utils/inputValidation.ts)
-export function checkInputNodeMissing(data: InputNodeData): boolean {
-    // 仅检查结构化表单必填项
-    const isFormEnabled = data.enableStructuredForm === true && Array.isArray(data.formFields);
+interface FileInputConfig {
+  allowedTypes: string[];  // 允许的文件类型（MIME 或扩展名）
+  maxSizeMB: number;       // 单文件最大体积 (MB)
+  maxCount: number;        // 最大文件数量
+}
+```
 
-    if (isFormEnabled && data.formFields) {
-        return data.formFields.some((field) => {
-            if (!field.required) return false;
-            const value = data.formData?.[field.name];
-            return isFieldEmpty(value);
-        });
-    }
+**默认值** (Source: `constants.ts` L21-24):
+```typescript
+const DEFAULT_FILE_CONFIG: FileInputConfig = {
+  allowedTypes: ["*/*"],
+  maxSizeMB: 100,
+  maxCount: 10,
+};
+```
 
-    return false;
+**硬约束** (Source: `FileInputSection.tsx` L116-140):
+| 字段 | 约束 | 来源 |
+|------|------|------|
+| `maxSizeMB` | `min: 1, max: 100` | UI `<Input>` + `Math.min(Math.max(val, 1), 100)` |
+| `maxCount` | `min: 1, max: 10` | UI `<Input>` + `Math.min(Math.max(val, 1), 10)` |
+| `allowedTypes` | 空数组自动回退为 `["*/*"]` | `handleTypeToggle` 逻辑 |
+
+**allowedTypes 枚举值** (Source: `constants.ts` L10-18):
+```typescript
+const FILE_TYPE_OPTIONS = [
+  { value: ".png,.jpg,.jpeg,.webp", label: "图片 (png, jpg, jpeg, webp)" },
+  { value: ".pdf", label: "PDF (pdf)" },
+  { value: ".doc,.docx", label: "Word 文档 (doc, docx)" },
+  { value: ".xls,.xlsx", label: "Excel 表格 (xls, xlsx)" },
+  { value: ".txt", label: "文本文件 (txt)" },
+  { value: ".md", label: "Markdown (md)" },
+  { value: ".csv", label: "CSV (csv)" },
+];
+```
+
+### 3.2 FormFieldConfig (联合类型)
+
+> **Source**: `src/types/flow.ts` L72-101
+
+```typescript
+type FormFieldType = 'select' | 'text' | 'multi-select';
+type FormFieldConfig = SelectFieldConfig | TextFieldConfig | MultiSelectFieldConfig;
+```
+
+#### SelectFieldConfig
+```typescript
+interface SelectFieldConfig {
+  type: 'select';
+  name: string;            // 变量 ID (用于 formData 的 Key)
+  label: string;           // 显示名称
+  options: string[];       // 选项列表
+  required: boolean;       // 是否必填
+  defaultValue?: string;   // 默认选中项
+}
+```
+
+#### MultiSelectFieldConfig
+```typescript
+interface MultiSelectFieldConfig {
+  type: 'multi-select';
+  name: string;
+  label: string;
+  options: string[];
+  required: boolean;
+  defaultValue?: string[]; // 默认选中项数组
+}
+```
+
+#### TextFieldConfig
+```typescript
+interface TextFieldConfig {
+  type: 'text';
+  name: string;
+  label: string;
+  placeholder?: string;    // 输入占位符
+  required: boolean;
+  defaultValue?: string;
+}
+```
+
+**新字段默认值** (Source: `constants.ts` L62-70):
+```typescript
+function createNewTextField(): TextFieldConfig {
+  return {
+    type: "text",
+    name: `field_${Date.now()}`,  // 时间戳格式
+    label: "新字段",
+    required: false,
+  };
+}
+```
+
+---
+
+## 4. 逻辑约束与边界
+
+### 4.1 参数依赖 (显隐控制)
+
+> **AI 生成工作流时必须遵守的逻辑依赖**
+
+| 控制参数 | 被控参数 | 逻辑关系 |
+|----------|----------|----------|
+| `enableFileInput === true` | `fileConfig` | 启用时才可配置，关闭时 `fileConfig` 被忽略 |
+| `enableStructuredForm === true` | `formFields` | 启用时才可配置，关闭时 `formFields` 被忽略 |
+
+### 4.2 运行时校验规则
+
+> **Source**: `src/store/utils/inputValidation.ts`
+
+```typescript
+function checkInputNodeMissing(data: InputNodeData): boolean {
+  // 仅校验结构化表单的必填项
+  const isFormEnabled = data.enableStructuredForm === true && Array.isArray(data.formFields);
+  
+  if (isFormEnabled && data.formFields) {
+    return data.formFields.some((field) => {
+      if (!field.required) return false;
+      const value = data.formData?.[field.name];
+      return isFieldEmpty(value);
+    });
+  }
+  return false;
 }
 
 function isFieldEmpty(value: unknown): boolean {
-    if (value === undefined || value === null) return true;
-    if (typeof value === 'string' && value.trim() === '') return true;
-    if (Array.isArray(value) && value.length === 0) return true;
-    // 数字 0 视为有效值
-    if (typeof value === 'number') return false;
-    return false;
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string' && value.trim() === '') return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  if (typeof value === 'number') return false; // 数字 0 视为有效
+  return false;
 }
 ```
 
-> [!WARNING]
-> **文件上传说明**：
-> - 系统**不会**自动校验文件是否已上传。如果您的业务逻辑依赖文件输入，请在后续节点（如 Tool 或 LLM）中自行检查 `files` 字段是否为空。
+**关键点**:
+- ⚠️ `text` 输入**不做强制校验**（即使为空也可运行）
+- ⚠️ `files` 上传**不做强制校验**（可无文件运行）
+- ✅ 仅 `formFields` 中 `required: true` 的字段会被校验
 
-> [!NOTE]
-> **对话框交互优化**：
-> - 弹窗自动隐藏内部节点 ID，仅展示节点名称（`label`）
-> - 如果启用了结构化表单但尚未配置任何字段，弹窗中会显示"暂无表单字段配置"提示
-> - 支持在对话框中实时编辑文本、选择表单选项、上传文件
+### 4.3 运行时错误条件
 
-### 输出格式 (JSON Structure)
+> **Source**: `InputDebugDialog.tsx` L107-192
 
-Input 节点执行后，会输出以下 JSON 结构：
+| 错误条件 | 错误消息 | 触发位置 |
+|----------|----------|----------|
+| 必填表单字段未填写 | `"必填字段未填: {field.label}"` | `handleConfirm` 循环校验 |
+| 文件上传失败 | `result.errors[0]` (来自 `useFileUpload`) | `uploadFiles` 返回错误 |
+| 文件校验失败 | `validation.errors[0]` | `validateFiles` 返回错误 |
+
+---
+
+## 5. 执行器逻辑 (Executor)
+
+> **Source**: `src/store/executors/InputNodeExecutor.ts`
 
 ```typescript
-{
-  "user_input": string,                       // 文本输入内容（总是存在，未填写时为空字符串 ""）
-  
-  // 仅在启用文件上传且有文件时存在
-  "files"?: [
-    {
-      "name": string,                         // 文件名 (e.g. "report.pdf")
-      "size": number,                         // 文件大小 (bytes)
-      "type": string,                         // MIME类型 (e.g. "application/pdf")
-      "url": string                           // 文件访问 URL（上传后生成）
+class InputNodeExecutor extends BaseNodeExecutor {
+  async execute(node: AppNode, _context: FlowContext, mockData?: Record<string, unknown>): Promise<ExecutionResult> {
+    const inputData = node.data as InputNodeData;
+
+    // 优先使用 mockData（调试模式）
+    const text = (mockData?.user_input as string) ?? inputData.text ?? "";
+    const files = (mockData?.files as any[]) ?? inputData.files;
+    const formData = (mockData?.formData as Record<string, unknown>) ?? inputData.formData;
+
+    // 构建输出对象
+    const output: Record<string, unknown> = {
+      user_input: text,  // 始终存在
+    };
+
+    // 条件性添加 files
+    if (files && files.length > 0) {
+      output.files = files;
     }
-  ],
-  
-  // 仅在启用结构化表单且有填写时存在
-  "formData"?: {
-    "field_123456": string | string[],       // 字段值，根据字段类型不同
-    // text 字段: string
-    // select 字段: string
-    // multi-select 字段: string[]
+
+    // 条件性添加 formData
+    if (formData && Object.keys(formData).length > 0) {
+      output.formData = formData;
+    }
+
+    return { output, executionTime: time };
   }
 }
 ```
 
-**输出示例**：
+**关键点**:
+- `user_input` **始终存在**于输出中（空字符串 `""` 如果未填写）
+- `files` 仅在有文件时存在
+- `formData` 仅在有表单数据时存在
 
-```json
-// 示例 1: 仅文本输入
-{
-  "user_input": "帮我写一篇产品介绍"
-}
+---
 
-// 示例 2: 文本 + 结构化表单
-{
-  "user_input": "生成文案",
-  "formData": {
-    "field_style": "专业",           // select 字段
-    "field_tags": ["科技", "创新"],  // multi-select 字段
-    "field_length": "500"            // text 字段
-  }
-}
+## 6. 输出格式契约
 
-// 示例 3: 文本 + 文件
-{
-  "user_input": "分析这张图片",
-  "files": [
-    {
-      "name": "product.jpg",
-      "size": 245678,
-      "type": "image/jpeg",
-      "url": "https://storage.example.com/flows/xxx/product.jpg"
-    }
-  ]
+### 6.1 存储层 (执行结果 JSON)
+
+> ⚠️ **存储层使用 `field.name`（变量ID）作为 Key**
+
+```typescript
+interface InputNodeOutput {
+  user_input: string;  // 始终存在，默认 ""
+
+  files?: Array<{
+    name: string;   // 文件名
+    size: number;   // 字节数
+    type: string;   // MIME 类型
+    url?: string;   // 上传后的访问 URL
+  }>;
+
+  formData?: {
+    [fieldName: string]: string | string[];
+    // ⚠️ Key 是 field.name（变量ID），如 "field_1767594083392"
+    // 详见下方「双层映射机制」说明
+  };
 }
 ```
 
-> [!IMPORTANT]
-> **变量引用注意事项**：
-> - `formData` 和 `files` 是**对象/数组**类型的变量
-> - 直接引用 `{{输入节点.formData}}` 会被转换为 JSON 字符串
-> - **推荐引用方式**：
->   - 文本字段：`{{输入节点.formData.field_style}}`
->   - 多选字段：`{{输入节点.formData.field_tags}}`（返回数组）
->   - 文件数组：`{{输入节点.files}}`（在支持文件的节点中使用）
->   - 单个文件 URL：`{{输入节点.files[0].url}}`
+### 6.2 引用层 (变量模板)
 
-### 完整节点 JSON 示例
+> ✅ **引用层使用 `field.label`（显示名/字段名）**
 
-以下是一个完整的 Input 节点配置与运行时数据示例：
+系统在 `processInputNodeFormData()` 中自动建立映射：
+
+```typescript
+// 源码: src/store/executors/utils/variableUtils.ts L137-149
+formFields.forEach(field => {
+  const value = formData[field.name];  // 从存储层读取
+  processor.addVariable(`formData.${field.label}`, value);  // 用 label 注册引用
+});
+```
+
+**因此您可以使用友好的字段名引用：**
+
+| 引用目标 | 语法 | 返回类型 |
+|----------|------|----------|
+| 文本内容 | `{{输入节点.user_input}}` | `string` |
+| 表单字段 | `{{输入节点.formData.产品名称}}` | `string \| string[]` |
+| 文件数组 | `{{输入节点.files}}` | `Array<FileObj>` |
+| 首个文件 URL | `{{输入节点.files[0].url}}` | `string` |
+
+### 6.3 双层映射机制
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  用户引用: {{INPUT.formData.产品名称}}                        │
+│                        ↓                                    │
+│  variableUtils.ts 映射: formData.label → formData[name]     │
+│                        ↓                                    │
+│  存储层读取: formData["field_1767594083392"] = "智能保温杯"   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| 层级 | Key 格式 | 来源 |
+|------|----------|------|
+| **存储层** (执行结果 JSON) | `field.name` (如 `field_1767594083392`) | 系统自动生成或用户配置 |
+| **引用层** (变量模板) | `field.label` (如 `产品名称`) | 用户在 Builder 中设置的「字段名」|
+
+---
+
+## 7. 完整 JSON Payload 示例
+
+### 7.1 节点配置示例 (Builder)
 
 ```json
 {
@@ -218,20 +319,15 @@ Input 节点执行后，会输出以下 JSON 结构：
   "position": { "x": 100, "y": 200 },
   "data": {
     "label": "智能文案助手",
-    "status": "completed",
-    
     "enableTextInput": true,
     "enableFileInput": true,
     "enableStructuredForm": true,
-    
-    "greeting": "欢迎使用智能文案助手！请上传产品图片，填写产品信息，我来帮你生成专业的营销文案。",
-    
+    "greeting": "👋 欢迎！请上传产品图片并填写表单，我来帮你生成营销文案。",
     "fileConfig": {
       "allowedTypes": [".png,.jpg,.jpeg,.webp"],
       "maxSizeMB": 10,
       "maxCount": 3
     },
-    
     "formFields": [
       {
         "type": "text",
@@ -245,7 +341,7 @@ Input 节点执行后，会输出以下 JSON 结构：
         "type": "select",
         "name": "style",
         "label": "文案风格",
-        "options": ["专业严谨", "活泼有趣", "情感共鸣", "简洁明了"],
+        "options": ["专业严谨", "活泼有趣", "情感共鸣"],
         "required": true,
         "defaultValue": "专业严谨"
       },
@@ -253,102 +349,87 @@ Input 节点执行后，会输出以下 JSON 结构：
         "type": "multi-select",
         "name": "target_audience",
         "label": "目标受众",
-        "options": ["年轻人", "职场人士", "家庭用户", "学生群体", "高端消费者"],
+        "options": ["学生", "职场人士", "家庭用户"],
         "required": false,
         "defaultValue": []
       }
     ],
-    
-    "text": "请帮我生成一段朋友圈文案",
-    "files": [
-      {
-        "name": "product_photo.jpg",
-        "size": 1258000,
-        "type": "image/jpeg",
-        "url": "https://storage.example.com/uploads/product_photo.jpg"
-      }
-    ],
-    "formData": {
-      "product_name": "智能保温杯",
-      "style": "活泼有趣",
-      "target_audience": ["年轻人", "职场人士"]
-    },
-    
-    "output": {
-      "user_input": "请帮我生成一段朋友圈文案",
-      "files": [
-        {
-          "name": "product_photo.jpg",
-          "size": 1258000,
-          "type": "image/jpeg",
-          "url": "https://storage.example.com/uploads/product_photo.jpg"
-        }
-      ],
-      "formData": {
-        "product_name": "智能保温杯",
-        "style": "活泼有趣",
-        "target_audience": ["年轻人", "职场人士"]
-      }
-    },
-    "executionTime": 5
+    "text": "",
+    "files": [],
+    "formData": {}
   }
 }
 ```
 
-> [!NOTE]
-> **字段说明**：
-> - **配置字段** (`enableXxx`, `fileConfig`, `formFields`, `greeting`)：在构建器中设置，定义节点能力
-> - **运行时数据** (`text`, `files`, `formData`)：用户在运行时填写的实际数据
-> - **输出字段** (`output`, `executionTime`, `status`)：节点执行后生成的结果
+### 7.2 执行输出示例 (Runtime)
 
-### 实现细节
+**存储层实际 JSON（使用 `field.name`）：**
 
-**执行逻辑** (`InputNodeExecutor`)：
-- Input 节点执行时无需等待，直接返回配置的数据
-- 执行时间极短（<10ms），仅进行数据提取和格式化
-- 输出结构根据启用的功能动态生成（未启用的功能不会出现对应字段）
+```json
+{
+  "user_input": "请帮我生成一段朋友圈文案",
+  "files": [
+    {
+      "name": "product.jpg",
+      "size": 245678,
+      "type": "image/jpeg",
+      "url": "https://storage.example.com/flows/xxx/product.jpg"
+    }
+  ],
+  "formData": {
+    "field_1736038500001": "智能保温杯",
+    "field_1736038500002": "活泼有趣",
+    "field_1736038500003": ["学生", "职场人士"]
+  }
+}
+```
 
-**数据流转**：
+**但通过变量引用（使用 `field.label`）：**
 
 ```
-构建器配置 → 运行前校验 → 文件上传 → 节点执行 → 输出数据
-    ↓              ↓            ↓          ↓          ↓
-enableXxx      弹窗填写    上传到云存储   提取数据   后续节点使用
+{{INPUT.formData.产品名称}}  →  "智能保温杯"
+{{INPUT.formData.文案风格}}  →  "活泼有趣"
+{{INPUT.formData.目标受众}}  →  ["学生", "职场人士"]
 ```
 
-**关键代码位置**：
-- 类型定义: `src/types/flow.ts` - `InputNodeData` 接口 (L103-L122)
-- 表单配置: `src/components/builder/node-forms/InputNodeForm/`
-  - `index.tsx` - 主表单组件
-  - `FileInputSection.tsx` - 文件上传配置
-  - `StructuredFormSection.tsx` - 结构化表单配置
-  - `constants.ts` - 常量定义和默认值
-- 运行校验: `src/components/flow/InputPromptDialog.tsx`
-- 执行器: `src/store/executors/InputNodeExecutor.ts`
-- 应用界面: `src/components/apps/FlowAppInterface/`
+---
 
-**最佳实践**：
+## 8. 代码位置索引
 
-1. **合理组合输入方式**：根据实际场景选择合适的输入模式组合
-   - 纯对话：仅启用文本输入
-   - 图片分析：启用文本输入 + 文件上传（限制为图片类型）
-   - 表单填报：启用结构化表单（可选文本输入作为补充说明）
+| 功能模块 | 文件路径 | 关键行号 |
+|----------|----------|----------|
+| 类型定义 | `src/types/flow.ts` | L72-130 |
+| 执行器 | `src/store/executors/InputNodeExecutor.ts` | L1-43 |
+| 运行时校验 | `src/store/utils/inputValidation.ts` | L1-39 |
+| Builder 表单 | `src/components/builder/node-forms/InputNodeForm/index.tsx` | L1-221 |
+| 文件配置组件 | `src/components/builder/node-forms/InputNodeForm/FileInputSection.tsx` | L1-151 |
+| 表单配置组件 | `src/components/builder/node-forms/InputNodeForm/StructuredFormSection.tsx` | L1-198 |
+| 常量与默认值 | `src/components/builder/node-forms/InputNodeForm/constants.ts` | L1-105 |
+| 调试弹窗 | `src/components/flow/InputDebugDialog.tsx` | L1-485 |
+| Canvas 元数据 | `src/components/flow/nodes/metadata/InputMetadata.tsx` | L1-26 |
 
-2. **变量命名规范**：使用有意义的变量名
-   ```
-   ✅ field_target_audience (清晰明确)
-   ❌ field_123456 (无意义的时间戳)
-   ```
+---
 
-3. **招呼语编写技巧**：简洁明了，突出核心功能
-   ```
-   ✅ "上传商品图片，我来为你生成吸引人的营销文案！"
-   ❌ "这是一个智能助手，可以帮你做很多事情..."
-   ```
+## 9. LLM 生成工作流指引
 
-4. **文件类型限制**：根据实际需求精确限制文件类型，避免用户上传不支持的文件
-   ```
-   图片处理: [".png,.jpg,.jpeg,.webp"]
-   文档分析: [".pdf", ".doc,.docx", ".txt"]
-   数据导入: [".csv", ".xls,.xlsx"]
-   ```
+### 9.1 最小可用配置
+
+```json
+{
+  "type": "input",
+  "data": {
+    "label": "用户输入"
+  }
+}
+```
+
+> 默认启用文本输入，禁用文件和表单。
+
+### 9.2 生成规则
+
+1. **不要**设置 `enableTextInput: true`（它是隐式默认值）
+2. **必须**在 `enableFileInput: true` 时提供 `fileConfig`
+3. **必须**在 `enableStructuredForm: true` 时提供 `formFields` 数组
+4. `formFields` 中的 `name` 字段应使用 `snake_case` 格式
+5. `fileConfig.maxSizeMB` 必须在 `[1, 100]` 范围内
+6. `fileConfig.maxCount` 必须在 `[1, 10]` 范围内

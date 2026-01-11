@@ -101,6 +101,24 @@ export const createDebugActions: StateCreator<
             }
         }
 
+        // 特殊处理：RAG 需要从节点读取 inputMappings.query 并格式化为 DebugInputs
+        if (type === 'rag') {
+            const node = get().nodes.find(n => n.id === nodeId);
+            if (node) {
+                const nodeData = node.data as any; // RAGNodeData
+                const existingQuery = nodeData.inputMappings?.query || '';
+
+                // RAG 使用 DebugInputs 格式 { query: { type: 'text', value: '...' } }
+                // 如果 data 中没有传入，则使用节点配置
+                if (!(initialData as any).query) {
+                    initialData.query = {
+                        type: 'text',
+                        value: existingQuery
+                    };
+                }
+            }
+        }
+
         // 更新统一状态
         set({
             activeDialog: type,

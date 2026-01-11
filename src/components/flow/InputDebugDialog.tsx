@@ -230,13 +230,13 @@ export default function InputDebugDialog() {
     return (
         <Dialog open={open} onOpenChange={(isOpen: boolean) => !isOpen && !isUploading && closeDialog()}>
             <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none rounded-2xl border border-gray-200 shadow-xl">
-                <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 bg-white">
+                <DialogHeader className="px-6 pt-6 pb-3 border-b border-gray-100 shrink-0 bg-white">
                     <DialogTitle className="text-xl font-bold text-gray-900">
                         测试节点
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8 settings-scrollbar">
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5 settings-scrollbar">
                     {inputNodes.length === 0 && (
                         <div className="text-center py-8 text-gray-400">
                             无 Input 节点需要填写。
@@ -290,7 +290,7 @@ export default function InputDebugDialog() {
 
                                 {/* File Input */}
                                 {enableFile && (
-                                    <div className="space-y-3">
+                                    <div className="space-y-2">
                                         <div className="flex justify-between items-center">
                                             <Label className="text-sm font-medium text-gray-700 flex items-center gap-1">
                                                 附件上传

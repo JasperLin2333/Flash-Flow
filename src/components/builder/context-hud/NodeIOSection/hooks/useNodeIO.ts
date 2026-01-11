@@ -441,20 +441,33 @@ export function useNodeIO({
         }
 
         // Branch 节点：检测条件表达式中的变量引用
-        // 支持格式: nodeName.field (如 用户输入.user_input, LLM处理.response)
+        // 支持格式: nodeName.field 或 nodeName.formData.字段 (nodeName/字段 可以是中文或英文，包含括号等特殊字符)
         if (nodeType === 'branch') {
             const condition = nodeData?.condition as string | undefined;
             if (condition) {
-                // 匹配 nodeName.field 格式 (nodeName 可以是中文或英文)
-                const nodeFieldRegex = /([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.([\w]+)/g;
+                // 匹配 nodeName.field.subfield... 格式
+                // nodeName: 中英文、下划线、数字开头
+                // field path: 允许多级点分隔，每级允许中英文、数字、下划线、括号、空格等
+                const nodeFieldRegex = /([a-zA-Z\u4e00-\u9fa5_][\w\u4e00-\u9fa5]*)\.([\w\u4e00-\u9fa5（）\(\)\s]+(?:\.[\w\u4e00-\u9fa5（）\(\)\s]+)*)/g;
                 let match;
                 while ((match = nodeFieldRegex.exec(condition)) !== null) {
                     const nodeName = match[1];
-                    const fieldName = match[2];
-                    const fullRef = `${nodeName}.${fieldName}`;
+                    const fieldPath = match[2]; // 可能是 "formData.预算（元）" 或 "response.jurisdiction"
+                    const fullRef = `${nodeName}.${fieldPath}`;
+
                     // 检查是否有匹配的上游变量
-                    const isSatisfied = upstreamFullNames.has(fullRef) ||
-                        upstreamVariables.some(v => v.nodeLabel === nodeName && v.field === fieldName);
+                    let isSatisfied = upstreamFullNames.has(fullRef) ||
+                        upstreamVariables.some(v => v.nodeLabel === nodeName && v.field === fieldPath);
+
+                    // 支持嵌套 JSON 字段引用：如果是 response.xxx 格式，检查上游是否有 response 字段
+                    // 这允许在节点未执行时，{{Node.response.field}} 不显示为未匹配
+                    if (!isSatisfied && fieldPath.includes('.')) {
+                        const [baseField] = fieldPath.split('.');
+                        isSatisfied = upstreamVariables.some(v =>
+                            v.nodeLabel === nodeName && v.field === baseField
+                        );
+                    }
+
                     refs.push({
                         field: fullRef,
                         description: "条件表达式中引用",

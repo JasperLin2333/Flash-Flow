@@ -193,13 +193,13 @@ export default function ToolDebugDialog() {
     return (
         <Dialog open={open} onOpenChange={(val) => !val && !isRunning && closeDialog()}>
             <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none rounded-2xl border border-gray-200 shadow-xl">
-                <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 bg-white">
+                <DialogHeader className="px-6 pt-6 pb-3 border-b border-gray-100 shrink-0 bg-white">
                     <DialogTitle className="text-xl font-bold text-gray-900">
                         测试节点
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 settings-scrollbar">
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5 settings-scrollbar">
                     {schemaFields.length === 0 ? (
                         <div className="text-center py-8 text-sm text-gray-500">
                             该工具无需输入参数
@@ -221,7 +221,7 @@ export default function ToolDebugDialog() {
                                             value={val || "now"}
                                             onValueChange={(v) => handleInputChange(field.name, v)}
                                         >
-                                            <SelectTrigger className="w-full">
+                                            <SelectTrigger className="w-full h-9">
                                                 <SelectValue placeholder="Select operation" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -247,7 +247,7 @@ export default function ToolDebugDialog() {
                                             value={val || "day"}
                                             onValueChange={(v) => handleInputChange(field.name, v)}
                                         >
-                                            <SelectTrigger className="w-full">
+                                            <SelectTrigger className="w-full h-9">
                                                 <SelectValue placeholder="Select unit" />
                                             </SelectTrigger>
                                             <SelectContent>

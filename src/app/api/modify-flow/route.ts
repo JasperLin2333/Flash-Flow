@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
 import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
-import { SMART_RULES, VARIABLE_RULES, NODE_SPECS, EDGE_RULES, CORE_CHECKLIST, EFFICIENCY_RULES } from "@/lib/prompts";
+import { CORE_RULES, MODIFY_PROMPT, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES } from "@/lib/prompts";
 import { WorkflowZodSchema } from "@/lib/schemas/workflow";
 
 // ============ Patch Mode Handler ============
@@ -26,22 +26,37 @@ async function handlePatchMode(
         model: n.data?.model,
         temperature: n.data?.temperature,
         enableMemory: n.data?.enableMemory,
-        historyRounds: n.data?.historyRounds,
+        memoryMaxTurns: n.data?.memoryMaxTurns,
+        responseFormat: n.data?.responseFormat,
+        systemPrompt: n.data?.systemPrompt?.slice(0, 100) + '...',
       }),
       ...(n.type === 'input' && {
         enableTextInput: n.data?.enableTextInput,
         enableFileInput: n.data?.enableFileInput,
+        enableStructuredForm: n.data?.enableStructuredForm,
+      }),
+      ...(n.type === 'rag' && {
+        fileMode: n.data?.fileMode,
+        inputMappings: n.data?.inputMappings,
       }),
       ...(n.type === 'imagegen' && {
         model: n.data?.model,
-        creativity: n.data?.creativity,
+        cfg: n.data?.cfg,
+        numInferenceSteps: n.data?.numInferenceSteps,
+        referenceImageMode: n.data?.referenceImageMode,
+      }),
+      ...(n.type === 'branch' && {
+        condition: n.data?.condition,
+      }),
+      ...(n.type === 'tool' && {
+        toolType: n.data?.toolType,
       }),
     }
   }));
 
   const patchPrompt = `你是工作流修改专家。根据用户需求，精准输出需要修改的节点配置。
 
-# 当前节点
+# 当前节点 (精简版)
 \`\`\`json
 ${JSON.stringify(compactNodes, null, 2)}
 \`\`\`
@@ -49,36 +64,53 @@ ${JSON.stringify(compactNodes, null, 2)}
 # 用户需求
 ${prompt}
 
-# 输出规则（重要！）
-1. **仅输出需要修改的字段**，不要输出完整工作流
-2. 使用 patches 数组格式
-3. nodeId 必须使用节点的真实 ID
-4. data 只包含需要更新的字段
+# 修改指南 (Intent Mapping)
+| 用户意图 | 目标节点 | 修改建议 (参考) |
+|---------|---------|----------------|
+| **"加记忆"** | LLM | \`enableMemory: true\`, \`memoryMaxTurns: 10\` |
+| **"更严谨"** | LLM | \`temperature: 0.1\` |
+| **"更有创意"** | LLM | \`temperature: 0.9\` |
+| **"切换模型"** | LLM | \`model: "deepseek-reasoner"\` (如需推理) |
+| **"输出 JSON"** | LLM | \`responseFormat: "json_object"\` (务必同时修改 SystemPrompt) |
+| **"上传文件"** | Input | \`enableFileInput: true\`, \`fileConfig: { allowedTypes: [".pdf"], ... }\` |
+| **"搜集表单"** | Input | \`enableStructuredForm: true\`, \`formFields: [...]\` |
+| **"修改分支"** | Branch | \`condition: "{{A.score}} > 60"\` (确保使用 {{}} 引用变量) |
 
-# 输出格式
+# 输出规则 (Strict Rules)
+1. **最小修改原则**: 仅输出需要变更的字段。
+2. **ID 绝对一致**: \`nodeId\` 必须精准对应上方提供的节点 ID。
+3. **LLM 提示词规范**: 若修改 SystemPrompt，必须使用 Markdown 格式 (Role/Task/Constraints)。
+4. **数据类型**: 严格遵守 TypeScript 定义 (e.g. numeric fields must be numbers).
+
+# 输出格式 (JSON Patches)
 \`\`\`json
 {
   "patches": [
-    { "nodeId": "node-xxx", "data": { "字段": "新值" } }
+    { "nodeId": "llm_main", "data": { "temperature": 0.2 } },
+    { "nodeId": "input_root", "data": { "greeting": "欢迎咨询！" } }
   ]
 }
 \`\`\`
 
-如需添加节点：
+# 添加节点 (Add Action)
 \`\`\`json
 {
   "action": "add",
-  "nodeType": "llm",
-  "nodeData": { ... },
-  "connectAfter": "上游节点ID"
+  "nodeType": "tool",
+  "nodeData": {
+    "label": "联网搜索",
+    "toolType": "web_search",
+    "inputs": { "query": "{{Input.user_input}}", "maxResults": 5 }
+  },
+  "connectAfter": "parent_node_id" // 将插入在此节点之后
 }
 \`\`\`
 
-如需删除节点：
+# 删除节点 (Delete Action)
 \`\`\`json
 {
   "action": "delete",
-  "target": "要删除的节点ID"
+  "target": "node_id_to_delete"
 }
 \`\`\`
 `;
@@ -88,7 +120,7 @@ ${prompt}
     temperature: 0.1,
     messages: [
       { role: "system", content: patchPrompt },
-      { role: "user", content: "请输出 JSON patches。" },
+      { role: "user", content: "请分析需求并生成 JSON 指令。" },
     ],
     response_format: { type: "json_object" },
   });
@@ -103,7 +135,7 @@ ${prompt}
   }
 }
 
-// ============ Full Mode Handler (原有逻辑) ============
+// ============ Full Mode Handler (复用 plan 提示词结构) ============
 async function handleFullMode(
   prompt: string,
   currentNodes: any[],
@@ -117,6 +149,7 @@ async function handleFullMode(
     2
   );
 
+  // 复用 plan/route.ts 的提示词结构，添加修改专用上下文
   const system = `你是工作流修改专家。根据用户的修改需求，基于当前工作流上下文，精准生成修改后的完整 JSON 工作流。
 
 # 📋 当前工作流上下文
@@ -124,43 +157,31 @@ async function handleFullMode(
 ${currentWorkflowJSON}
 \`\`\`
 
-# 🧠 核心原则
+# 🧠 核心原则 (Modification Principles)
 
-1. **最小改动**: 仅修改用户明确要求的部分，保留其他配置不变。
-2. **精准定位**: 根据节点 label 或 type 精准定位目标节点（禁止猜测）。
-3. **完整输出**: 输出修改后的**完整工作流** JSON（包含所有节点和边）。
+1. **最小改动 (Minimalism)**: 仅修改用户明确要求的部分，严禁随意重构未提及的逻辑。
+2. **精准定位 (Targeting)**: 根据 label 或 type 锁定目标节点。
+   - 用户说 "翻译节点" -> 匹配 label="翻译"
+   - 用户说 "LLM" -> 匹配 type="llm"
+3. **ID 保持 (Identity Preservation)**: 必须保留原有节点的 ID，确保前端视图稳定。
+4. **完整闭环 (Completeness)**: 输出必须是完整的 JSON (nodes + edges)，包含所有未修改的节点。
 
-${SMART_RULES}
+${MODIFY_PROMPT}
 
-${EFFICIENCY_RULES}
+${CORE_RULES}
 
-## 🎯 修改意图识别
-
-| 用户可能说 | 修改操作 | 目标定位 |
-|-----------|---------|----------|
-| "让它记住对话/加记忆" | 修改 LLM 节点 | \`enableMemory: true\` |
-| "更准确/更稳定" | 修改 LLM 节点 | \`temperature: 0.1-0.3\` |
-| "加上文件上传/支持图片" | 修改 Input 节点 | \`enableFileInput: true\` |
-| "加个分支/分流处理" | 添加 Branch 节点 | 插入到指定位置 |
-| "删掉这个节点" | 删除节点 | 同时删除相关边 |
-| "把XX改成YY" | 修改节点属性 | 更新 label/prompt 等 |
-| "加个搜索功能" | 添加 Tool 节点 | \`toolType: web_search\` |
-
-> 🔵 **定位规则**: 用户说"翻译节点" → 找 label 包含"翻译"的节点；说"LLM" → 找 type=llm 的节点
-
+${NODE_REFERENCE}
 
 ${VARIABLE_RULES}
 
-${NODE_SPECS}
-
 ${EDGE_RULES}
 
-# ✅ 修改操作检查清单
-1. ⚠️ 修改后的节点 ID 必须与原工作流保持一致
-2. ⚠️ 新增节点需正确连接上下游边
-3. ⚠️ 删除节点时需同时删除相关边
+# ✅ 修改检查清单 (Sanity Check)
+1. ⚠️ **连线完整性**: 新增节点是否已正确连接？删除节点是否清理了悬空边？
+2. ⚠️ **变量引用**: 修改引用时是否使用了正确的 label? (e.g. \`{{Label.field}}\`)
+3. ⚠️ **LLM配置**: 是否为 LLM 节点配置了 \`inputMappings.user_input\`?
 
-${CORE_CHECKLIST}
+
 
 # 输出格式
 输出**修改后的完整工作流** JSON（保留未修改的节点）：

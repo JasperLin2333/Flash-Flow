@@ -11,6 +11,7 @@ import type { ChatAttachment } from "@/types/chat";
 import { showError, showWarning } from "@/utils/errorNotify";
 import { quotaService } from "@/services/quotaService";
 import { authService } from "@/services/authService";
+import { formatFormMessage } from "@/utils/formMessageUtils";
 
 // ============ Constants ============
 const ANIMATION = {
@@ -164,11 +165,16 @@ export default function AppModeOverlay() {
         }
 
         // 构建用户消息（支持空文本时显示友好提示）
-        const userMsg = hasText
-            ? input
-            : hasFiles
-                ? `📎 已上传 ${files.length} 个文件`
-                : "📋 已通过表单提交信息";
+        let userMsg = "";
+        if (hasText) {
+            userMsg = input;
+        } else if (hasFiles) {
+            userMsg = `📎 已上传 ${files.length} 个文件`;
+        } else if (hasFormData && inputNodeData?.formFields && inputNodeData?.formData) {
+            userMsg = formatFormMessage(inputNodeData.formFields, inputNodeData.formData);
+        } else {
+            userMsg = "📋 已通过表单提交信息";
+        }
 
         setInput("");
         setMessages((prev) => [...prev, { role: "user", content: userMsg, files }]);

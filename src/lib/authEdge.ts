@@ -64,6 +64,21 @@ export function createEdgeClient(request: Request) {
  */
 export async function getAuthenticatedUser(request: Request) {
     try {
+        if (process.env.NODE_ENV === 'development') {
+            const testUserHeader = request.headers.get("x-flash-test-user");
+            if (testUserHeader) {
+                console.warn("[authEdge] Using usage mock user from header");
+                return {
+                    id: "test-user-id",
+                    email: "test@example.com",
+                    app_metadata: {},
+                    user_metadata: {},
+                    aud: "authenticated",
+                    created_at: new Date().toISOString(),
+                } as any;
+            }
+        }
+
         const supabase = createEdgeClient(request);
         const { data: { user }, error } = await supabase.auth.getUser();
 

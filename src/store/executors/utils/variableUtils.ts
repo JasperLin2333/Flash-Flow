@@ -9,38 +9,89 @@ import type { AppNode, FlowContext } from "@/types/flow";
  * 例如：节点 label 为 "获取当前时间"
  * => { "获取当前时间.formatted": "2025-12-07" }
  */
+/**
+ * 检查对象是否符合 File 结构接口
+ */
+function isFileObject(obj: unknown): obj is { url: string; name?: string; type?: string } {
+    if (typeof obj !== 'object' || obj === null) return false;
+    const item = obj as Record<string, unknown>;
+    return typeof item.url === 'string' && (typeof item.name === 'string' || typeof item.type === 'string');
+}
+
+/**
+ * 检查是否为纯文件数组
+ */
+function isFileArray(obj: unknown): boolean {
+    return Array.isArray(obj) && obj.length > 0 && obj.every(isFileObject);
+}
+
+/**
+ * 获取任意对象的"语义化字符串值" (Semantic String Value)
+ * 
+ * 第一性原理：在文本替换(Prompt)场景下，该对象最应该被呈现为什么？
+ * 1. File -> URL
+ * 2. File[] -> URL List
+ * 3. Array -> JSON
+ * 4. Object -> JSON
+ */
+export function getSemanticStringValue(obj: unknown): string {
+    if (obj === null || obj === undefined) return "";
+
+    // 1. 数组处理
+    if (Array.isArray(obj)) {
+        // 启发式：如果看起来像文件列表，返回逗号分隔的 URL
+        if (isFileArray(obj)) {
+            return obj.map(item => (item as { url: string }).url).join(', ');
+        }
+        return JSON.stringify(obj);
+    }
+
+    // 2. 对象处理
+    if (typeof obj === 'object') {
+        // 启发式：如果是文件对象，返回 URL
+        if (isFileObject(obj)) {
+            return obj.url;
+        }
+        return JSON.stringify(obj);
+    }
+
+    // 3. 基本类型
+    return String(obj);
+}
+
+/**
+ * 递归展开对象，将嵌套字段平铺为可引用的变量
+ * 
+ * 核心升级：多态解析 (Polymorphic Resolution)
+ * 1. 结构访问：递归所有层级 (files[0].name)
+ * 2. 值访问：为中间节点赋予语义化字符串值 (files[0] -> URL)
+ */
 export const flattenObject = (
     obj: unknown,
     targetMap: Record<string, string>,
     prefix = ""
 ): void => {
-    if (obj === null || obj === undefined) return;
-
-    if (typeof obj !== 'object') {
-        // 基础类型直接作为值
-        if (prefix) {
-            targetMap[prefix] = String(obj);
-        }
-        return;
+    // 1. 值访问 (Value Access)：计算当前节点的语义值
+    // 这解决了 {{files[0]}} 在 Prompt 中直接输出 URL 的需求
+    if (prefix) {
+        targetMap[prefix] = getSemanticStringValue(obj);
     }
 
-    const record = obj as Record<string, unknown>;
-    for (const [key, value] of Object.entries(record)) {
-        // 跳过内部字段
-        if (key.startsWith('_')) continue;
+    // 2. 结构访问 (Structural Access)：递归展开
+    if (Array.isArray(obj)) {
+        // 即使是数组，也继续递归展开其元素
+        // 这解决了 {{files[0].name}} 的引用需求
+        obj.forEach((item, index) => {
+            flattenObject(item, targetMap, `${prefix}[${index}]`);
+        });
+    } else if (typeof obj === 'object' && obj !== null) {
+        const record = obj as Record<string, unknown>;
+        for (const [key, value] of Object.entries(record)) {
+            // 跳过内部字段
+            if (key.startsWith('_')) continue;
 
-        const newKey = prefix ? `${prefix}.${key}` : key;
-
-        if (value === null || value === undefined) {
-            targetMap[newKey] = "";
-        } else if (typeof value === 'object' && !Array.isArray(value)) {
-            // 递归处理嵌套对象
+            const newKey = prefix ? `${prefix}.${key}` : key;
             flattenObject(value, targetMap, newKey);
-        } else if (Array.isArray(value)) {
-            // 数组转为 JSON 字符串
-            targetMap[newKey] = JSON.stringify(value);
-        } else {
-            targetMap[newKey] = String(value);
         }
     }
 };
@@ -180,21 +231,21 @@ function processFlowContextEntries<T>(
                 // 顶级字段
                 processor.addVariable(key, value);
                 // 递归展开嵌套对象
-                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                if (typeof value === 'object' && value !== null) {
                     processor.flattenNested(value, key);
                 }
 
                 // 带节点标签前缀
                 if (nodeLabel) {
                     processor.addVariable(`${nodeLabel}.${key}`, value);
-                    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    if (typeof value === 'object' && value !== null) {
                         processor.flattenNested(value, `${nodeLabel}.${key}`);
                     }
                 }
 
                 // 带节点 ID 前缀
                 processor.addVariable(`${nodeId}.${key}`, value);
-                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                if (typeof value === 'object' && value !== null) {
                     processor.flattenNested(value, `${nodeId}.${key}`);
                 }
             }
@@ -246,11 +297,7 @@ export const collectVariables = (
     const processor: NodeOutputProcessor<Record<string, string>> = {
         variables,
         addVariable: (key, value) => {
-            if (typeof value === 'object' && value !== null) {
-                variables[key] = JSON.stringify(value);
-            } else {
-                variables[key] = value == null ? '' : String(value);
-            }
+            variables[key] = getSemanticStringValue(value);
         },
         flattenNested: (obj, prefix) => {
             flattenObject(obj, variables, prefix);
@@ -311,7 +358,14 @@ export const collectVariablesRaw = (
         }
 
         if (Array.isArray(obj)) {
+            // 1. 保留数组整体引用 (供 Output 节点附件数组引用)
             variables[prefix] = obj;
+
+            // 2. 递归展开数组元素 (供 Output 节点引用单个文件)
+            // 这解决了 {{files[0]}} 在 Output 附件中作为对象传递的需求
+            obj.forEach((item, index) => {
+                flattenAndAddRaw(item, `${prefix}[${index}]`);
+            });
             return;
         }
 
@@ -372,6 +426,41 @@ export const buildGlobalNodeLookupMap = (
     // 使用 Map 优化节点查找性能
     const nodeMap = new Map(allNodes.map(n => [n.id, n]));
 
+    // 共享的注入逻辑
+    const injectAliases = (nodeId: string, output: unknown) => {
+        if (!output || typeof output !== 'object') return output;
+
+        const node = nodeMap.get(nodeId);
+        if (!node || node.type !== 'input') return output;
+
+        const nodeData = node.data as Record<string, unknown>;
+        const formFields = nodeData?.formFields as Array<{ name: string; label: string }> | undefined;
+        const enableStructuredForm = nodeData?.enableStructuredForm as boolean;
+
+        if (enableStructuredForm && formFields && formFields.length > 0) {
+            const record = output as Record<string, unknown>;
+            if (record.formData && typeof record.formData === 'object') {
+                // 创建 formData 的浅拷贝以注入别名
+                const enrichedFormData = { ...record.formData as Record<string, unknown> };
+
+                formFields.forEach(field => {
+                    // 如果存在 name 对应的值，则添加 label 对应的别名
+                    // 这样 {{formData.预算}} 就能指向 result.formData.budget 的值
+                    if (field.name in enrichedFormData) {
+                        enrichedFormData[field.label] = enrichedFormData[field.name];
+                    }
+                });
+
+                // 返回带有增强 formData 的新对象
+                return {
+                    ...record,
+                    formData: enrichedFormData
+                };
+            }
+        }
+        return output;
+    };
+
     // 1. 先添加全局 flowContext 中的节点
     for (const [nodeId, nodeOutput] of Object.entries(globalFlowContext)) {
         if (nodeId.startsWith('_')) continue;
@@ -380,14 +469,17 @@ export const buildGlobalNodeLookupMap = (
         const node = nodeMap.get(nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
 
+        // 注入别名
+        const enrichedOutput = injectAliases(nodeId, nodeOutput);
+
         // Add by nodeId (exact and lowercase)
-        lookupMap.set(nodeId, nodeOutput);
-        lookupMap.set(nodeId.toLowerCase(), nodeOutput);
+        lookupMap.set(nodeId, enrichedOutput);
+        lookupMap.set(nodeId.toLowerCase(), enrichedOutput);
 
         // Add by label if available
         if (nodeLabel) {
-            lookupMap.set(nodeLabel, nodeOutput);
-            lookupMap.set(nodeLabel.toLowerCase(), nodeOutput);
+            lookupMap.set(nodeLabel, enrichedOutput);
+            lookupMap.set(nodeLabel.toLowerCase(), enrichedOutput);
         }
     }
 
@@ -399,12 +491,15 @@ export const buildGlobalNodeLookupMap = (
         const node = nodeMap.get(nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
 
-        lookupMap.set(nodeId, nodeOutput);
-        lookupMap.set(nodeId.toLowerCase(), nodeOutput);
+        // 注入别名
+        const enrichedOutput = injectAliases(nodeId, nodeOutput);
+
+        lookupMap.set(nodeId, enrichedOutput);
+        lookupMap.set(nodeId.toLowerCase(), enrichedOutput);
 
         if (nodeLabel) {
-            lookupMap.set(nodeLabel, nodeOutput);
-            lookupMap.set(nodeLabel.toLowerCase(), nodeOutput);
+            lookupMap.set(nodeLabel, enrichedOutput);
+            lookupMap.set(nodeLabel.toLowerCase(), enrichedOutput);
         }
     }
 

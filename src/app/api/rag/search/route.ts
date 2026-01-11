@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
-export const runtime = 'edge';
+export const runtime = 'nodejs'; // Node.js runtime required for file system operations
 import { GoogleGenAI } from '@google/genai';
+import { GoogleAIFileManager } from "@google/generative-ai/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
 import { incrementQuotaOnServer } from "@/lib/quotaEdge";
 import { getMimeType } from "@/utils/mimeUtils";
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 // ============ Constants ============
 const RAG_MODEL = 'gemini-2.5-flash';
@@ -14,13 +19,33 @@ interface SearchRequest {
     query: string;
     // For fileSearch mode
     fileSearchStoreName?: string;
-    // Note: topK is managed internally by Gemini API, not configurable via this API
     // For multimodal mode
     files?: Array<{ name: string; url: string; type?: string }>;
 }
 
+// ============ Helper: Download File ============
+async function downloadFile(url: string, extension: string): Promise<string> {
+    const tempDir = os.tmpdir();
+    const fileName = `${uuidv4()}${extension}`; // Unique filename
+    const filePath = path.join(tempDir, fileName);
+
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to download file: ${response.statusText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    await fs.promises.writeFile(filePath, Buffer.from(arrayBuffer));
+
+    return filePath;
+}
+
 // ============ API Handler ============
 export async function POST(req: Request) {
+    let uploadedFileNames: string[] = [];
+    let fileManager: GoogleAIFileManager | null = null;
+    let localFilePaths: string[] = [];
+
     try {
         // Authentication check
         const user = await getAuthenticatedUser(req);
@@ -129,66 +154,117 @@ export async function POST(req: Request) {
             });
 
         } else if (mode === 'multimodal') {
-            // Multimodal mode (dynamic files)
+            // ============ Unified RAG Pipeline (Hybrid: Local Parse for DOCX/Text, Cloud for Other) ============
             const { files } = body;
 
             if (!files || files.length === 0) {
-                return NextResponse.json(
-                    { error: "未提供文件" },
-                    { status: 400 }
-                );
+                return NextResponse.json({ error: "未提供文件" }, { status: 400 });
             }
 
+            fileManager = new GoogleAIFileManager(apiKey);
             const parts: any[] = [];
 
-            // Fetch and encode files
+            // 1. Process Files (Hybrid Pipeline)
             for (const file of files) {
                 if (!file.url) continue;
 
                 try {
-                    const response = await fetch(file.url);
-                    if (!response.ok) {
-                        if (process.env.NODE_ENV === 'development') {
-                            console.warn(`[RAG Search] Failed to fetch file: ${file.name}`);
+                    // Determine extension and mime
+                    const ext = path.extname(file.name) || '';
+                    const mimeType = file.type || getMimeType(file.name);
+
+                    // A. Download to Temp (Universal Step)
+                    const localPath = await downloadFile(file.url, ext);
+                    localFilePaths.push(localPath);
+
+                    // B. Branching Logic based on Type
+
+                    // Branch 1: DOCX -> Mammoth (Local Parse)
+                    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+                        try {
+                            const mammoth = await import('mammoth');
+                            const buffer = await fs.promises.readFile(localPath);
+                            const result = await mammoth.convertToHtml({ buffer });
+
+                            parts.push({
+                                text: `[File Context: ${file.name}]\n${result.value}`
+                            });
+                            // No upload to Gemini needed for DOCX
+                        } catch (e) {
+                            console.error(`[RAG] Failed to parse DOCX ${file.name}:`, e);
                         }
+                        continue; // Skip uploading
+                    }
+
+                    // Branch 2: Plain Text -> fs.readFile (Local Parse)
+                    // Includes .txt, .md, code files etc.
+                    if (mimeType.startsWith('text/') || ext.match(/\.(json|yaml|yml|xml|html|css|js|ts|py|c|cpp|h|java|go|rs|sh|log)$/i)) {
+                        try {
+                            const textContent = await fs.promises.readFile(localPath, 'utf-8');
+                            parts.push({
+                                text: `[File Context: ${file.name}]\n${textContent}`
+                            });
+                        } catch (e) {
+                            console.error(`[RAG] Failed to read text file ${file.name}:`, e);
+                        }
+                        continue; // Skip uploading
+                    }
+
+                    // Branch 3: PDF / Image / Video / Audio -> Gemini File API (Native Support)
+                    // These formats are supported by Gemini's Long Context Window via File API
+
+                    const uploadResult = await fileManager.uploadFile(localPath, {
+                        mimeType,
+                        displayName: file.name
+                    });
+
+                    const fileUri = uploadResult.file.uri;
+                    const fileName = uploadResult.file.name; // internal name
+                    uploadedFileNames.push(fileName);
+
+                    // Wait for Active State
+                    let fileState = uploadResult.file.state;
+                    let attempt = 0;
+                    while (fileState === 'PROCESSING' && attempt < 30) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        const getFileResponse = await fileManager.getFile(fileName);
+                        fileState = getFileResponse.state;
+                        // if (fileState === 'FAILED') { ... } // simplified error check
+                        if (fileState === 'FAILED') break;
+                        attempt++;
+                    }
+
+                    if (fileState !== 'ACTIVE') {
+                        console.warn(`[RAG] File ${fileName} check failed/timeout. State: ${fileState}`);
                         continue;
                     }
 
-                    const blob = await response.blob();
-                    const arrayBuffer = await blob.arrayBuffer();
-                    const base64Data = Buffer.from(arrayBuffer).toString('base64');
-                    const mimeType = file.type || blob.type || getMimeType(file.name);
-
+                    // Add to Parts
                     parts.push({
-                        inlineData: {
-                            mimeType,
-                            data: base64Data
+                        fileData: {
+                            mimeType: uploadResult.file.mimeType,
+                            fileUri: fileUri
                         }
                     });
-                } catch (fetchError) {
-                    if (process.env.NODE_ENV === 'development') {
-                        console.warn(`[RAG Search] Error fetching file ${file.name}:`, fetchError);
-                    }
+
+                } catch (e) {
+                    console.error(`[RAG] Error processing file ${file.name}:`, e);
                 }
             }
 
             if (parts.length === 0) {
-                return NextResponse.json(
-                    { error: "无法加载任何有效文件" },
-                    { status: 400 }
-                );
+                return NextResponse.json({ error: "无法加载任何有效文件" }, { status: 400 });
             }
 
             parts.push({ text: query });
 
+            // 2. Generate Content
             const response = await ai.models.generateContent({
                 model: RAG_MODEL,
                 contents: [{ role: 'user', parts }]
             });
 
             const text = response.text || '';
-
-            // Deduct quota on success
             await incrementQuotaOnServer(req, user.id, "llm_executions");
 
             return NextResponse.json({
@@ -211,5 +287,21 @@ export async function POST(req: Request) {
             { error: error instanceof Error ? error.message : "搜索失败" },
             { status: 500 }
         );
+    } finally {
+        // ============ Cleanup ============
+        // 1. Delete Remote Files
+        if (fileManager && uploadedFileNames.length > 0) {
+            Promise.allSettled(uploadedFileNames.map(name => fileManager!.deleteFile(name)))
+                .then(results => {
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log(`[RAG Cleanup] Deleted ${results.length} remote files.`);
+                    }
+                });
+        }
+        // 2. Delete Local Temp Files
+        if (localFilePaths.length > 0) {
+            Promise.allSettled(localFilePaths.map(p => fs.promises.unlink(p)))
+                .then(() => { });
+        }
     }
 }

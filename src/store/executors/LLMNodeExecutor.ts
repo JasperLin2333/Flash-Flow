@@ -129,200 +129,268 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
     context: FlowContext,
     mockData?: Record<string, unknown>
   ): Promise<ExecutionResult> {
-    // Merge mockData from argument and context
-    const effectiveMockData = mockData || (context.mock as Record<string, unknown>);
+    // Create and register AbortController for this node execution
+    const controller = new AbortController();
+    useFlowStore.setState((state) => {
+      const newMap = new Map(state.nodeAbortControllers);
+      newMap.set(node.id, controller);
+      return { nodeAbortControllers: newMap };
+    });
 
-    // Quota check - always check, including debug mode
-    const quotaError = await this.checkQuota();
-    if (quotaError) {
-      return quotaError;
-    }
+    try {
+      // Merge mockData from argument and context
+      const effectiveMockData = mockData || (context.mock as Record<string, unknown>);
 
-    const { result, time } = await this.measureTime(async () => {
-      await this.delay(LLM_EXECUTOR_CONFIG.DEFAULT_DELAY_MS);
-
-      const llmData = node.data as LLMNodeData;
-      let systemPrompt = llmData.systemPrompt || "";
-
-      // 获取 flow store 状态
-      const storeState = useFlowStore.getState();
-      const { nodes: allNodes, edges: allEdges, flowContext: globalFlowContext } = storeState;
-
-      // 获取流式配置（基于 Output 节点模式）
-      const streamingConfig = getStreamingConfig(node.id, allNodes, allEdges);
-      const { shouldStream, streamMode } = streamingConfig;
-
-      // 1. 变量收集与 Prompt 替换
-      if (effectiveMockData && Object.keys(effectiveMockData).length > 0) {
-        // 调试模式
-        const stringValues: Record<string, string> = {};
-        Object.entries(effectiveMockData).forEach(([key, value]) => {
-          stringValues[key] = String(value);
-        });
-        systemPrompt = replaceVariables(systemPrompt, stringValues);
-      } else {
-        // 正常模式
-        const allVariables = collectVariables(context, globalFlowContext, allNodes);
-        if (Object.keys(allVariables).length > 0) {
-          systemPrompt = replaceVariables(systemPrompt, allVariables);
-        }
+      // Quota check - always check, including debug mode
+      const quotaError = await this.checkQuota();
+      if (quotaError) {
+        return quotaError;
       }
 
-      // 2. 输入内容解析
-      const inputContent = this.resolveInputContent(
-        context,
-        node,
-        allNodes,
-        globalFlowContext,
-        effectiveMockData
-      );
+      const { result, time } = await this.measureTime(async () => {
+        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-      // 3. 对话记忆处理
-      const meta = context._meta as FlowContextMeta | undefined;
-      const flowId = meta?.flowId;
-      const sessionId = meta?.sessionId;
-      const memoryEnabled = llmData.enableMemory === true;
-      // FIELD MAPPING: memoryMaxTurns (NodeData) → maxTurns (internal/llmMemoryService)
-      const maxTurns = llmData.memoryMaxTurns ?? 10;
-      const memoryNodeId = this.resolveMemoryNodeId(llmData, node.id);
+        await this.delay(LLM_EXECUTOR_CONFIG.DEFAULT_DELAY_MS);
 
-      let conversationHistory: ConversationMessage[] = [];
-      if (memoryEnabled && flowId && sessionId) {
-        conversationHistory = await this.fetchMemory(flowId, memoryNodeId, sessionId, maxTurns, inputContent);
-      }
+        const llmData = node.data as LLMNodeData;
+        let systemPrompt = llmData.systemPrompt || "";
 
-      // 4. 执行 LLM 请求
-      try {
-        const {
-          appendStreamingText,
-          clearStreaming,
-          resetStreamingAbort,
-          appendToSegment,
-          completeSegment,
-          tryLockSource
-        } = storeState;
+        // 获取 flow store 状态
+        const storeState = useFlowStore.getState();
+        const { nodes: allNodes, edges: allEdges, flowContext: globalFlowContext } = storeState;
 
-        if (shouldStream) {
-          resetStreamingAbort();
+        // 获取流式配置（基于 Output 节点模式）
+        const streamingConfig = getStreamingConfig(node.id, allNodes, allEdges);
+        const { shouldStream, streamMode } = streamingConfig;
 
-          // 根据流式模式初始化
-          if (streamMode === 'single') {
-            // 单一流式模式（direct 模式）
-            const currentStreamingText = useFlowStore.getState().streamingText;
-            if (!currentStreamingText) {
-              clearStreaming();
-            }
+        // 1. 变量收集与 Prompt 替换
+        if (effectiveMockData && Object.keys(effectiveMockData).length > 0) {
+          // 调试模式
+          const stringValues: Record<string, string> = {};
+          Object.entries(effectiveMockData).forEach(([key, value]) => {
+            stringValues[key] = String(value);
+          });
+          systemPrompt = replaceVariables(systemPrompt, stringValues);
+        } else {
+          // 正常模式
+          const allVariables = collectVariables(context, globalFlowContext, allNodes);
+          if (Object.keys(allVariables).length > 0) {
+            systemPrompt = replaceVariables(systemPrompt, allVariables);
           }
         }
 
-        const resp = await fetch("/api/run-node-stream", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: llmData.model || LLM_EXECUTOR_CONFIG.DEFAULT_MODEL,
-            systemPrompt,
-            temperature: llmData.temperature ?? LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE,
-            input: inputContent,
-            conversationHistory: memoryEnabled ? conversationHistory : undefined,
-            // Pass new parameters
-            responseFormat: llmData.responseFormat,
-          }),
-        });
+        // 2. 输入内容解析
+        const inputContent = this.resolveInputContent(
+          context,
+          node,
+          allNodes,
+          globalFlowContext,
+          effectiveMockData
+        );
 
-        if (!resp.ok) {
-          throw new Error(`API request failed: ${resp.status}`);
+        // 3. 对话记忆处理
+        const meta = context._meta as FlowContextMeta | undefined;
+        const flowId = meta?.flowId;
+        const sessionId = meta?.sessionId;
+        const memoryEnabled = llmData.enableMemory === true;
+        // FIELD MAPPING: memoryMaxTurns (NodeData) → maxTurns (internal/llmMemoryService)
+        const maxTurns = llmData.memoryMaxTurns ?? 10;
+        const memoryNodeId = this.resolveMemoryNodeId(llmData, node.id);
+
+        let conversationHistory: ConversationMessage[] = [];
+        if (memoryEnabled && flowId && sessionId) {
+          conversationHistory = await this.fetchMemory(flowId, memoryNodeId, sessionId, maxTurns, inputContent);
         }
 
-        const reader = resp.body?.getReader();
-        if (!reader) throw new Error("No response body");
+        // 4. 执行 LLM 请求
+        try {
+          const {
+            appendStreamingText,
+            clearStreaming,
+            resetStreamingAbort,
+            appendToSegment,
+            completeSegment,
+            tryLockSource
+          } = storeState;
 
-        const decoder = new TextDecoder();
-        let fullResponse = "";
-        let fullReasoning = "";
-        let finalUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null = null;
+          if (shouldStream) {
+            resetStreamingAbort();
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n");
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6);
-              if (data === "[DONE]") continue;
-
-              try {
-                const parsed = JSON.parse(data);
-
-                // Handle usage
-                if (parsed.usage) {
-                  finalUsage = parsed.usage;
-                }
-
-                // Handle reasoning
-                if (parsed.reasoning) {
-                  const reasoningStr = String(parsed.reasoning);
-                  fullReasoning += reasoningStr;
-                  // Stream reasoning to UI in real-time
-                  if (shouldStream) {
-                    storeState.appendStreamingReasoning(reasoningStr);
-                  }
-                }
-
-                if (parsed.content) {
-                  const contentStr = String(parsed.content);
-                  fullResponse += contentStr;
-
-                  if (shouldStream) {
-                    // 极致打字机效果：将内容拆分为字符逐个显示
-                    const chars = Array.from(contentStr);
-                    for (const char of chars) {
-                      this.flushBuffer(char, streamMode, node.id, storeState);
-                      // 这里的速度可以根据积压程度动态调整，避免 UI 大幅落后于 API
-                      // 如果积压较多，缩短延迟甚至不延迟
-                      const delay = chars.length > 50 ? 2 : 5;
-                      await new Promise(resolve => setTimeout(resolve, delay));
-                    }
-                  }
-                }
-                if (parsed.error) throw new Error(parsed.error);
-              } catch (e) {
-                if (e instanceof SyntaxError) continue;
-                throw e;
+            // 根据流式模式初始化
+            if (streamMode === 'single') {
+              // 单一流式模式（direct 模式）
+              const currentStreamingText = useFlowStore.getState().streamingText;
+              if (!currentStreamingText) {
+                clearStreaming();
               }
             }
           }
+
+          if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+          const resp = await fetch("/api/run-node-stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: llmData.model || LLM_EXECUTOR_CONFIG.DEFAULT_MODEL,
+              systemPrompt,
+              temperature: llmData.temperature ?? LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE,
+              input: inputContent,
+              conversationHistory: memoryEnabled ? conversationHistory : undefined,
+              // Pass new parameters
+              responseFormat: llmData.responseFormat,
+            }),
+            signal: controller.signal, // Binding Signal
+          });
+
+          if (!resp.ok) {
+            throw new Error(`API request failed: ${resp.status}`);
+          }
+
+          const reader = resp.body?.getReader();
+          if (!reader) throw new Error("No response body");
+
+          const decoder = new TextDecoder();
+          let fullResponse = "";
+          let fullReasoning = "";
+          let finalUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null = null;
+
+          while (true) {
+            if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split("\n");
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6);
+                if (data === "[DONE]") continue;
+
+                try {
+                  const parsed = JSON.parse(data);
+
+                  // Handle usage
+                  if (parsed.usage) {
+                    finalUsage = parsed.usage;
+                  }
+
+                  // Handle reasoning
+                  if (parsed.reasoning) {
+                    const reasoningStr = String(parsed.reasoning);
+                    fullReasoning += reasoningStr;
+                    // Stream reasoning to UI in real-time
+                    if (shouldStream) {
+                      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                      storeState.appendStreamingReasoning(reasoningStr);
+                    }
+                  }
+
+                  if (parsed.content) {
+                    const contentStr = String(parsed.content);
+                    fullResponse += contentStr;
+
+                    if (shouldStream) {
+                      // 极致打字机效果：将内容拆分为字符逐个显示
+                      const chars = Array.from(contentStr);
+                      for (const char of chars) {
+                        // Check abort before partial update
+                        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+                        this.flushBuffer(char, streamMode, node.id, storeState);
+                        // 这里的速度可以根据积压程度动态调整，避免 UI 大幅落后于 API
+                        // 如果积压较多，缩短延迟甚至不延迟
+                        const delay = chars.length > 50 ? 2 : 5;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                      }
+                    }
+                  }
+                  if (parsed.error) throw new Error(parsed.error);
+                } catch (e: any) {
+                  if (e.name === 'AbortError' || e.message === 'Aborted') throw e;
+                  if (e instanceof SyntaxError) continue;
+                  throw e;
+                }
+              }
+            }
+          }
+
+          // 5. 保存记忆
+          if (memoryEnabled && flowId && sessionId && fullResponse) {
+            // Only save if not aborted (though typically unreachable if aborted throws)
+            if (!controller.signal.aborted) {
+              this.saveMemory(flowId, memoryNodeId, sessionId, 'assistant', fullResponse, maxTurns);
+            }
+          }
+
+          // 6. 刷新额度 UI（服务端已扣减）
+          if (!controller.signal.aborted) {
+            this.incrementQuota();
+          }
+
+          // 7. JSON 自动探测与解析
+          // 当 responseFormat 为 json_object 或响应内容看起来像 JSON 时，尝试解析
+          let finalResponse: string | object = fullResponse;
+          const trimmed = fullResponse.trim();
+          const looksLikeJson =
+            (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'));
+
+          if (llmData.responseFormat === 'json_object' || looksLikeJson) {
+            try {
+              finalResponse = JSON.parse(trimmed);
+            } catch {
+              // 解析失败，保持为字符串（静默降级）
+            }
+          }
+
+          return {
+            response: finalResponse,
+            reasoning: fullReasoning,
+          };
+
+
+        } catch (e: any) {
+          const errorMessage = e instanceof Error ? e.message : String(e);
+
+          if (e.name === 'AbortError' || errorMessage.includes('Aborted')) {
+            if (shouldStream) {
+              // Optionally clear or mark as interrupted, but typically we just stop appending
+            }
+            // Re-throw to be caught by outer catch or return specific abort result
+            throw e;
+          }
+
+          if (shouldStream) {
+            storeState.clearStreaming();
+          }
+          return { error: errorMessage };
         }
+      });
 
-        // 5. 保存记忆
-        if (memoryEnabled && flowId && sessionId && fullResponse) {
-          this.saveMemory(flowId, memoryNodeId, sessionId, 'assistant', fullResponse, maxTurns);
-        }
+      return {
+        output: result,
+        executionTime: time
+      };
 
-        // 6. 刷新额度 UI（服务端已扣减）
-        this.incrementQuota();
-
+    } catch (e: any) {
+      if (e.name === 'AbortError' || e.message === 'Aborted') {
         return {
-          response: fullResponse,
-          reasoning: fullReasoning,
+          output: { error: 'Execution aborted by user' },
+          executionTime: 0
         };
-
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-
-        if (shouldStream) {
-          storeState.clearStreaming();
-        }
-        return { error: errorMessage };
       }
-    });
-
-    return {
-      output: result,
-      executionTime: time
-    };
+      throw e; // Re-throw other errors
+    } finally {
+      // Cleanup controller regardless of success or failure
+      useFlowStore.setState((state) => {
+        const newMap = new Map(state.nodeAbortControllers);
+        newMap.delete(node.id);
+        return { nodeAbortControllers: newMap };
+      });
+    }
   }
 
   /**

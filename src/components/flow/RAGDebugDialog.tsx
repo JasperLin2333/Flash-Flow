@@ -1,5 +1,4 @@
 "use client";
-import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,59 +9,51 @@ import { Play, Search } from "lucide-react";
 export default function RAGDebugDialog() {
     const open = useFlowStore((s) => s.activeDialog === 'rag');
     const close = useFlowStore((s) => s.closeDialog);
-    const nodeId = useFlowStore((s) => s.activeNodeId);
-    const nodes = useFlowStore((s) => s.nodes);
-    // Use unified setDialogData but getting specific function is confusing, so let's stick to legacy actions which map to unified ones for simplicity in this component, OR use unified directly.
-    // Legacy actions are safer because they are typed in the store interface.
-    // But `setRAGDebugInputs` calls `setDialogData`.
-    const setDebugInputs = useFlowStore((s) => s.setRAGDebugInputs);
-    const confirmRun = useFlowStore((s) => s.confirmRAGDebugRun);
 
-    const [query, setQuery] = useState("");
+    // Unified Store Access
+    const dialogData = useFlowStore((s) => s.dialogData);
+    const setDialogData = useFlowStore((s) => s.setDialogData);
+    const confirmDialogRun = useFlowStore((s) => s.confirmDialogRun);
 
-    // Reset when dialog opens
-    useEffect(() => {
-        if (open) {
-            setQuery("");
-        }
-    }, [open]);
+    // Extract query from dialogData (initialized by openDialog action)
+    const queryValue = (dialogData as any)?.query?.value || "";
 
     const handleConfirm = () => {
-        if (!query.trim()) return;
-
-        setDebugInputs({
-            "query": {
-                type: 'text',
-                value: query
-            }
-        });
-        confirmRun();
+        if (!queryValue.trim()) return;
+        confirmDialogRun();
     };
 
-    const currentNode = nodes.find(n => n.id === nodeId);
-    const nodeName = currentNode?.data?.label || 'RAG';
+    const handleQueryChange = (val: string) => {
+        setDialogData({
+            ...dialogData,
+            "query": {
+                type: 'text',
+                value: val
+            }
+        });
+    };
 
     return (
         <Dialog open={open} onOpenChange={(val) => { if (!val) close(); }}>
             <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none rounded-2xl border border-gray-200 shadow-xl">
-                <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 bg-white">
+                <DialogHeader className="px-6 pt-6 pb-3 border-b border-gray-100 shrink-0 bg-white">
                     <DialogTitle className="text-xl font-bold text-gray-900">
                         测试节点
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 settings-scrollbar">
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5 settings-scrollbar">
                     <div className="space-y-2">
                         <Label className="text-sm font-medium text-gray-700 block">
                             检索语句
-                            {!query.trim() && (
+                            {!queryValue.trim() && (
                                 <span className="text-gray-400 ml-2 text-xs font-normal">(必填)</span>
                             )}
                         </Label>
                         <Textarea
                             placeholder="请输入要搜索的内容..."
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
+                            value={queryValue}
+                            onChange={(e) => handleQueryChange(e.target.value)}
                             className="min-h-[100px] text-sm resize-none focus-visible:ring-1 focus-visible:ring-black border-gray-200 rounded-lg p-3"
                         />
                     </div>
@@ -78,7 +69,7 @@ export default function RAGDebugDialog() {
                     </Button>
                     <Button
                         onClick={handleConfirm}
-                        disabled={!query.trim()}
+                        disabled={!queryValue.trim()}
                         className="bg-black text-white hover:bg-black/90 px-6 rounded-lg font-medium shadow-sm transition-all gap-2"
                     >
                         <Play className="w-4 h-4" />

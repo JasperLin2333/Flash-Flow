@@ -41,8 +41,8 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
                         <FormControl>
                             <Textarea
                                 {...field}
-                                className={`${TEXTAREA_CLASS} h-16 min-h-0 py-2 font-mono ${!validationResult.valid ? 'border-amber-400 focus:ring-amber-400' : ''}`}
-                                placeholder='节点名.字段名.length > 5'
+                                className={`${TEXTAREA_CLASS} min-h-[80px] py-2 ${!validationResult.valid ? 'border-amber-400 focus:ring-amber-400' : ''}`}
+                                placeholder='例如：Input.text.includes("error") || LLM.answer.startsWith("Yes")'
                             />
                         </FormControl>
                         {validationResult.valid ? (
@@ -51,7 +51,7 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
                                     {conditionValue?.trim() && (
                                         <CheckCircle2 className="w-3 h-3 text-green-500" />
                                     )}
-                                    <span>示例: 节点名.字段 &gt; 10, 节点名.text.includes(&quot;关键词&quot;), A.x === &apos;值&apos; &amp;&amp; B.y &gt; 0</span>
+                                    <span>示例: Input.text.includes(&quot;error&quot;), LLM.score &gt; 0.8, A.status === &apos;done&apos; &amp;&amp; B.count &lt; 5</span>
                                 </span>
                             </FormDescription>
                         ) : (

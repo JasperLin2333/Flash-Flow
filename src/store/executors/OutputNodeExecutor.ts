@@ -48,13 +48,38 @@ function resolveAttachments(
 
   for (const attachment of attachments) {
     if (attachment.type === 'static') {
-      // 静态附件（URL）- 暂不支持，预留
+      // [FIX] 支持静态附件（如 Debug 弹窗上传的文件）
+      if (attachment.value) {
+        const urlPath = attachment.value.split('?')[0];
+        const fileName = urlPath.split('/').pop() || 'file';
+        const mimeType = getMimeType(urlPath);
+        result.push({
+          name: fileName,
+          url: attachment.value,
+          type: mimeType === 'application/octet-stream' ? 'image/png' : mimeType // 简单兜底
+        });
+      }
       continue;
     }
 
     // 解析变量引用，提取变量名
     const varMatch = attachment.value.match(/\{\{(.+?)\}\}/);
-    if (!varMatch) continue;
+
+    // [FIX] 如果不是变量引用，尝试判断是否为直接的 URL 字符串
+    if (!varMatch) {
+      const valTrimmed = attachment.value.trim();
+      if (valTrimmed.startsWith('http') || isImageUrl(valTrimmed)) {
+        const urlPath = valTrimmed.split('?')[0];
+        const fileName = urlPath.split('/').pop() || 'file';
+        const mimeType = getMimeType(urlPath);
+        result.push({
+          name: fileName,
+          url: valTrimmed,
+          type: mimeType === 'application/octet-stream' ? 'image/png' : mimeType
+        });
+      }
+      continue;
+    }
 
     const varName = varMatch[1];
     const value = variables[varName];

@@ -80,21 +80,21 @@ export default function Home() {
           <div className="mt-8 flex flex-wrap gap-3 justify-center">
             <button
               className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
-              onClick={() => setSuggestion("请创建一个内容转化工作流：支持输入一篇长文章的内容或链接。第一步，提取文章中的核心观点和干货信息；第二步，将内容改写为小红书笔记风格，要求标题具有“爆款感”和吸引力，正文口语化并适当添加 Emoji 表情；第三步，根据内容自动生成 5 个相关的热门 Hashtag 标签。")}
+              onClick={() => setSuggestion("请帮我做一个智能旅游助手：支持用户输入目的地和天数（例如‘重庆 3天’）。第一步，联网搜索当地的必吃美食和热门景点；第二步，智能规划一条不走回头路的特种兵行程路线；第三步，输出详细的每日时间表和交通建议。")}
             >
-              将长文章改写为小红书文案
+              ✈️ 搭建特种兵旅游规划助手
             </button>
             <button
               className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
-              onClick={() => setSuggestion("我需要一个竞品监控助手：当输入竞品名称或官网地址时，自动利用联网搜索功能抓取该品牌最近 7 天的新闻动态和社交媒体更新。请重点筛选出与“产品发布”和“营销活动”相关的信息，并汇总生成一份结构清晰的 Markdown 格式简报，包含“关键动态”、“策略分析”和“总结建议”三个部分。")}
+              onClick={() => setSuggestion("我想做一个小红书图文生产线：输入任意主题。1. 让 AI 扮演资深博主，撰写 5 个 emoji 风格的爆款标题和正文；2. 并行调用绘图模型，生成 2 张高颜值的封面图；3. 最后将文案和图片组合输出，方便我直接复制发布。")}
             >
-              抓取竞品动态并生成分析报告
+              🎨 制作小红书爆款图文生成器
             </button>
             <button
               className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
-              onClick={() => setSuggestion("设计一个文档结构化处理流程：接收用户上传的 PDF 文件，读取并理解全文内容。请智能识别文档的章节层级（如一级标题、二级要点），将其提炼并转化为层级分明的 Markdown 列表格式（或 OPML 格式）。输出结果要求逻辑清晰，能够直接用于生成思维导图。")}
+              onClick={() => setSuggestion("设计一个“梦境画师”工作流：接收用户描述的梦境内容。1. 使用心理学知识分析梦境背后的潜意识含义；2. 调用绘画 AI 将梦境画面具象化，生成超现实主义风格的画作；3. 最终生成一张包含心理分析和画面的精美卡片。")}
             >
-              把 PDF 文档整理成思维导图
+              🔮 创建一个梦境可视化分析师
             </button>
           </div>
         </div>

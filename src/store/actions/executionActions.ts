@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { NodeExecutorFactory } from "../executors/NodeExecutorFactory";
 import { updateNodeStatus, resetAllNodesStatus } from "../utils/nodeStatusUtils";
 import { hasCycle } from "../utils/cycleDetection";
-import { calculateTopologicalLevels, groupNodesByLevel, getDescendants } from "../utils/parallelExecutionUtils";
+import { getDescendants } from "../utils/parallelExecutionUtils";
 import { resolveSourceNodeIdFromSource } from "../utils/sourceResolver";
 import { showWarning } from "@/utils/errorNotify";
 import { checkInputNodeMissing } from "../utils/inputValidation";
@@ -45,6 +45,12 @@ export const createExecutionActions = (
                 const incomingEdges = edges.filter((e: AppEdge) => e.target === nodeId);
                 incomingEdges.forEach((edge: AppEdge) => {
                     const upstreamOutput = context[edge.source];
+
+                    // VALIDATION: Warn if upstream node returned no data (potential logic error)
+                    if (upstreamOutput === undefined) {
+                        console.warn(`[Execution] Warning: Upstream node ${edge.source} returned undefined output for node ${nodeId}`);
+                    }
+
                     if (upstreamOutput) {
                         upstreamContext[edge.source] = upstreamOutput;
                     }
@@ -52,7 +58,20 @@ export const createExecutionActions = (
             }
 
             const executor = NodeExecutorFactory.getExecutor(node.type);
-            const { output, executionTime } = await executor.execute(node, upstreamContext);
+
+            // TIMEOUT: Add 5-minute timeout to prevent infinite hangs
+            const NODE_EXECUTION_TIMEOUT = 300000; // 5 minutes
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`Nodes execution timed out (${NODE_EXECUTION_TIMEOUT / 1000}s limit)`)), NODE_EXECUTION_TIMEOUT)
+            );
+
+            // Execute with race condition against timeout
+            const resultRaw = await Promise.race([
+                executor.execute(node, upstreamContext),
+                timeoutPromise
+            ]) as { output: Record<string, unknown>; executionTime: number };
+
+            const { output, executionTime } = resultRaw;
 
             if (!get().nodes.find((n: AppNode) => n.id === nodeId)) {
                 throw new Error("Node deleted during execution");
@@ -216,95 +235,134 @@ export const createExecutionActions = (
                     }
                 };
 
-                // ============ PARALLEL EXECUTION ENGINE ============
+                // ============ DEPENDENCY-DRIVEN PARALLEL EXECUTION ENGINE ============
+                // 节点在其所有上游依赖完成后立即启动，无需等待同层级其他节点
 
-                // 计算拓扑层级
-                const nodeLevels = calculateTopologicalLevels(nodes, edges);
-                const levelGroups = groupNodesByLevel(nodes, nodeLevels);
-
-                // 获取最大层级
-                const maxLevel = Math.max(...Array.from(levelGroups.keys()));
-
-                // 跟踪完成和阻塞的节点
+                // 跟踪节点状态
                 const completedNodes = new Set<string>();
                 const blockedNodes = new Set<string>();
+                const runningNodes = new Set<string>();
                 const executionErrors: { nodeId: string; error: Error }[] = [];
 
-                // 执行单个节点并处理分支逻辑
-                const executeNodeAndHandleBranch = async (nodeId: string): Promise<void> => {
+                // 为每个节点创建一个 Promise resolver，用于通知下游节点
+                const nodeResolvers = new Map<string, () => void>();
+                const nodePromises = new Map<string, Promise<void>>();
+
+                // 初始化：为每个节点创建 Promise
+                nodes.forEach((node: AppNode) => {
+                    let resolver: () => void;
+                    const promise = new Promise<void>((resolve) => {
+                        resolver = resolve;
+                    });
+                    nodeResolvers.set(node.id, resolver!);
+                    nodePromises.set(node.id, promise);
+                });
+
+                // 检查节点是否可以执行（所有上游完成或被阻塞）
+                const canExecute = (nodeId: string): boolean => {
+                    if (blockedNodes.has(nodeId) || completedNodes.has(nodeId) || runningNodes.has(nodeId)) {
+                        return false;
+                    }
+                    const incomingEdges = edges.filter((e: AppEdge) => e.target === nodeId);
+                    if (incomingEdges.length === 0) return true;
+
+                    for (const edge of incomingEdges) {
+                        if (!completedNodes.has(edge.source) && !blockedNodes.has(edge.source)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                };
+
+                // 获取节点的直接下游节点
+                const getDirectDownstream = (nodeId: string): string[] => {
+                    return edges
+                        .filter((e: AppEdge) => e.source === nodeId)
+                        .map((e: AppEdge) => e.target);
+                };
+
+                // 执行单个节点并触发下游
+                const executeNodeAndTriggerDownstream = async (nodeId: string): Promise<void> => {
                     checkFlowIntegrity();
 
                     // 跳过被阻塞的节点
                     if (blockedNodes.has(nodeId)) {
+                        nodeResolvers.get(nodeId)?.();
                         return;
                     }
 
-                    const result = await executeSingleNode(nodeId, context, false);
+                    runningNodes.add(nodeId);
 
-                    if (result) {
-                        context[nodeId] = result.output;
-                        set({ flowContext: { ...context } });
-                    }
+                    try {
+                        const result = await executeSingleNode(nodeId, context, false);
 
-                    completedNodes.add(nodeId);
+                        if (result) {
+                            context[nodeId] = result.output;
+                            set((state) => ({
+                                flowContext: {
+                                    ...state.flowContext,
+                                    [nodeId]: result.output
+                                }
+                            }));
+                        }
 
-                    // 处理分支节点：阻塞未选中的路径
-                    // PERFORMANCE: Use cached nodeMap for lookup
-                    const node = nodeMap.get(nodeId);
-                    if (node?.type === 'branch' && result) {
-                        const branchOutput = result.output as Record<string, unknown>;
-                        const conditionResult = !!branchOutput?.conditionResult;
-                        const notTakenHandle = conditionResult ? 'false' : 'true';
-                        const takenHandle = conditionResult ? 'true' : 'false';
+                        completedNodes.add(nodeId);
+                        runningNodes.delete(nodeId);
 
-                        // 获取未选中分支的所有下游节点
-                        const notTakenDescendants = getDescendants(nodeId, edges, notTakenHandle);
+                        // 处理分支节点：阻塞未选中的路径
+                        const node = nodeMap.get(nodeId);
+                        if (node?.type === 'branch' && result) {
+                            const branchOutput = result.output as Record<string, unknown>;
+                            const conditionResult = !!branchOutput?.conditionResult;
+                            const notTakenHandle = conditionResult ? 'false' : 'true';
+                            const takenHandle = conditionResult ? 'true' : 'false';
 
-                        // FIX: 获取选中分支可达的所有节点（这些节点不应被阻塞）
-                        // 场景：当两条分支路径最终汇合到同一个下游节点时，
-                        // 该节点不应该因为"未选中路径也能到达它"而被阻塞
-                        const takenDescendants = getDescendants(nodeId, edges, takenHandle);
+                            const notTakenDescendants = getDescendants(nodeId, edges, notTakenHandle);
+                            const takenDescendants = getDescendants(nodeId, edges, takenHandle);
 
-                        // 只阻塞那些【仅】从未选中路径可达的节点
-                        notTakenDescendants.forEach(id => {
-                            if (!takenDescendants.has(id)) {
-                                blockedNodes.add(id);
-                            }
+                            notTakenDescendants.forEach(id => {
+                                if (!takenDescendants.has(id)) {
+                                    blockedNodes.add(id);
+                                    // 被阻塞的节点也需要 resolve，以免下游节点无限等待
+                                    nodeResolvers.get(id)?.();
+                                }
+                            });
+                        }
+
+                        // 通知当前节点已完成
+                        nodeResolvers.get(nodeId)?.();
+
+                        // 检查并启动可执行的下游节点
+                        const downstream = getDirectDownstream(nodeId);
+                        const executableDownstream = downstream.filter(id => canExecute(id));
+
+                        if (executableDownstream.length > 0) {
+                            await Promise.allSettled(
+                                executableDownstream.map(id => executeNodeAndTriggerDownstream(id))
+                            );
+                        }
+                    } catch (error) {
+                        runningNodes.delete(nodeId);
+                        executionErrors.push({
+                            nodeId,
+                            error: error instanceof Error ? error : new Error(String(error))
                         });
+                        // 仍然需要 resolve 以免其他节点无限等待
+                        nodeResolvers.get(nodeId)?.();
+                        throw error;
                     }
                 };
 
-                // 按层级并行执行
-                for (let level = 0; level <= maxLevel; level++) {
-                    checkFlowIntegrity();
+                // 找出所有入口节点（无上游依赖）并立即启动
+                const entryNodes = nodes.filter((n: AppNode) => {
+                    const incoming = edges.filter((e: AppEdge) => e.target === n.id);
+                    return incoming.length === 0;
+                });
 
-                    const nodesAtLevel = levelGroups.get(level) || [];
-
-                    // 过滤：跳过被阻塞的节点
-                    const executableNodes = nodesAtLevel.filter(id => !blockedNodes.has(id));
-
-                    if (executableNodes.length === 0) continue;
-
-                    // 并行执行当前层级的所有节点
-                    const results = await Promise.allSettled(
-                        executableNodes.map(nodeId => executeNodeAndHandleBranch(nodeId))
-                    );
-
-                    // 收集错误
-                    results.forEach((result, index) => {
-                        if (result.status === 'rejected') {
-                            executionErrors.push({
-                                nodeId: executableNodes[index],
-                                error: result.reason instanceof Error ? result.reason : new Error(String(result.reason))
-                            });
-                        }
-                    });
-
-                    // 如果有错误，停止执行
-                    if (executionErrors.length > 0) {
-                        break;
-                    }
-                }
+                // 并行启动所有入口节点
+                await Promise.allSettled(
+                    entryNodes.map((n: AppNode) => executeNodeAndTriggerDownstream(n.id))
+                );
 
                 // ============ END PARALLEL EXECUTION ============
 

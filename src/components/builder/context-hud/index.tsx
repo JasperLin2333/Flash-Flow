@@ -113,6 +113,8 @@ export default function ContextHUD() {
             // LLM Memory fields
             enableMemory: type === "llm" && has("enableMemory") ? (d as Record<string, unknown>).enableMemory as boolean : false,
             memoryMaxTurns: type === "llm" && has("memoryMaxTurns") ? (d as Record<string, unknown>).memoryMaxTurns as number : 10,
+            // LLM JSON output mode
+            responseFormat: type === "llm" && has("responseFormat") ? (d as Record<string, unknown>).responseFormat as 'text' | 'json_object' : undefined,
 
             text: (type === "input" || type === "output") && has("text") ? String((d as { text?: string }).text || "") : "",
             // Input node specific fields

@@ -25,6 +25,13 @@ export async function checkQuotaOnServer(
     quotaType: QuotaType
 ): Promise<QuotaCheckResult> {
     try {
+        if (process.env.NODE_ENV === 'development') {
+            const testUserHeader = request.headers.get("x-flash-test-user");
+            if (testUserHeader) {
+                return { allowed: true, used: 0, limit: 9999, remaining: 9999 };
+            }
+        }
+
         const supabase = createEdgeClient(request);
 
         const { data: quota, error } = await supabase

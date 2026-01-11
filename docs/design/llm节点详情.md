@@ -6,21 +6,37 @@
 
 ## 核心参数
 
-| 参数名 | 类型 | 必填 | 默认值 | 描述 |
-|-------|------|-----|-------|------|
-| `label` | string | ✅ | - | 节点显示名称 |
-| `model` | string | ❌ | 环境变量配置 | 模型选择 (从 `DEFAULT_LLM_MODEL` 或 `NEXT_PUBLIC_DEFAULT_LLM_MODEL` 读取，默认 `deepseek-ai/DeepSeek-V3.2`) |
-| `systemPrompt` | string | ❌ | `""` | 系统提示词，支持 `{{variable}}` 语法 |
-| `temperature` | number | ❌ | `0.7` | 生成温度 (0.0-1.0)，控制随机性 |
-| `enableMemory` | boolean | ❌ | `false` | 是否启用多轮对话记忆 |
-| `memoryMaxTurns` | number | ❌ | `10` | 最大记忆轮数 (1-20) |
-| `responseFormat` | enum | ❌ | `"text"` | 响应格式: `text` (普通文本) 或 `json_object` (JSON 模式) |
+| 参数名 | 类型 | 必填 | 默认值 | 约束 | 描述 |
+|-------|------|-----|-------|------|------|
+| `label` | string | ✅ | - | - | 节点显示名称 |
+| `model` | string | ❌ | `deepseek-ai/DeepSeek-V3.2` | 从数据库动态加载 | 模型 ID (从 `DEFAULT_LLM_MODEL` 或 `NEXT_PUBLIC_DEFAULT_LLM_MODEL` 环境变量读取) |
+| `systemPrompt` | string | ❌ | `""` | - | 系统提示词，支持 `{{variable}}` 语法 |
+| `temperature` | number | ❌ | `0.7` | `min: 0, max: 1, step: 0.1` | 生成温度，控制随机性 |
+| `enableMemory` | boolean | ❌ | `false` | - | 是否启用多轮对话记忆 |
+| `memoryMaxTurns` | number | ❌ | `10` | `min: 1, max: 20, step: 1`<br>**仅当 `enableMemory=true` 时生效** | 最大记忆轮数 |
+| `responseFormat` | enum | ❌ | `"text"` | `"text" \| "json_object"` | 响应格式 |
+| `inputMappings` | object | ❌ | `undefined` | 见下方结构 | 输入映射配置 |
 
 > [!TIP]
 > **Temperature 指南**:
 > - **0.0 - 0.3**: 确定性输出 (翻译、摘要、指令遵循)
 > - **0.4 - 0.7**: 平衡 (通用对话、解答)
 > - **0.8 - 1.0**: 创造性 (故事创作、头脑风暴)
+
+### inputMappings 结构
+
+```typescript
+inputMappings?: {
+  user_input?: string;  // 用户输入变量引用，如 "{{输入.formData.用户输入}}"
+}
+```
+
+| 字段 | 类型 | 描述 |
+|------|------|------|
+| `user_input` | string \| undefined | 指定 LLM 用户输入的来源变量。支持 `{{节点标签.字段}}` 语法。若未配置，输入为空字符串。 |
+
+> [!IMPORTANT]
+> **严格模式**: 系统不再自动遍历上游寻找输入，必须通过 `inputMappings.user_input` 显式配置输入来源。
 
 ## 完整节点 JSON 示例
 
@@ -36,8 +52,10 @@
     "temperature": 0.7,
     "enableMemory": true,
     "memoryMaxTurns": 10,
-
-    "responseFormat": "text"
+    "responseFormat": "text",
+    "inputMappings": {
+      "user_input": "{{输入.user_input}}"
+    }
   }
 }
 ```
@@ -57,7 +75,10 @@
     "systemPrompt": "从用户输入中提取信息，请以 JSON 格式输出，包含 name, age, location 字段。",
     "temperature": 0.3,
     "enableMemory": false,
-    "responseFormat": "json_object"
+    "responseFormat": "json_object",
+    "inputMappings": {
+      "user_input": "{{输入.user_input}}"
+    }
   }
 }
 ```
@@ -74,7 +95,7 @@
 LLM 节点的执行遵循以下步骤顺序：
 
 ```
-配额检查 → 延迟等待(200ms) → 获取流式配置 → 变量收集与替换 → 输入解析 → 对话记忆处理 → LLM 请求执行 → 流式/非流式响应处理 → 记忆保存 → 额度刷新
+配额检查 → 获取流式配置 → 变量收集与替换 → 输入解析 → 对话记忆处理 → LLM 请求执行 → 流式/非流式响应处理 → 记忆保存 → 额度刷新
 ```
 
 ### 1. 额度检查 (Quota Check)
@@ -90,9 +111,9 @@ LLM 节点的执行遵循以下步骤顺序：
 *   流式输出完成后扣除额度
 *   失败时不扣除
 
-### 2. 延迟与流式配置
+### 2. 流式配置
 
-**执行延迟**: 开始处理前等待 `200ms`，用于展示执行进度动画 (可通过 `LLM_EXECUTOR_CONFIG.DEFAULT_DELAY_MS` 调整)。
+
 
 **流式配置获取**: 调用 `getStreamingConfig(node.id, allNodes, allEdges)` 自动分析下游 Output 节点，决定是否流式输出以及使用何种流式模式。
 
@@ -219,11 +240,21 @@ for (const char of chars) {
 - **流式阶段**: 累积到 `fullReasoning` 变量，同时实时调用 `appendStreamingReasoning` 更新 UI
 - **最终输出**: 包含在返回结果的 `reasoning` 字段中
 
-### 7. 错误处理
+### 7. 错误处理与运行时约束
 
-**常见错误信息**:
-- `"API request failed: [status]"`: API 请求失败
-- `"No response body"`: 响应体缺失
+> [!CAUTION]
+> **以下条件会导致节点执行失败**，在生成工作流时必须确保避免。
+
+| 错误条件 | 错误信息 | 代码来源 |
+|---------|---------|---------|
+| 用户未登录 | `"请先登录以使用 LLM 功能"` | `LLMNodeExecutor.ts:387` |
+| 配额用尽 | `"LLM 执行次数已用完 (已用/总计)。请联系管理员增加配额。"` | `LLMNodeExecutor.ts:395` |
+| 配额检查失败 | `"配额检查失败，请稍后重试或联系支持"` | `LLMNodeExecutor.ts:401` |
+| API 请求失败 | `"API request failed: {status}"` | `LLMNodeExecutor.ts:247` |
+| 无响应体 | `"No response body"` | `LLMNodeExecutor.ts:251` |
+| 用户中止执行 | `"Execution aborted by user"` | `LLMNodeExecutor.ts:364` |
+
+**其他常见错误**:
 - 提供商特定错误 (如 API key 未配置)
 
 ### 8. 配额刷新
@@ -371,4 +402,44 @@ newProvider: {
 - 建议同时降低 `temperature` (0.3 左右) 以获得更稳定的结构化输出
 - 部分模型可能不完全支持 `json_object` 模式
 
+---
 
+## AI 生成指引 (LLM-Ready Metadata)
+
+> [!NOTE]
+> 以下内容专为 AI 自动生成工作流设计，提供节点的语义定位和生成建议。
+
+### 功能语义
+
+**生态位**: LLM 节点是工作流的**核心智能处理单元**，负责理解用户意图并生成文本响应。它通常位于 Input 节点之后、Output 节点之前，作为工作流的"大脑"。
+
+**典型连接模式**:
+```
+Input → LLM → Output         // 基础对话
+Input → LLM → Branch → ...   // 条件分支
+Input → RAG → LLM → Output   // 知识增强
+```
+
+### 生成建议
+
+| 场景 | 推荐配置 |
+|------|---------|
+| 通用对话助手 | `temperature: 0.7`, `enableMemory: true`, `memoryMaxTurns: 10` |
+| 精准问答/翻译 | `temperature: 0.3`, `enableMemory: false` |
+| 创意写作 | `temperature: 0.9`, `enableMemory: false` |
+| 结构化数据提取 | `temperature: 0.3`, `responseFormat: "json_object"` |
+
+### 必须配置项
+
+生成 LLM 节点时，**务必配置 `inputMappings.user_input`** 以指定输入来源：
+
+```json
+{
+  "inputMappings": {
+    "user_input": "{{输入.user_input}}"
+  }
+}
+```
+
+> [!WARNING]
+> 若未配置 `inputMappings.user_input`，LLM 将收到空输入，导致无法正常响应。

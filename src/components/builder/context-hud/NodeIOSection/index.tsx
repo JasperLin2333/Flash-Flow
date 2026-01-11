@@ -43,7 +43,7 @@ export function NodeIOSection({
     });
 
     return (
-        <div className={`space-y-4 ${nodeType === 'output' ? 'mt-0' : 'mt-8 pt-5 border-t border-gray-100'}`}>
+        <div className={`space-y-4 ${nodeType === 'output' ? 'mt-0' : 'mt-5 pt-4 border-t border-gray-100'}`}>
             {/* Output 节点专用配置 */}
             {nodeType === 'output' && onUpdateInputMappings && (
                 <OutputNodeConfig

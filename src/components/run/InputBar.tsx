@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { NodeForm } from "./NodeForm";
 import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
 import { showWarning } from "@/utils/errorNotify";
+import { DEFAULT_FILE_CONFIG } from "@/components/builder/node-forms/InputNodeForm/constants";
 
 interface InputBarProps {
     inputNode: InputNodeData;
@@ -25,29 +26,28 @@ interface InputBarProps {
 
 export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange, disabled, className }: InputBarProps) {
     const [formDialogOpen, setFormDialogOpen] = useState(false);
-    const [formData, setFormData] = useState<Record<string, unknown>>({});
+    // Bug 1 Fix: 正确使用 useState 初始化函数，返回值而非调用 setState
+    const [formData, setFormData] = useState<Record<string, unknown>>(() => {
+        const initialFormData: Record<string, unknown> = { ...(inputNode.formData || {}) };
+        // Fill in default values for fields that don't have values yet
+        (inputNode.formFields || []).forEach((field) => {
+            if (field.defaultValue !== undefined && !(field.name in initialFormData)) {
+                initialFormData[field.name] = field.defaultValue;
+            }
+        });
+        return initialFormData;
+    });
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Determine which capabilities are enabled
+
     const enableTextInput = inputNode.enableTextInput !== false; // Default true
     const enableFileInput = inputNode.enableFileInput === true;
     const enableStructuredForm = inputNode.enableStructuredForm === true;
     const formFields = inputNode.formFields || [];
-    const fileConfig = inputNode.fileConfig || { allowedTypes: ["*/*"], maxSizeMB: 50, maxCount: 10 };
-
-    // Initialize form data with default values, sync with existing inputNode.formData
-    useState(() => {
-        const initialFormData: Record<string, unknown> = inputNode.formData || {};
-        // Fill in default values for fields that don't have values yet
-        formFields.forEach((field) => {
-            if (field.defaultValue && !(field.name in initialFormData)) {
-                initialFormData[field.name] = field.defaultValue;
-            }
-        });
-        setFormData(initialFormData);
-    });
+    const fileConfig = inputNode.fileConfig || DEFAULT_FILE_CONFIG;
 
     // Check if form has any filled values (for visual feedback)
     const isFormFilled = enableStructuredForm && formFields.length > 0 && Object.keys(formData).some(key => formData[key]);
@@ -95,15 +95,32 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
 
         // Validate file type
         const allAllowed = fileConfig.allowedTypes.flatMap(t => t.split(',').map(s => s.trim().toLowerCase()));
-        // If * or */* is present, or if the array is empty (which technically might mean nothing allowed, but usually implies default behavior, though here we treat empty as strict if strict mode was intended? No, usually empty = nothing allowed. But let's assume * is the default in config if not set. Wait, default is defined as ["*/*"].
-        // If allowedTypes is explicitly empty, we should probably block everything? 
-        // Based on logic, if not * and not empty, we check.
+
         const isAnyTypeAllowed = allAllowed.some(t => t === '*/*' || t === '*');
 
         if (!isAnyTypeAllowed && allAllowed.length > 0) {
             const invalidTypeFiles = files.filter(f => {
                 const fileName = f.name.toLowerCase();
-                return !allAllowed.some(allowed => fileName.endsWith(allowed));
+                const fileType = f.type.toLowerCase();
+
+                return !allAllowed.some(allowed => {
+                    // 1. Check exact MIME type match (e.g., "application/pdf")
+                    if (allowed === fileType) return true;
+
+                    // 2. Check wildcard MIME type match (e.g., "image/*")
+                    if (allowed.endsWith('/*')) {
+                        const prefix = allowed.slice(0, -1); // "image/"
+                        return fileType.startsWith(prefix);
+                    }
+
+                    // 3. Check file extension match (e.g., ".pdf")
+                    if (allowed.startsWith('.')) {
+                        return fileName.endsWith(allowed);
+                    }
+
+                    // Fallback: strict equality (though covered by 1, explicit safely)
+                    return allowed === fileName;
+                });
             });
 
             if (invalidTypeFiles.length > 0) {
@@ -123,12 +140,6 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
 
     // Handle sending
     const handleSendClick = () => {
-        // 如果启用了文本输入但用户未输入文本，直接提示用户
-        if (enableTextInput && !value.trim()) {
-            showWarning("请输入内容", "请输入文本后再发送");
-            return;
-        }
-
         // 如果有必填字段未填写，阻止发送
         if (hasRequiredFields && !allRequiredFilled) {
             setFormDialogOpen(true);
@@ -136,12 +147,17 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
             return;
         }
 
-        // 统一发送条件：至少有一个启用的模式有内容
+        // Bug 4 Fix: 统一发送条件，至少有一个启用的模式有内容
+        // 移除了之前强制要求文本的矛盾逻辑
         const hasValidContent =
             (enableTextInput && value.trim().length > 0) ||
             (enableFileInput && selectedFiles.length > 0) ||
             (enableStructuredForm && Object.keys(formData).length > 0);
-        if (disabled || !hasValidContent) return;
+
+        if (disabled || !hasValidContent) {
+            showWarning("请输入内容", "请至少输入文本、上传文件或填写表单");
+            return;
+        }
 
         // Package all data and send
         onSend({
@@ -156,10 +172,10 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
             fileInputRef.current.value = "";
         }
 
-        // Reset form data to defaults
-        const resetFormData: Record<string, unknown> = inputNode.formData || {};
+        // Bug 5 Fix: 重置为纯默认值，而非从 inputNode.formData 开始
+        const resetFormData: Record<string, unknown> = {};
         formFields.forEach((field) => {
-            if (field.defaultValue && !(field.name in resetFormData)) {
+            if (field.defaultValue !== undefined) {
                 resetFormData[field.name] = field.defaultValue;
             }
         });

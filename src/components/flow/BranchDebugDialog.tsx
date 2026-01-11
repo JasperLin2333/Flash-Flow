@@ -62,29 +62,29 @@ export default function BranchDebugDialog() {
     return (
         <Dialog open={open} onOpenChange={(val) => !val && !isRunning && closeDialog()}>
             <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none rounded-2xl border border-gray-200 shadow-xl">
-                <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 bg-white">
+                <DialogHeader className="px-6 pt-6 pb-3 border-b border-gray-100 shrink-0 bg-white">
                     <DialogTitle className="text-xl font-bold text-gray-900">
                         测试节点
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 settings-scrollbar">
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5 settings-scrollbar">
                     <div className="space-y-2">
                         <Label className="text-sm font-medium text-gray-700 block">
                             判断条件 (condition)
                             <span className="text-gray-400 ml-2 text-xs font-normal">(必填)</span>
                         </Label>
                         <Textarea
-                            placeholder='节点名.字段名.includes("关键词")'
+                            placeholder='例如：Input.text.includes("error") || LLM.answer.startsWith("Yes")'
                             value={conditionValue}
                             onChange={(e) => setConditionValue(e.target.value)}
-                            className={`min-h-[120px] text-sm resize-none focus-visible:ring-1 focus-visible:ring-black border-gray-200 rounded-lg p-3 ${!validationResult.valid ? 'border-amber-400 focus-visible:ring-amber-400' : ''}`}
+                            className={`min-h-[120px] text-sm font-mono resize-none focus-visible:ring-1 focus-visible:ring-black border-gray-200 rounded-lg p-3 ${!validationResult.valid ? 'border-amber-400 focus-visible:ring-amber-400' : ''}`}
                             disabled={isRunning}
                         />
                         {validationResult.valid ? (
                             <div className="flex items-center gap-1.5 text-xs text-gray-400">
                                 {conditionValue?.trim() && <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />}
-                                <span>支持: .includes(), .startsWith(), ===, &gt;, &lt; 等</span>
+                                <span>支持: .includes(), .startsWith(), .endsWith(), ===, &gt;, &lt;, &&, ||</span>
                             </div>
                         ) : (
                             <div className="flex items-center gap-1.5 text-xs text-amber-600 font-medium">

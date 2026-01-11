@@ -34,10 +34,28 @@ export function AvailableVarsSection({
         }));
     }, [upstreamVariables]);
 
-    const handleCopy = (varName: string) => {
-        navigator.clipboard.writeText(`{{${varName}}}`);
-        setCopiedVar(varName);
-        setTimeout(() => setCopiedVar(null), 1500);
+    const handleCopy = async (varName: string) => {
+        const textToCopy = `{{${varName}}}`;
+        try {
+            // Modern clipboard API (requires HTTPS or localhost)
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(textToCopy);
+            } else {
+                // Fallback for older browsers or non-secure contexts
+                const textarea = document.createElement('textarea');
+                textarea.value = textToCopy;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }
+            setCopiedVar(varName);
+            setTimeout(() => setCopiedVar(null), 1500);
+        } catch (err) {
+            console.error('Copy failed:', err);
+        }
     };
 
     const filteredVars = selectedNodeId
@@ -57,8 +75,8 @@ export function AvailableVarsSection({
                     <button
                         onClick={() => setSelectedNodeId(null)}
                         className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${selectedNodeId === null
-                                ? "bg-blue-100 border-blue-200 text-blue-700 font-medium"
-                                : "bg-white border-gray-200 text-gray-600 hover:border-blue-200 hover:text-blue-600"
+                            ? "bg-blue-100 border-blue-200 text-blue-700 font-medium"
+                            : "bg-white border-gray-200 text-gray-600 hover:border-blue-200 hover:text-blue-600"
                             }`}
                     >
                         全部
@@ -68,8 +86,8 @@ export function AvailableVarsSection({
                             key={node.id}
                             onClick={() => setSelectedNodeId(node.id)}
                             className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors max-w-[120px] truncate ${selectedNodeId === node.id
-                                    ? "bg-blue-100 border-blue-200 text-blue-700 font-medium"
-                                    : "bg-white border-gray-200 text-gray-600 hover:border-blue-200 hover:text-blue-600"
+                                ? "bg-blue-100 border-blue-200 text-blue-700 font-medium"
+                                : "bg-white border-gray-200 text-gray-600 hover:border-blue-200 hover:text-blue-600"
                                 }`}
                             title={node.label}
                         >

@@ -171,7 +171,24 @@ export const imageGenModelsAPI = {
                 return getDefaultModels();
             }
 
-            const models = data as ImageGenModel[];
+            // 🟢 CRITICAL FIX: Merge fetched models with local hardcoded capabilities
+            // This ensures that even if DB capabilities are missing/outdated,
+            // we use the correct local definitions for known models.
+            const models = (data as ImageGenModel[]).map(model => {
+                const knownCaps = MODEL_CAPABILITIES[model.model_id];
+                if (knownCaps) {
+                    return {
+                        ...model,
+                        capabilities: {
+                            ...model.capabilities, // DB params take precedence if they exist
+                            ...knownCaps,          // Local params fill gaps (e.g., imageSizes)
+                            // Force-overwrite critical arrays if DB is null
+                            imageSizes: model.capabilities?.imageSizes || knownCaps.imageSizes,
+                        }
+                    };
+                }
+                return model;
+            });
 
             // Update cache
             modelsCache = models;

@@ -73,7 +73,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
   });
 
   return (
-    <>
+    <div className="space-y-4">
       {/* 节点名称 */}
       <FormField
         control={form.control}
@@ -82,7 +82,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
           <FormItem>
             <FormLabel className={STYLES.LABEL}>节点名称</FormLabel>
             <FormControl>
-              <Input {...field} className={`font-medium ${STYLES.INPUT}`} />
+              <Input {...field} className={`font-medium h-9 ${STYLES.INPUT}`} />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -114,13 +114,13 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                 value={field.value}
               >
                 <FormControl>
-                  <SelectTrigger className={STYLES.INPUT} disabled={modelsLoading}>
+                  <SelectTrigger className={`h-9 ${STYLES.INPUT}`} disabled={modelsLoading}>
                     <SelectValue placeholder={modelsLoading ? "加载中..." : "选择模型"} />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
                   {models.map(model => (
-                    <SelectItem key={model.id} value={model.model_id}>
+                    <SelectItem key={model.id} value={model.model_id} className="cursor-pointer">
                       {model.model_name}
                     </SelectItem>
                   ))}
@@ -150,7 +150,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
               <Textarea
                 {...field}
                 placeholder="用于设定 AI 的基本行为，例如：让它扮演什么角色、用什么语气回答、重点关注什么、需要避免什么。这些规则会一直影响后续回答。"
-                className={`min-h-[${LLM_CONFIG.SYSTEM_PROMPT_MIN_HEIGHT}px] font-mono text-xs ${STYLES.INPUT} bg-white`}
+                className={`min-h-[${LLM_CONFIG.SYSTEM_PROMPT_MIN_HEIGHT}px] font-mono text-xs rounded-lg ${STYLES.INPUT} bg-white`}
               />
             </FormControl>
             <FormMessage />
@@ -158,11 +158,8 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
         )}
       />
 
-      {/* 分隔线 */}
-      <FormSeparator />
-
       {/* 对话记忆区块 */}
-      <div className="space-y-2">
+      <div className="space-y-2 pt-2">
         <div className={`${STYLES.LABEL} px-1`}>记忆设置</div>
         <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100 space-y-3">
           {/* 对话记忆开关 */}
@@ -202,8 +199,8 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                   return (
                     <FormItem>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-gray-600">最大记忆轮数</span>
-                        <span className="text-xs text-gray-600 font-mono">
+                        <span className={STYLES.SLIDER_LABEL}>最大记忆轮数</span>
+                        <span className={STYLES.SLIDER_VALUE}>
                           {currentTurns} 轮
                         </span>
                       </div>
@@ -230,13 +227,11 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
         </div>
       </div>
 
-      {/* 分隔线 */}
-      <FormSeparator />
-
       {/* 高级参数标题 - 可折叠 */}
-      <div className="space-y-3">
+      <div className="space-y-2">
+        <div className={STYLES.SECTION_DIVIDER} />
         <div
-          className="flex items-center justify-between cursor-pointer group"
+          className="flex items-center justify-between cursor-pointer group py-2"
           onClick={() => setShowAdvanced(!showAdvanced)}
         >
           <div className={`${STYLES.LABEL} px-1 group-hover:text-gray-900 transition-colors`}>高级设置</div>
@@ -259,8 +254,8 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                 return (
                   <FormItem>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-gray-700">温度</span>
-                      <span className="text-xs text-gray-600 font-mono">
+                      <span className={STYLES.SLIDER_LABEL}>温度</span>
+                      <span className={STYLES.SLIDER_VALUE}>
                         {currentTemp.toFixed(1)}
                       </span>
                     </div>
@@ -307,10 +302,18 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                     </FormControl>
                   </div>
                   {field.value === 'json_object' && (
-                    <div className="bg-amber-50 rounded-md p-2 mt-2 border border-amber-100">
-                      <p className="text-[9px] text-amber-600 font-medium flex items-center gap-1">
-                        提示：请在系统提示词中说明"请以 JSON 格式输出"
-                      </p>
+                    <div className="bg-amber-50 rounded-lg p-2.5 mt-2 border border-amber-100 shadow-sm">
+                      <div className="text-[10px] text-amber-700 font-medium flex items-start gap-2 leading-relaxed">
+                        <span className="shrink-0 mt-0.5">💡</span>
+                        <div className="flex-1">
+                          <p>
+                            请在系统提示词中增加<b>“以JSON格式输出”</b>的提示。
+                          </p>
+                          <p className="mt-1 text-amber-600/80 font-normal">
+                            支持 <code className="bg-amber-100/50 px-1 rounded text-amber-800 font-mono">{"{{ " + (form.getValues("label") || "节点名") + ".response.字段名 }}"}</code> 引用AI返回的具体内容。
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   )}
                   <FormMessage />
@@ -320,6 +323,6 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

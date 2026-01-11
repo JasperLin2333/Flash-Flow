@@ -9,6 +9,7 @@ import { extractOutputFromContext, extractTextFromUpstream } from '@/store/execu
 import { showWarning } from '@/utils/errorNotify';
 import { useChatSession } from './useChatSession';
 import type { AppNode } from '@/types/flow';
+import { formatFormMessage } from '@/utils/formMessageUtils';
 
 // ============ Constants ============
 const MESSAGES = {
@@ -111,7 +112,14 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         }
 
         // 3. Prepare Session
-        const userMsg = hasText ? input : "📋 已通过表单提交信息";
+        let userMsg = "";
+        if (hasText) {
+            userMsg = input;
+        } else if (enableStructuredForm && inputNodeData?.formFields && inputNodeData?.formData) {
+            userMsg = formatFormMessage(inputNodeData.formFields, inputNodeData.formData);
+        } else {
+            userMsg = "📋 已通过表单提交信息";
+        }
         let activeSessionId = currentSessionId;
 
         if (!activeSessionId) {

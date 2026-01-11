@@ -98,9 +98,47 @@ export async function POST(req: Request) {
             );
         }
 
+        // 尝试获取 Gemini 分配的资源名称 (files/xxx)
+        //由于 uploadToFileSearchStore 不直接返回 name，我们需要通过 list files 来查找
+        let geminiResourceName = "";
+        try {
+            const listResponse = await ai.files.list({
+                config: { pageSize: 100 } // 获取最近的 100 个文件应该足够找到刚刚上传的
+            });
+
+            // 在列表中查找匹配 displayName 的文件
+            // 注意：可能会有同名文件，我们假设最近的一个是刚刚上传的（API通常按时间倒序或顺序返回吗？Gemini API 文档未明确，但通常是最近的）
+            // 如果能获取到 list 的顺序，最好找到 creationTime 最近的
+
+            const matchedFiles: any[] = [];
+            const targetDisplayName = displayName || file.name;
+
+            // Iterate through the pager (Pager<File_2> is async iterable)
+            let count = 0;
+            // @ts-ignore Pager usually supports async iteration
+            for await (const f of listResponse) {
+                if (f.displayName === targetDisplayName) {
+                    matchedFiles.push(f);
+                }
+                count++;
+                if (count >= 100) break;
+            }
+
+            if (matchedFiles.length > 0) {
+                // 假设最晚创建的是我们的文件
+                matchedFiles.sort((a: any, b: any) => {
+                    return new Date(b.createTime).getTime() - new Date(a.createTime).getTime();
+                });
+                geminiResourceName = matchedFiles[0].name;
+            }
+        } catch (listError) {
+            console.warn("无法检索上传文件的资源名称:", listError);
+        }
+
         return NextResponse.json({
             success: true,
-            name: file.name,
+            name: geminiResourceName || file.name, // 优先返回 Gemini 资源名称 (files/xxx)，降级为文件名
+            originalName: file.name,
             displayName: displayName || file.name,
             sizeBytes: file.size
         });

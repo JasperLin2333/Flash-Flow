@@ -26,13 +26,14 @@ export const llmMemoryService = {
         maxTurns: number = 10
     ): Promise<ConversationMessage[]> {
         try {
+            // 使用 created_at 排序，避免 turn_index 竞态条件
             const { data, error } = await supabase
                 .from("llm_node_memory")
-                .select("role, content, turn_index")
+                .select("role, content")
                 .eq("flow_id", flowId)
                 .eq("node_id", nodeId)
                 .eq("session_id", sessionId)
-                .order("turn_index", { ascending: true })
+                .order("created_at", { ascending: true })
                 .limit(maxTurns * 2); // user + assistant per turn
 
             if (error) {
@@ -64,20 +65,8 @@ export const llmMemoryService = {
         content: string
     ): Promise<void> {
         try {
-            // 获取当前最大 turn_index
-            const { data: existing } = await supabase
-                .from("llm_node_memory")
-                .select("turn_index")
-                .eq("flow_id", flowId)
-                .eq("node_id", nodeId)
-                .eq("session_id", sessionId)
-                .order("turn_index", { ascending: false })
-                .limit(1);
-
-            const nextTurnIndex = existing && existing.length > 0
-                ? (existing[0] as { turn_index: number }).turn_index + 1
-                : 0;
-
+            // 直接插入，使用 created_at 自动排序，避免 turn_index 竞态条件
+            // turn_index 设为 0 保持兼容性（字段仍为 required）
             const { error } = await supabase
                 .from("llm_node_memory")
                 .insert({
@@ -86,7 +75,7 @@ export const llmMemoryService = {
                     session_id: sessionId,
                     role,
                     content,
-                    turn_index: nextTurnIndex,
+                    turn_index: 0,
                 });
 
             if (error) {
@@ -155,13 +144,14 @@ export const llmMemoryService = {
             const maxMessages = maxTurns * 2;
             if (count && count > maxMessages) {
                 // 获取需要删除的记录 ID
+                // 使用 created_at 排序，删除最旧的消息
                 const { data: toDelete } = await supabase
                     .from("llm_node_memory")
                     .select("id")
                     .eq("flow_id", flowId)
                     .eq("node_id", nodeId)
                     .eq("session_id", sessionId)
-                    .order("turn_index", { ascending: true })
+                    .order("created_at", { ascending: true })
                     .limit(count - maxMessages);
 
                 if (toDelete && toDelete.length > 0) {

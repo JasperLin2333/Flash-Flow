@@ -41,8 +41,11 @@ export async function POST(req: Request) {
         if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
 
         // Add conversation history if provided (for memory feature)
+        // Security: Limit history size to prevent memory exhaustion
+        const MAX_HISTORY_MESSAGES = 50;
         if (conversationHistory && Array.isArray(conversationHistory)) {
-            for (const msg of conversationHistory) {
+            const limitedHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
+            for (const msg of limitedHistory) {
                 if (msg.role && msg.content) {
                     messages.push({ role: msg.role as "user" | "assistant", content: msg.content });
                 }
@@ -61,27 +64,6 @@ export async function POST(req: Request) {
 
         // Determine provider based on model
         const provider = getProviderForModel(model);
-
-        // JSON 模式兜底逻辑：如果启用了 JSON 模式但提示词中没有 "json" 关键字，自动追加指令
-        // 这是为了绕过部分模型服务商（如 OpenAI）的硬性拦截
-        if (responseFormat === 'json_object') {
-            const hasJsonKeyword = messages.some(msg =>
-                typeof msg.content === 'string' && msg.content.toLowerCase().includes('json')
-            );
-
-            if (!hasJsonKeyword) {
-                // 如果有系统提示词，追加到系统提示词；否则添加一条系统指令
-                const systemMsg = messages.find(m => m.role === 'system');
-                if (systemMsg && typeof systemMsg.content === 'string') {
-                    systemMsg.content += "\n重要：输出必须是一个有效的 JSON 对象。";
-                } else {
-                    messages.unshift({
-                        role: "system",
-                        content: "重要：输出必须是一个有效的 JSON 对象。"
-                    });
-                }
-            }
-        }
 
         const config = PROVIDER_CONFIG[provider];
 

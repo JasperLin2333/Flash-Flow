@@ -3,6 +3,8 @@ import { FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescripti
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TOOL_REGISTRY, getAllToolIds, getToolConfig, DEFAULT_TOOL_TYPE, type ToolType } from "@/lib/tools/registry";
+import { Info } from "lucide-react";
+
 import { NODE_FORM_STYLES, type BaseNodeFormProps } from "./shared";
 
 const { LABEL: LABEL_CLASS, INPUT: INPUT_CLASS } = NODE_FORM_STYLES;
@@ -15,7 +17,7 @@ export function ToolNodeForm({ form }: BaseNodeFormProps) {
     const toolConfig = TOOL_REGISTRY[toolType];
 
     return (
-        <>
+        <div className="space-y-4">
             {/* Node Label */}
             <FormField
                 control={form.control}
@@ -52,7 +54,7 @@ export function ToolNodeForm({ form }: BaseNodeFormProps) {
                                 {getAllToolIds().map((id) => {
                                     const config = getToolConfig(id);
                                     return (
-                                        <SelectItem key={id} value={id}>
+                                        <SelectItem key={id} value={id} className="cursor-pointer">
                                             {config?.name || id}
                                         </SelectItem>
                                     );
@@ -68,6 +70,6 @@ export function ToolNodeForm({ form }: BaseNodeFormProps) {
                     </FormItem>
                 )}
             />
-        </>
+        </div>
     );
 }

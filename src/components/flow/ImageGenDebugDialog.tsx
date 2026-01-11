@@ -165,13 +165,13 @@ export default function ImageGenDebugDialog() {
     return (
         <Dialog open={open} onOpenChange={(val) => !val && !isUploading && closeDialog()}>
             <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none rounded-2xl border border-gray-200 shadow-xl">
-                <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 bg-white">
+                <DialogHeader className="px-6 pt-6 pb-3 border-b border-gray-100 shrink-0 bg-white">
                     <DialogTitle className="text-xl font-bold text-gray-900">
                         测试节点
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 settings-scrollbar">
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5 settings-scrollbar">
                     {/* File Upload Section - Only if model supports reference image */}
                     {isImg2Img && (
                         <div className="space-y-3">
@@ -251,7 +251,7 @@ export default function ImageGenDebugDialog() {
                                 placeholder="填写用于生成的提示词..."
                                 value={dialogData.prompt || ""}
                                 onChange={(e) => setDialogData({ ...dialogData, prompt: e.target.value })}
-                                className="min-h-[120px] text-sm resize-none border-gray-200 rounded-lg p-3 focus-visible:ring-1 focus-visible:ring-black"
+                                className="min-h-[100px] text-sm resize-none border-gray-200 rounded-lg p-3 focus-visible:ring-1 focus-visible:ring-black"
                                 disabled={isUploading}
                             />
                         </div>
@@ -266,7 +266,7 @@ export default function ImageGenDebugDialog() {
                                 placeholder="填写不希望出现的元素..."
                                 value={dialogData.negativePrompt || ""}
                                 onChange={(e) => setDialogData({ ...dialogData, negativePrompt: e.target.value })}
-                                className="min-h-[80px] text-sm resize-none border-gray-200 rounded-lg p-3 focus-visible:ring-1 focus-visible:ring-black"
+                                className="min-h-[100px] text-sm resize-none border-gray-200 rounded-lg p-3 focus-visible:ring-1 focus-visible:ring-black"
                                 disabled={isUploading}
                             />
                         </div>

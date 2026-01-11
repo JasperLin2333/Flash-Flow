@@ -1,16 +1,18 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useFlowStore } from "@/store/flowStore";
 import type { OutputNodeData, AppNode, FlowState, ContentSource } from "@/types/flow";
-import { getOutputModeLabel } from "@/lib/outputModeConstants";
 import { Loader2, Paperclip, X, Play } from "lucide-react";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { showWarning } from "@/utils/errorNotify";
 import { getFileExtension } from "@/utils/fileUtils";
+import { NODE_FORM_STYLES } from "../builder/node-forms/shared/styles";
+
+const { REMOVE_BUTTON } = NODE_FORM_STYLES;
 
 // Output 节点附件的限制配置
 const OUTPUT_MAX_FILE_COUNT = 20;
@@ -169,20 +171,18 @@ export default function OutputDebugDialog() {
         confirmDialogRun();
     };
 
-
-
     const isValid = contentValues.length > 0 && contentValues.every(v => v.trim());
 
     return (
         <Dialog open={open} onOpenChange={(val) => { if (!val && !isUploading) closeDialog(); }}>
             <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none rounded-2xl border border-gray-200 shadow-xl">
-                <DialogHeader className="px-6 py-4 border-b border-gray-100 shrink-0 bg-white">
+                <DialogHeader className="px-6 pt-6 pb-3 border-b border-gray-100 shrink-0 bg-white">
                     <DialogTitle className="text-xl font-bold text-gray-900">
                         测试节点
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 settings-scrollbar">
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5 settings-scrollbar">
                     {/* Content Input Section */}
                     <div className="space-y-4">
                         {contentValues.map((val, idx) => (
@@ -221,7 +221,7 @@ export default function OutputDebugDialog() {
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-8 text-xs gap-1.5 border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+                                    className="h-8 text-xs gap-1.5 border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 bg-white"
                                     onClick={() => document.getElementById(`output-file-upload-${nodeId}`)?.click()}
                                     disabled={isUploading}
                                 >
@@ -249,7 +249,7 @@ export default function OutputDebugDialog() {
                                         </div>
                                         <button
                                             onClick={() => removeFile(i)}
-                                            className="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                                            className={REMOVE_BUTTON}
                                             disabled={isUploading}
                                         >
                                             <X className="w-4 h-4" />

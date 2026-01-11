@@ -14,7 +14,8 @@ export function ExecutionOutput({ executionOutput }: ExecutionOutputProps) {
 
     const data = executionOutput as Record<string, unknown>;
     const hasReasoning = typeof data.reasoning === "string" && data.reasoning.trim();
-    const hasResponse = typeof data.response === "string" && data.response.trim();
+    const hasResponse = data.response !== undefined && data.response !== null && data.response !== "";
+    const isStructuredResponse = typeof data.response === "object" && data.response !== null;
     const hasImageUrl = typeof data.imageUrl === "string" && data.imageUrl.trim();
     const imageUrl = data.imageUrl as string;
 
@@ -129,9 +130,15 @@ export function ExecutionOutput({ executionOutput }: ExecutionOutputProps) {
                     {(hasResponse || !hasImageUrl) && (
                         <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 max-h-96 overflow-auto">
                             {hasResponse ? (
-                                <div className="text-xs font-sans text-gray-800 whitespace-pre-wrap break-all leading-normal">
-                                    {data.response as string}
-                                </div>
+                                isStructuredResponse ? (
+                                    <pre className="text-[10px] font-mono text-gray-600 whitespace-pre-wrap break-all">
+                                        {JSON.stringify(data.response, null, 2)}
+                                    </pre>
+                                ) : (
+                                    <div className="text-xs font-sans text-gray-800 whitespace-pre-wrap break-all leading-normal">
+                                        {data.response as string}
+                                    </div>
+                                )
                             ) : (
                                 <pre className="text-[10px] font-mono text-gray-600 whitespace-pre-wrap break-all">
                                     {JSON.stringify(executionOutput, null, 2)}

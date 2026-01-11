@@ -16,8 +16,8 @@ export type PlanNodeData = Partial<AppNodeData> & {
     enableStructuredForm?: boolean;
     fileConfig?: {
         allowedTypes?: string[];
-        maxFileSize?: number;
-        maxFileCount?: number;
+        maxSizeMB?: number;
+        maxCount?: number;
     };
     formFields?: Array<{ id: string; type: string; label: string; required?: boolean; defaultValue?: string; options?: string[] }>;
     // LLM node configs

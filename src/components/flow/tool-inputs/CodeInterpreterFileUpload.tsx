@@ -79,7 +79,7 @@ export function CodeInterpreterFileUpload({
     const isDisabled = disabled || isUploading;
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-4">
             <div className="flex justify-between items-center">
                 <Label className="text-sm font-medium text-gray-700 flex items-center gap-1">
                     {formatFieldLabel("inputFiles")}

@@ -56,10 +56,17 @@ export function handleNodeTest(
         const files = ragData.files || [];
 
         // Logic: 
-        // 1. Must have at least one file uploaded (static context).
+        // 1. Must have at least one file uploaded (static context) OR be in variable mode (which needs dialog anyway, so logic holds).
         // 2. Must have a query provided.
         // 3. Query must be safe (no variables).
-        const hasFiles = files.length > 0;
+
+        // Check all file slots
+        const hasStaticFiles = (ragData.files && ragData.files.length > 0) ||
+            (ragData.files2 && ragData.files2.length > 0) ||
+            (ragData.files3 && ragData.files3.length > 0);
+
+        const hasFiles = hasStaticFiles; // For auto-run, we require static files. Variable mode usually requires input dialog.
+
         const hasQuery = !!(queryValue && queryValue.trim());
         const isQuerySafe = !hasQuery || !queryValue.includes('{{');
 

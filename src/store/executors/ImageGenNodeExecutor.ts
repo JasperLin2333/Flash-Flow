@@ -16,6 +16,7 @@ import { collectVariables } from "./utils/variableUtils";
 import { isValidImageValue } from "./utils/validationUtils";
 import { DEFAULT_IMAGEGEN_CAPABILITIES } from "@/services/imageGenModelsAPI";
 import { IMAGEGEN_CONFIG } from "@/store/constants/imageGenConstants";
+import { imageGenService } from "@/services/imageGenService";
 
 export class ImageGenNodeExecutor extends BaseNodeExecutor {
     async execute(
@@ -31,135 +32,97 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
 
         const { result, time } = await this.measureTime(async () => {
             const nodeData = node.data as ImageGenNodeData;
-            let prompt = nodeData.prompt || "";
 
             // Get flow store state for variable collection
             const storeState = useFlowStore.getState();
             const { nodes: allNodes, flowContext: globalFlowContext } = storeState;
 
-            // 使用公共的 collectVariables 函数，确保与其他节点一致的变量解析逻辑
-            const allVariables = collectVariables(context, globalFlowContext, allNodes);
+            // 1. Collect variables (handles mockData internally if provided)
+            // If mockData is present, allVariables will contain ONLY mock data (debug mode behavior)
+            const allVariables = collectVariables(context, globalFlowContext, allNodes, mockData);
 
-            // Replace variables in prompt
-            if (Object.keys(allVariables).length > 0) {
-                prompt = replaceVariables(prompt, allVariables);
-            }
-
-            // Handle mock data for debug mode
-            // If mockData has direct prompt/negativePrompt overrides (string type), use them.
-            // Otherwise treat mockData as variables for substitution.
+            // 2. Prepare Prompts
+            let prompt = nodeData.prompt || "";
             let negativePrompt = nodeData.negativePrompt || "";
 
-            if (mockData && Object.keys(mockData).length > 0) {
-                // Check for direct overrides from Debug Dialog
+            // Handle direct Debug Override (when user types directly in debug dialog inputs)
+            if (mockData) {
                 if (typeof mockData.prompt === 'string') {
                     prompt = mockData.prompt;
                 }
                 if (typeof mockData.negativePrompt === 'string') {
                     negativePrompt = mockData.negativePrompt;
                 }
+            }
 
-                // Also use mockData for variable substitution (legacy behavior for non-override keys)
-                const stringValues: Record<string, string> = {};
-                Object.entries(mockData).forEach(([key, value]) => {
-                    if (key !== 'prompt' && key !== 'negativePrompt') {
-                        stringValues[key] = String(value);
-                    }
-                });
-                if (Object.keys(stringValues).length > 0) {
-                    prompt = replaceVariables(prompt, stringValues);
-                }
+            // 3. Variable Substitution
+            // Replace variables in prompt and negativePrompt (supports both normal flow variables and mock variables)
+            if (Object.keys(allVariables).length > 0) {
+                prompt = replaceVariables(prompt, allVariables);
+                negativePrompt = replaceVariables(negativePrompt, allVariables);
             }
 
             // Get current user for quota tracking
             const user = await authService.getCurrentUser();
 
-            // Get model capabilities for cfgParam and defaults
+            // Get model capabilities
             const modelId = nodeData.model || IMAGEGEN_CONFIG.DEFAULT_MODEL;
             const { imageGenModelsAPI } = await import("@/services/imageGenModelsAPI");
             const modelInfo = await imageGenModelsAPI.getModelByModelId(modelId);
             const capabilities = modelInfo?.capabilities || DEFAULT_IMAGEGEN_CAPABILITIES;
             const cfgParam = capabilities.cfgParam || null;
 
-            // Apply model-aware defaults when values are undefined
-            // Priority: nodeData > modelCapabilities > hardcoded fallback
+            // Apply defaults
             const effectiveCfg = nodeData.cfg ?? nodeData.guidanceScale ?? capabilities.defaultCfg ?? IMAGEGEN_CONFIG.DEFAULT_CFG;
             const effectiveSteps = nodeData.numInferenceSteps ?? capabilities.defaultSteps ?? IMAGEGEN_CONFIG.DEFAULT_STEPS;
             const effectiveImageSize = nodeData.imageSize ?? capabilities.imageSizes?.[0] ?? IMAGEGEN_CONFIG.DEFAULT_IMAGE_SIZE;
 
-            // Resolve reference images based on mode
+            // Resolve reference images
             let image: string | undefined;
             let image2: string | undefined;
             let image3: string | undefined;
 
             if (nodeData.referenceImageMode === 'variable') {
                 // Variable mode: resolve {{variable}} placeholders
-                const stringValues: Record<string, string> = {};
-                Object.entries(allVariables).forEach(([k, v]) => {
-                    if (typeof v === 'string') stringValues[k] = v;
-                    else if (v && typeof v === 'object') stringValues[k] = JSON.stringify(v);
-                });
-
-                // Using shared isValidImageValue from validationUtils
-
+                // allVariables is already a flat Record<string, string>, so we can use it directly
                 if (nodeData.referenceImageVariable) {
-                    const resolved = replaceVariables(nodeData.referenceImageVariable, stringValues);
-                    if (isValidImageValue(resolved)) {
-                        image = resolved;
-                    }
+                    const resolved = replaceVariables(nodeData.referenceImageVariable, allVariables);
+                    if (isValidImageValue(resolved)) image = resolved;
                 }
                 if (nodeData.referenceImage2Variable) {
-                    const resolved = replaceVariables(nodeData.referenceImage2Variable, stringValues);
-                    if (isValidImageValue(resolved)) {
-                        image2 = resolved;
-                    }
+                    const resolved = replaceVariables(nodeData.referenceImage2Variable, allVariables);
+                    if (isValidImageValue(resolved)) image2 = resolved;
                 }
                 if (nodeData.referenceImage3Variable) {
-                    const resolved = replaceVariables(nodeData.referenceImage3Variable, stringValues);
-                    if (isValidImageValue(resolved)) {
-                        image3 = resolved;
-                    }
+                    const resolved = replaceVariables(nodeData.referenceImage3Variable, allVariables);
+                    if (isValidImageValue(resolved)) image3 = resolved;
                 }
             } else {
-                // Static mode: use uploaded URL
+                // Static mode
                 image = nodeData.referenceImageUrl;
                 image2 = nodeData.referenceImageUrl2;
                 image3 = nodeData.referenceImageUrl3;
             }
 
-            // Call image generation API with capabilities from frontend
-            const response = await fetch("/api/generate-image", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    model: modelId,
-                    prompt,
-                    negativePrompt: capabilities.supportsNegativePrompt ? negativePrompt : undefined,
-                    imageSize: capabilities.supportsImageSize !== false ? effectiveImageSize : undefined,
-                    cfg: capabilities.cfgParam ? effectiveCfg : undefined,
-                    cfgParam,
-                    numInferenceSteps: effectiveSteps,
-                    userId: user?.id,
-                    // Reference images (frontend: referenceImageUrl -> API: image)
-                    image,
-                    image2,
-                    image3,
-                    // Pass capabilities to API for unified management
-                    capabilities: {
-                        supportsNegativePrompt: capabilities.supportsNegativePrompt ?? false,
-                        supportsImageSize: capabilities.supportsImageSize ?? true,
-                        supportsReferenceImage: capabilities.supportsReferenceImage ?? false,
-                        supportsInferenceSteps: capabilities.supportsInferenceSteps ?? false,
-                    },
-                }),
+            // 4. Call Service
+            const data = await imageGenService.generateImage({
+                model: modelId,
+                prompt,
+                negativePrompt: capabilities.supportsNegativePrompt ? negativePrompt : undefined,
+                imageSize: capabilities.supportsImageSize !== false ? effectiveImageSize : undefined,
+                cfg: capabilities.cfgParam ? effectiveCfg : undefined,
+                cfgParam,
+                numInferenceSteps: effectiveSteps,
+                image,
+                image2,
+                image3,
+                capabilities: {
+                    supportsNegativePrompt: capabilities.supportsNegativePrompt ?? false,
+                    supportsImageSize: capabilities.supportsImageSize ?? true,
+                    supportsReferenceImage: capabilities.supportsReferenceImage ?? false,
+                    supportsInferenceSteps: capabilities.supportsInferenceSteps ?? false,
+                }
             });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `Image generation failed: ${response.status}`);
-            }
-
-            const data = await response.json();
 
             // Refresh quota display
             if (user) {
@@ -207,4 +170,3 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
         return null;
     }
 }
-
