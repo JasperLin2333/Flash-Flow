@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
@@ -23,6 +23,7 @@ import {
   ImageGenMetadata
 } from "./nodes/metadata";
 import { handleNodeTest } from "@/store/utils/nodeTestUtils";
+import { createHoverTracker, track } from "@/lib/trackingService";
 
 // ============ Constants ============
 const ICON: Record<string, React.ReactNode> = {
@@ -81,6 +82,12 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
     return nodeOutput.conditionResult as boolean | undefined;
   }, [type, status, flowContext, id]);
 
+  // 埋点：节点悬停（防抖）
+  const hoverTracker = useMemo(() =>
+    createHoverTracker('node_hover', { node_id: id, node_type: type }),
+    [id, type]
+  );
+
   const renderMetadata = () => {
     switch (type) {
       case "llm":
@@ -130,6 +137,8 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   return (
     <Card
       tabIndex={0}
+      onMouseEnter={hoverTracker.onEnter}
+      onMouseLeave={hoverTracker.onLeave}
       className={cn(
         "group relative min-w-[240px] border bg-white transition-all duration-200 outline-none",
         "border-gray-200 shadow-md",

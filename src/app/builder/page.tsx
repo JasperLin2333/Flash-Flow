@@ -9,6 +9,7 @@ import ContextHUD from "@/components/builder/ContextHUD";
 import LaunchCard from "@/components/builder/LaunchCard";
 import AppModeOverlay from "@/components/builder/AppModeOverlay";
 import CopilotOverlay from "@/components/flow/CopilotOverlay";
+import AgentCopilotOverlay from "@/components/flow/AgentCopilotOverlay";
 import { FlowErrorBoundary } from "@/components/FlowErrorBoundary";
 import { useFlowStore } from "@/store/flowStore";
 import { motion } from "framer-motion";
@@ -17,6 +18,7 @@ import { ArrowLeft, Eye, Pencil, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { flowAPI } from "@/services/flowAPI";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { track } from "@/lib/trackingService";
 
 function BuilderContent() {
     const searchParams = useSearchParams();
@@ -41,7 +43,7 @@ function BuilderContent() {
         // EDGE: Check sessionStorage on mount to restore generation/operation state
         if (typeof window !== 'undefined') {
             const persisted = sessionStorage.getItem('flash-flow:copilot-operation');
-            return persisted === 'generating';
+            return persisted ? persisted.startsWith('generating') : false;
         }
         return false;
     });
@@ -58,19 +60,34 @@ function BuilderContent() {
 
         // SCENARIO 1: User navigated from homepage with a prompt to generate
         if (initialPrompt && initialPrompt.trim() && !hasGeneratedRef.current) {
+            const mode = searchParams.get("mode");
+            const enableClarification = searchParams.get("enableClarification") === "true";
+
             hasGeneratedRef.current = true;
             setIsGeneratingInitial(true);
             // Persist to sessionStorage so refresh can restore state
-            sessionStorage.setItem('flash-flow:generating', 'true');
+            // FIX: Use scoped key to distinguish modes
+            const operationMode = (mode === 'agent' || enableClarification) ? 'generating-agent' : 'generating-quick';
+            sessionStorage.setItem('flash-flow:copilot-operation', operationMode);
             setCopilotBackdrop("blank");
 
-            startCopilot(initialPrompt)
+            // Use Agent API if:
+            // 1. mode=agent (thinking chain) OR
+            // 2. enableClarification=true (needs clarification flow)
+            const promise = (mode === "agent" || enableClarification)
+                ? useFlowStore.getState().startAgentCopilot(initialPrompt, { enableClarification })
+                : startCopilot(initialPrompt);
+
+
+            promise
                 .then(() => {
                     // ✅ BUG FIX #2: Fixed malformed URL (removed spaces)
                     // BEFORE: `/ builder ? flowId = ${...} ` caused 404
                     // AFTER: `/builder?flowId=${...}` proper URL format
                     const currentFlowId = useFlowStore.getState().currentFlowId;
                     if (currentFlowId) {
+                        // ✅ OPTIMIZATION: Mark this ID as loaded to prevent redundant fetch on URL update
+                        loadedFlowIdRef.current = currentFlowId;
                         router.replace(`/builder?flowId=${currentFlowId}`);
                     } else {
                         // EDGE: No flowId yet (save may still be pending), just clean URL
@@ -83,7 +100,7 @@ function BuilderContent() {
                 })
                 .finally(() => {
                     // Clear generation state from sessionStorage
-                    sessionStorage.removeItem('flash-flow:generating');
+                    sessionStorage.removeItem('flash-flow:copilot-operation');
                     setIsGeneratingInitial(false);
                 });
             return;
@@ -121,7 +138,7 @@ function BuilderContent() {
                         loadedFlowIdRef.current = flowId;
 
                         // EDGE: If we had a pending generation, clear it
-                        sessionStorage.removeItem('flash-flow:generating');
+                        sessionStorage.removeItem('flash-flow:copilot-operation');
                     } else {
                         setLoadError(`流程 ${flowId} 未找到`);
                         console.error(`Flow ${flowId} not found`);
@@ -150,7 +167,7 @@ function BuilderContent() {
                 } else {
                     // Generation was interrupted or not yet complete
                     // Clear the flag and show empty canvas
-                    sessionStorage.removeItem('flash-flow:generating');
+                    sessionStorage.removeItem('flash-flow:copilot-operation');
                     setIsGeneratingInitial(false);
                     setLoadError('流程生成过程中页面被刷新，请重新生成');
                 }
@@ -179,6 +196,7 @@ function BuilderContent() {
                 <div className="absolute inset-0 z-50 pointer-events-none">
                     <div className="pointer-events-auto">
                         <CopilotOverlay />
+                        <AgentCopilotOverlay />
                     </div>
                 </div>
             </div>
@@ -258,7 +276,13 @@ function BuilderContent() {
                                 contentEditable
                                 suppressContentEditableWarning
                                 role="textbox"
-                                onBlur={(e) => setFlowTitle(e.currentTarget.textContent || "")}
+                                onBlur={(e) => {
+                                    const newTitle = e.currentTarget.textContent || "";
+                                    if (newTitle !== flowTitle) {
+                                        setFlowTitle(newTitle);
+                                        track('flow_title_edit', { new_title_length: newTitle.length });
+                                    }
+                                }}
                                 className="inline-flex items-center h-9 px-2 rounded-lg bg-transparent text-sm font-semibold text-black cursor-text hover:bg-gray-100/60 focus:outline-none whitespace-nowrap leading-none"
                             >
                                 {flowTitle}
@@ -267,7 +291,10 @@ function BuilderContent() {
                         </div>
                         <Button
                             className="h-9 px-4 rounded-lg bg-black text-white hover:bg-black/90 gap-2"
-                            onClick={() => setAppMode(true)}
+                            onClick={() => {
+                                setAppMode(true);
+                                track('toolbar_btn_click', { button: 'preview' });
+                            }}
                         >
                             <Eye className="w-4 h-4" />
                             预览
@@ -283,6 +310,7 @@ function BuilderContent() {
                 </div>
                 <div className="pointer-events-auto">
                     <CopilotOverlay />
+                    <AgentCopilotOverlay />
                 </div>
             </div>
         </div>

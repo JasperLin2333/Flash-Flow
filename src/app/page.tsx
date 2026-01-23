@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Logo from "./Logo.png";
@@ -8,14 +8,98 @@ import HomeSidebar, { SIDEBAR_WIDTH } from "@/components/sidebar/home-sidebar";
 import { UserNav } from "@/components/auth/UserNav";
 import { useAuthStore } from "@/store/authStore";
 import { AuthDialog } from "@/components/auth/AuthDialog";
+import { userProfileAPI } from "@/services/userProfileAPI";
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const router = useRouter();
   // ✅ BUG FIX: Add authentication state check
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user, isLoading: authLoading } = useAuthStore();
   const [showAuthDialog, setShowAuthDialog] = useState(false);
+  // ✅ NEW: Generation mode toggle (quick = classic loading, agent = thinking chain)
+  const [generationMode, setGenerationMode] = useState<"quick" | "agent">("quick");
+  // Clarification toggle (only effective in Agent mode)
+  const [enableClarification, setEnableClarification] = useState(false);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+
+  // Load user preferences from local storage on mount for immediate UI feedback
+  useEffect(() => {
+    try {
+      const savedMode = localStorage.getItem("generationMode") as "quick" | "agent";
+      if (savedMode) setGenerationMode(savedMode);
+
+      const savedClarification = localStorage.getItem("enableClarification");
+      if (savedClarification) setEnableClarification(savedClarification === "true");
+    } catch (e) {
+      console.warn("[Home] Failed to load local preferences:", e);
+    }
+  }, []);
+
+  // Load user preferences from database on mount
+  useEffect(() => {
+    // Wait for auth to finish initializing before making decisions
+    if (authLoading) {
+      return;
+    }
+
+    // If not authenticated after auth loaded, mark as loaded immediately (use defaults)
+    if (!isAuthenticated) {
+      setPreferencesLoaded(true);
+      return;
+    }
+
+    if (user?.id && !preferencesLoaded) {
+      userProfileAPI.getPreferences(user.id).then((prefs) => {
+        if (prefs?.enableClarification !== undefined) {
+          setEnableClarification(prefs.enableClarification);
+        }
+        if (prefs?.generationMode !== undefined) {
+          setGenerationMode(prefs.generationMode);
+        }
+        setPreferencesLoaded(true);
+      }).catch((err) => {
+        console.warn("[Home] Failed to load preferences:", err);
+        setPreferencesLoaded(true);
+      });
+    }
+  }, [authLoading, isAuthenticated, user?.id, preferencesLoaded]);
+
+
+  // Handle toggling clarification with persistence
+  const handleToggleClarification = useCallback((enabled: boolean) => {
+    setEnableClarification(enabled);
+    localStorage.setItem("enableClarification", String(enabled));
+
+    // Persist to database if user is logged in
+    if (isAuthenticated && user?.id) {
+      userProfileAPI.updatePreferences(user.id, { enableClarification: enabled }).catch((err) => {
+        console.warn("[Home] Failed to save preferences:", err);
+      });
+    }
+  }, [isAuthenticated, user?.id]);
+
+  // ✅ FIX: When switching mode, persist and auto-disable clarification if quick mode
+  // ✅ FIX: When switching mode, persist and auto-disable clarification if quick mode
+  const handleModeChange = useCallback((mode: "quick" | "agent") => {
+    setGenerationMode(mode);
+    localStorage.setItem("generationMode", mode);
+
+    const newClarification = mode === "quick" ? false : enableClarification;
+    if (mode === "quick") {
+      setEnableClarification(false);
+      localStorage.setItem("enableClarification", "false");
+    }
+    // Persist to database if user is logged in
+    if (isAuthenticated && user?.id) {
+      userProfileAPI.updatePreferences(user.id, {
+        generationMode: mode,
+        enableClarification: newClarification
+      }).catch((err) => {
+        console.warn("[Home] Failed to save preferences:", err);
+      });
+    }
+  }, [isAuthenticated, user?.id, enableClarification]);
 
   const setSuggestion = (v: string) => {
     setPrompt(v);
@@ -33,7 +117,10 @@ export default function Home() {
     }
 
     // Proceed with navigation if authenticated
-    router.push(`/builder?initialPrompt=${encodeURIComponent(prompt)}`);
+    // ✅ NEW: Append mode=agent if agent mode is selected
+    const modeParam = generationMode === "agent" ? "&mode=agent" : "";
+    const clarificationParam = enableClarification ? "&enableClarification=true" : "";
+    router.push(`/builder?initialPrompt=${encodeURIComponent(prompt)}${modeParam}${clarificationParam}`);
   };
 
   return (
@@ -74,8 +161,14 @@ export default function Home() {
               onChange={setPrompt}
               onSubmit={handleGenerateFlow}
               placeholder="有想法，尽管说~"
+              enableClarification={enableClarification}
+              onToggleClarification={generationMode === "agent" ? handleToggleClarification : undefined}
+              generationMode={generationMode}
+              onGenerationModeChange={handleModeChange}
             />
           </div>
+
+
 
           <div className="mt-8 flex flex-wrap gap-3 justify-center">
             <button

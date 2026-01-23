@@ -8,10 +8,11 @@ const ICONS = [Sparkles, Search, GitGraph, Settings];
 
 export default function CopilotOverlay() {
     const copilotStatus = useFlowStore((s) => s.copilotStatus);
+    const copilotMode = useFlowStore((s) => s.copilotMode);
     const copilotStep = useFlowStore((s) => s.copilotStep);
     const backdrop = useFlowStore((s) => s.copilotBackdrop);
 
-    if (copilotStatus === "idle") return null;
+    if (copilotStatus === "idle" || copilotMode !== "classic") return null;
 
     const CurrentIcon = ICONS[copilotStep] || Loader2;
 

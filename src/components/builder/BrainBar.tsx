@@ -1,16 +1,20 @@
 "use client";
-import { useState, useCallback } from "react";
-import { Plus, Sparkles, Edit3 } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { Plus, Sparkles } from "lucide-react";
 import { useReactFlow } from "@xyflow/react";
 import { motion } from "framer-motion";
 import { useFlowStore } from "@/store/flowStore";
+import { useAuthStore } from "@/store/authStore";
+import { userProfileAPI } from "@/services/userProfileAPI";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import PromptBubble from "@/components/ui/prompt-bubble";
 import type { AppNode, NodeKind } from "@/types/flow";
-import { executeModification as executeModificationService } from "@/store/services/modificationExecutor";
+
 import { showError } from "@/utils/errorNotify";
+import { track } from "@/lib/trackingService";
 
 // ============ 配置常量 ============
 const CONFIG = {
@@ -31,12 +35,6 @@ const CONFIG = {
             placeholder: "有想法，尽管说~",
             loadingText: "正在生成流程…",
         },
-        modify: {
-            label: "局部修改",
-            icon: Edit3,
-            placeholder: "描述你想要修改的内容... 如: LLM节点需要有记忆",
-            loadingText: "正在修改流程...",
-        },
     },
     nodeTypes: [
         { label: "输入", type: "input" as NodeKind },
@@ -50,36 +48,7 @@ const CONFIG = {
 } as const;
 
 // ============ Sub-components ============
-function ModeToggle({
-    mode,
-    setMode,
-}: {
-    mode: "generate" | "modify";
-    setMode: (m: "generate" | "modify") => void;
-}) {
-    return (
-        <div className="absolute -top-14 left-0 flex items-center gap-1 bg-white border border-gray-200 rounded-full p-1.5 shadow-md">
-            {(["generate", "modify"] as const).map((m) => {
-                const config = CONFIG.modes[m];
-                const Icon = config.icon;
-                return (
-                    <button
-                        key={m}
-                        onClick={() => setMode(m)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 ${mode === m
-                            ? "bg-black text-white shadow-sm"
-                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                            }`}
-                        aria-pressed={mode === m}
-                    >
-                        <Icon className="w-3 h-3" />
-                        {config.label}
-                    </button>
-                );
-            })}
-        </div>
-    );
-}
+
 
 function NodeLibraryDialog({
     open,
@@ -158,90 +127,100 @@ function NodeTile({
  * 处理 AI 修改指令的核心函数
  * 使用 AI 意图分类决定 patch 模式还是 full 模式
  */
-const handleModificationInstruction = async (
-    prompt: string,
-    nodes: AppNode[],
-    edges: any[],
-    setNodes: (nodes: AppNode[]) => void,
-    setEdges: (edges: any[]) => void,
-    updateNodeData: (id: string, data: any) => void,
-    setCopilotStatus: (status: "idle" | "thinking" | "completed") => void,
-    forceFull = false  // 强制使用 full 模式（用于 fallback）
-) => {
-    // 动态导入意图分类器
-    const { classifyIntent, filterRelevantNodes } = await import("@/store/services/modification/intentClassifier");
 
-    // Step 1: AI 意图分类（异步调用小模型）
-    const intent = await classifyIntent(prompt);
-    console.log("[BrainBar] Intent classification result:", intent);
-
-    // Step 2: 根据分类结果决定模式
-    // shouldUsePatchMode 已在 classifyIntent 中计算好
-    const usePatchMode = !forceFull && intent.shouldUsePatchMode;
-    const mode = usePatchMode ? "patch" : "full";
-    const nodesToSend = usePatchMode ? filterRelevantNodes(nodes, intent) : nodes;
-
-    try {
-        const resp = await fetch("/api/modify-flow", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                prompt,
-                currentNodes: nodesToSend,
-                currentEdges: edges,
-                mode
-            }),
-        });
-
-        const result = await resp.json();
-
-        // Patch 模式：直接应用 patches
-        if (mode === "patch" && result.patches && Array.isArray(result.patches)) {
-            for (const patch of result.patches) {
-                if (patch.nodeId && patch.data) {
-                    updateNodeData(patch.nodeId, patch.data);
-                }
-            }
-            setCopilotStatus("completed");
-        }
-        // Full 模式或 Patch 失败：使用原有执行器
-        else if (result.nodes || result.action) {
-            executeModificationService(result, nodes, edges, setNodes, setEdges, updateNodeData);
-            setCopilotStatus("completed");
-        }
-        // Patch 模式返回了非预期格式，fallback 到 full 模式
-        else if (mode === "patch" && !forceFull) {
-            console.warn("[BrainBar] Patch mode returned unexpected format, falling back to full mode");
-            return handleModificationInstruction(
-                prompt, nodes, edges, setNodes, setEdges, updateNodeData, setCopilotStatus, true
-            );
-        }
-        else {
-            console.warn("[BrainBar] Unexpected response format:", result);
-            setCopilotStatus("completed");
-        }
-    } catch (e) {
-        console.error("Modification failed:", e);
-
-        // 如果 patch 模式失败且未曾 fallback，尝试 full 模式
-        if (mode === "patch" && !forceFull) {
-            console.warn("[BrainBar] Patch mode failed, falling back to full mode");
-            return handleModificationInstruction(
-                prompt, nodes, edges, setNodes, setEdges, updateNodeData, setCopilotStatus, true
-            );
-        }
-
-        setCopilotStatus("idle");
-        throw e;
-    }
-};
 
 
 export default function BrainBar() {
+    // Initialize from URL param if present
+    const searchParams = useSearchParams();
     const [prompt, setPrompt] = useState("");
     const startCopilot = useFlowStore((s) => s.startCopilot);
+    const startAgentCopilot = useFlowStore((s) => s.startAgentCopilot);
     const [isGenerating, setIsGenerating] = useState(false);
-    const [mode, setMode] = useState<"generate" | "modify">("generate");
+    // const [mode, setMode] = useState<"generate" | "modify">("generate"); // Modify mode hidden
+
+    // User authentication state for preference persistence
+    const user = useAuthStore((s) => s.user);
+    const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+    const authLoading = useAuthStore((s) => s.isLoading);
+
+    // Initialize enablement state - will be updated from database if user is logged in
+    const [enableClarification, setEnableClarification] = useState(() => {
+        const param = searchParams?.get("enableClarification");
+        return param === "true";
+    });
+
+    // Initialize generation mode state
+    const [generationMode, setGenerationMode] = useState<"quick" | "agent">(() => {
+        const modeParam = searchParams?.get("mode");
+        return modeParam === "agent" ? "agent" : "quick";
+    });
+
+    const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+
+    // Load user preferences from database on mount
+    useEffect(() => {
+        // Wait for auth to finish initializing before making decisions
+        if (authLoading) {
+            return;
+        }
+
+        if (isAuthenticated && user?.id && !preferencesLoaded) {
+            userProfileAPI.getPreferences(user.id).then((prefs) => {
+                if (prefs?.enableClarification !== undefined) {
+                    setEnableClarification(prefs.enableClarification);
+                }
+                if (prefs?.generationMode !== undefined) {
+                    setGenerationMode(prefs.generationMode);
+                }
+                setPreferencesLoaded(true);
+            }).catch((err) => {
+                console.warn("[BrainBar] Failed to load preferences:", err);
+                setPreferencesLoaded(true);
+            });
+        } else if (!isAuthenticated) {
+            // Not authenticated, use URL params or defaults
+            setPreferencesLoaded(true);
+        }
+    }, [authLoading, isAuthenticated, user?.id, preferencesLoaded]);
+
+    // Handle toggling clarification with persistence
+    const handleToggleClarification = useCallback((enabled: boolean) => {
+        setEnableClarification(enabled);
+        // Persist to database if user is logged in
+        if (isAuthenticated && user?.id) {
+            userProfileAPI.updatePreferences(user.id, { enableClarification: enabled }).catch((err) => {
+                console.warn("[BrainBar] Failed to save preferences:", err);
+            });
+        }
+    }, [isAuthenticated, user?.id]);
+
+    // Handle switching generation mode with persistence
+    const handleGenerationModeChange = useCallback((newMode: "quick" | "agent") => {
+        setGenerationMode(newMode);
+
+        // 埋点：生成模式切换
+        track('generation_mode_change', { mode: newMode });
+
+        // Auto-disable clarification if switching to quick mode (same as homepage)
+        const newClarification = newMode === "quick" ? false : enableClarification;
+        if (newMode === "quick") {
+            setEnableClarification(false);
+        }
+
+        // Persist to database if user is logged in
+        if (isAuthenticated && user?.id) {
+            userProfileAPI.updatePreferences(user.id, {
+                generationMode: newMode,
+                enableClarification: newClarification
+            }).catch((err) => {
+                console.warn("[BrainBar] Failed to save preferences:", err);
+            });
+        }
+    }, [isAuthenticated, user?.id, enableClarification]);
+
+    // Detect if user came from "Agent Mode" (should prefer Agent Copilot even without clarification)
+    const urlAgentMode = searchParams?.get("mode") === "agent";
 
     const setCopilotBackdrop = useFlowStore((s) => s.setCopilotBackdrop);
     const setCopilotStatus = useFlowStore((s) => s.setCopilotStatus);
@@ -251,8 +230,8 @@ export default function BrainBar() {
     const nodes = useFlowStore((s) => s.nodes);
     const edges = useFlowStore((s) => s.edges);
     const setNodes = useFlowStore((s) => s.setNodes);
-    const setEdges = useFlowStore((s) => s.setEdges);
-    const updateNodeData = useFlowStore((s) => s.updateNodeData);
+    // const setEdges = useFlowStore((s) => s.setEdges);
+    // const updateNodeData = useFlowStore((s) => s.updateNodeData);
 
     // 使用 ReactFlow hook 获取视口转换方法
     const { screenToFlowPosition } = useReactFlow();
@@ -280,7 +259,16 @@ export default function BrainBar() {
         setIsGenerating(true);
         setCopilotBackdrop("overlay");
         try {
-            await startCopilot(prompt);
+            // Prefer Agent Copilot if:
+            // 1. Interactive clarification is enabled
+            // 2. OR user is in "Agent Mode" (thinking process enabled)
+            // 3. OR user explicitly selected Agent Mode in the UI
+            if (enableClarification || urlAgentMode || generationMode === "agent") {
+                // Pass enableClarification flag - if false, it just runs Agent Mode without questions
+                await startAgentCopilot(prompt, { enableClarification });
+            } else {
+                await startCopilot(prompt);
+            }
             setPrompt("");
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : "生成失败，请稍后重试";
@@ -290,33 +278,9 @@ export default function BrainBar() {
         }
     };
 
-    const handleModify = async () => {
-        if (!prompt.trim()) return;
-        setIsGenerating(true);
-        setCopilotBackdrop("overlay");
-        setCopilotStatus("thinking");
-
-        try {
-            await handleModificationInstruction(
-                prompt,
-                nodes,
-                edges,
-                setNodes,
-                setEdges,
-                updateNodeData,
-                setCopilotStatus
-            );
-            setPrompt("");
-        } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : "修改失败，请稍后重试";
-            showError("流程修改失败", errorMsg);
-        } finally {
-            setIsGenerating(false);
-        }
-    };
     const handleSubmit = () => {
         if (!prompt.trim()) return;
-        mode === "generate" ? setConfirmOpen(true) : handleModify();
+        setConfirmOpen(true);
     };
 
     return (
@@ -327,16 +291,20 @@ export default function BrainBar() {
             className="fixed bottom-8 left-1/2 -translate-x-1/2 z-10"
         >
             <div className="relative">
-                <ModeToggle mode={mode} setMode={setMode} />
+                {/* <ModeToggle mode={mode} setMode={setMode} /> */}
 
                 <div style={{ width: CONFIG.ui.containerWidth }}>
                     <PromptBubble
                         value={prompt}
                         onChange={setPrompt}
                         onSubmit={handleSubmit}
-                        placeholder={isGenerating ? CONFIG.modes[mode].loadingText : CONFIG.modes[mode].placeholder}
+                        placeholder={isGenerating ? CONFIG.modes.generate.loadingText : CONFIG.modes.generate.placeholder}
                         disabled={isGenerating}
                         singleLine={true}
+                        enableClarification={preferencesLoaded ? enableClarification : undefined}
+                        onToggleClarification={preferencesLoaded && generationMode === "agent" ? handleToggleClarification : undefined}
+                        generationMode={preferencesLoaded ? generationMode : undefined}
+                        onGenerationModeChange={preferencesLoaded ? handleGenerationModeChange : undefined}
                     />
                 </div>
 
@@ -362,3 +330,4 @@ export default function BrainBar() {
         </motion.div>
     );
 }
+

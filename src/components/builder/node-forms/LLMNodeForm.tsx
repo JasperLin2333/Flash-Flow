@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
+import { TrackedSwitch } from "@/components/ui/tracked-switch";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
 import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
@@ -176,7 +176,9 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                     </p>
                   </div>
                   <FormControl>
-                    <Switch
+                    <TrackedSwitch
+                      trackingName="enableMemory"
+                      nodeType="llm"
                       checked={field.value ?? false}
                       onCheckedChange={field.onChange}
                     />
@@ -295,7 +297,9 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                       </p>
                     </div>
                     <FormControl>
-                      <Switch
+                      <TrackedSwitch
+                        trackingName="responseFormat"
+                        nodeType="llm"
                         checked={field.value === 'json_object'}
                         onCheckedChange={(checked) => field.onChange(checked ? 'json_object' : 'text')}
                       />

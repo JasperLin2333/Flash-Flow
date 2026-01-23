@@ -7,6 +7,7 @@ import { createNodeActions } from "./actions/nodeActions";
 import { createEdgeActions } from "./actions/edgeActions";
 import { createExecutionActions } from "./actions/executionActions";
 import { createCopilotActions } from "./actions/copilotActions";
+import { createAgentCopilotActions } from "./actions/agentCopilotActions";
 import { createSaveActions } from "./actions/saveActions";
 import { createDebugActions } from "./actions/debugActions";
 import { createStreamingActions } from "./actions/streamingActions";
@@ -31,6 +32,9 @@ export const useFlowStore = create<FlowState>((set, get, api) => ({
 
   // ===== Copilot Actions =====
   ...createCopilotActions(set, get),
+
+  // ===== Agent Copilot Actions (思维链版本) =====
+  ...createAgentCopilotActions(set, get),
 
   // ===== Save Actions =====
   ...createSaveActions(set, get, api),

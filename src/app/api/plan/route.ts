@@ -6,6 +6,7 @@ import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
 import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
 import { CORE_RULES, PLAN_PROMPT, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES, FLOW_EXAMPLES, NEGATIVE_EXAMPLES } from "@/lib/prompts";
 import { WorkflowZodSchema } from "@/lib/schemas/workflow";
+import { extractBalancedJson, validateWorkflow } from "@/lib/agent/utils";
 
 // ============ 兜底策略配置 ============
 const FALLBACK_MODEL = "gemini-3-flash-preview"; // 备选模型 (视觉+文本)
@@ -167,8 +168,8 @@ ${NEGATIVE_EXAMPLES}
 
               // Parse the complete response
               let jsonText = fullContent;
-              const match = fullContent.match(/\{[\s\S]*\}/);
-              if (match) jsonText = match[0];
+              const extractedJson = extractBalancedJson(fullContent);
+              if (extractedJson) jsonText = extractedJson;
 
               let plan: { title?: string; nodes?: unknown; edges?: unknown } = {};
               try {
@@ -187,17 +188,28 @@ ${NEGATIVE_EXAMPLES}
               const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
               const edges = Array.isArray(plan?.edges) ? plan.edges : [];
 
-              // 检查是否生成了有效内容
-              if (nodes.length === 0) {
-                lastError = new Error("LLM returned empty nodes");
+              // 检查逻辑有效性 (使用共享校验逻辑)
+              const validation = validateWorkflow(nodes, edges);
+
+              if (!validation.valid && !validation.softPass) {
+                lastError = new Error(`Validation failed: ${validation.errors.join("; ")}`);
                 if (attempt < MAX_RETRIES - 1) {
                   continue; // 重试
                 }
                 break; // 切换模型
               }
 
+              // Use healed nodes if available
+              const finalNodes = validation.fixedNodes || nodes;
+
+              if (validation.warnings && validation.warnings.length > 0) {
+                if (process.env.NODE_ENV === 'development') {
+                  console.log("[QuickMode] Auto-healed variables:", validation.warnings);
+                }
+              }
+
               // 成功！发送结果
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "result", title, nodes, edges })}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "result", title, nodes: finalNodes, edges })}\n\n`));
               await incrementQuotaOnServer(req, user.id, "flow_generations");
               success = true;
 

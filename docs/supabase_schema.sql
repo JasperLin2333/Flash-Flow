@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS public.user_profiles (
     avatar_kind text DEFAULT 'emoji'::text,
     avatar_emoji text DEFAULT '👤'::text,
     avatar_url text,
+    preferences jsonb DEFAULT '{}'::jsonb,
     created_at timestamptz DEFAULT now() NOT NULL,
     updated_at timestamptz DEFAULT now() NOT NULL,
     CONSTRAINT user_profiles_avatar_kind_check CHECK (avatar_kind = ANY (ARRAY['emoji'::text, 'image'::text]))
@@ -400,7 +401,7 @@ CREATE POLICY "Users can insert own chat history" ON public.chat_history FOR INS
 CREATE POLICY "Users can view own executions" ON public.flow_executions FOR SELECT USING (user_id = (auth.uid())::text);
 CREATE POLICY "Users can insert their own executions" ON public.flow_executions FOR INSERT WITH CHECK (user_id = (auth.uid())::text);
 
-CREATE POLICY "Allow all operations on llm_node_memory" ON public.llm_node_memory FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "User can access memory of their flows" ON public.llm_node_memory FOR ALL USING ((SELECT auth.uid()) = (SELECT owner_id FROM public.flows WHERE id = llm_node_memory.flow_id)) WITH CHECK ((SELECT auth.uid()) = (SELECT owner_id FROM public.flows WHERE id = llm_node_memory.flow_id));
 
 CREATE POLICY "Anyone can read llm_models" ON public.llm_models FOR SELECT USING (true);
 
@@ -430,3 +431,33 @@ CREATE POLICY "Public Access to flow-files" ON storage.objects FOR SELECT TO pub
 
 CREATE POLICY "Users can update flow icons" ON storage.objects FOR UPDATE TO public USING ((bucket_id = 'flow-icons'::text) AND (auth.role() = 'authenticated'::text));
 CREATE POLICY "Users can update own avatar" ON storage.objects FOR UPDATE TO public USING ((bucket_id = 'user-avatars'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text));
+
+-- User Events Table (Added for Tracking System)
+CREATE TABLE IF NOT EXISTS public.user_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid, -- Nullable to support potential anonymous tracking
+    event_name text NOT NULL,
+    event_data jsonb DEFAULT '{}'::jsonb,
+    session_id text,
+    page text,
+    created_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Indexes for user_events
+CREATE INDEX IF NOT EXISTS idx_user_events_user_id ON public.user_events USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_events_event_name ON public.user_events USING btree (event_name);
+CREATE INDEX IF NOT EXISTS idx_user_events_created_at ON public.user_events USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_user_events_session_id ON public.user_events USING btree (session_id);
+
+-- Enable RLS for user_events
+ALTER TABLE public.user_events ENABLE ROW LEVEL SECURITY;
+
+-- Grants for user_events
+GRANT ALL ON TABLE public.user_events TO anon, authenticated, service_role;
+
+-- Policies for user_events
+-- Allow any user (anon or auth) to insert events
+CREATE POLICY "Enable insert for all users" ON public.user_events FOR INSERT WITH CHECK (true);
+
+-- Allow users to view their own events (optional, mostly for debugging/user data request)
+CREATE POLICY "Users can view their own events" ON public.user_events FOR SELECT USING ((auth.uid() = user_id) OR (user_id IS NULL AND session_id IS NOT NULL));

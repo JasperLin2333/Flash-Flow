@@ -5,6 +5,12 @@
 
 import { supabase } from "@/lib/supabase";
 
+export interface UserPreferences {
+    enableClarification?: boolean;
+    generationMode?: "quick" | "agent";
+    // 未来可扩展其他偏好...
+}
+
 export interface UserProfile {
     id: string;
     user_id: string;
@@ -12,6 +18,7 @@ export interface UserProfile {
     avatar_kind: "emoji" | "image";
     avatar_emoji: string | null;
     avatar_url: string | null;
+    preferences: UserPreferences | null;
     created_at: string;
     updated_at: string;
 }
@@ -21,6 +28,7 @@ export interface UserProfileUpdate {
     avatar_kind?: "emoji" | "image";
     avatar_emoji?: string | null;
     avatar_url?: string | null;
+    preferences?: UserPreferences;
 }
 
 class UserProfileAPI {
@@ -127,6 +135,27 @@ class UserProfileAPI {
             .getPublicUrl(data.path);
 
         return urlData.publicUrl;
+    }
+
+    /**
+     * Update user preferences (merges with existing preferences)
+     */
+    async updatePreferences(userId: string, newPreferences: UserPreferences): Promise<UserProfile | null> {
+        // First get current preferences to merge
+        const current = await this.getProfile(userId);
+        const mergedPreferences = {
+            ...(current?.preferences || {}),
+            ...newPreferences,
+        };
+        return this.upsertProfile(userId, { preferences: mergedPreferences });
+    }
+
+    /**
+     * Get user preferences (convenience method)
+     */
+    async getPreferences(userId: string): Promise<UserPreferences | null> {
+        const profile = await this.getProfile(userId);
+        return profile?.preferences || null;
     }
 }
 

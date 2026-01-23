@@ -22,8 +22,11 @@ export const INITIAL_FLOW_STATE = {
     interactionMode: "pan" as const,
     isAppMode: false,
     copilotStatus: "idle" as const,
+    copilotMode: "classic" as const,
     copilotStep: 0,
     copilotBackdrop: "overlay" as const,
+    copilotFeed: [] as import("@/types/flow").FeedItem[],
+    currentCopilotPrompt: null as string | null,
 
     // ============ 统一弹窗状态 (Unified Dialog State) ============
     activeDialog: null as import("@/types/flow").DialogType | null,

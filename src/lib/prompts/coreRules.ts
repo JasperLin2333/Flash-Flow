@@ -22,8 +22,8 @@ export const CORE_RULES = `
 
 ## NEVER (严禁)
 1. NEVER 编造不存在的参数或模型 ID
-2. NEVER 将 \`{{Input.files}}\` 直接传给 LLM，必须先过 RAG 节点
-3. NEVER 在变量中嵌入逻辑 (如 \`{{A + B}}\`)，逻辑处理用 LLM、Branch 或 code_interpreter
+2. NEVER 将 \`{{用户输入.files}}\` 直接传给 LLM，必须先过 RAG 节点
+3. NEVER 在变量中嵌入逻辑 (如 \`{{变量A + 变量B}}\`)，逻辑处理用 LLM、Branch 或 code_interpreter
 4. NEVER 将互斥的分支路径合并到同一个标准节点 (会死锁)
 5. NEVER 将 ImageGen 的 prompt 设为纯中文变量引用，建议先用 LLM 翻译优化为英文
 6. NEVER 在 Template 模式使用复杂的模板语法 (如 \`{{#each}}\`, \`{{#if}}\`)，仅支持简单变量引用

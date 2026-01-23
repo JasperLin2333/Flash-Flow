@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useEffect, useState } from "react";
 import { useZoomControl, ZOOM_LEVELS, ZOOM_TIMING } from "./hooks/useZoomControl";
 import { ErrorNotification } from "./ErrorNotification";
+import { track } from "@/lib/trackingService";
 
 // ============ 常量 ============
 const ERROR_NOTIFICATION_DELAY = 100; // ms
@@ -47,7 +48,10 @@ function InteractionModeGroup({
               variant="ghost"
               size="icon"
               className={interactionMode === "select" ? BUTTON_STYLES.active : BUTTON_STYLES.default}
-              onClick={() => setInteractionMode("select")}
+              onClick={() => {
+                setInteractionMode("select");
+                track('toolbar_btn_click', { button: 'select_mode' });
+              }}
             >
               <MousePointer2 className="w-4 h-4" />
             </Button>
@@ -63,7 +67,10 @@ function InteractionModeGroup({
               variant="ghost"
               size="icon"
               className={interactionMode === "pan" ? BUTTON_STYLES.active : BUTTON_STYLES.default}
-              onClick={() => setInteractionMode("pan")}
+              onClick={() => {
+                setInteractionMode("pan");
+                track('toolbar_btn_click', { button: 'pan_mode' });
+              }}
             >
               <Hand className="w-4 h-4" />
             </Button>
@@ -99,7 +106,10 @@ function ZoomControls({
         variant="ghost"
         size="icon"
         className={BUTTON_STYLES.default}
-        onClick={zoomOut}
+        onClick={() => {
+          zoomOut();
+          track('toolbar_btn_click', { button: 'zoom_out' });
+        }}
         aria-label="缩小"
       >
         <Minus className="w-4 h-4" />
@@ -115,7 +125,10 @@ function ZoomControls({
           {ZOOM_LEVELS.map((pct) => (
             <DropdownMenuItem
               key={pct}
-              onClick={() => zoomTo(pct)}
+              onClick={() => {
+                zoomTo(pct);
+                track('toolbar_btn_click', { button: 'zoom_to', value: pct });
+              }}
               className="justify-center cursor-pointer"
             >
               {pct}%
@@ -128,7 +141,10 @@ function ZoomControls({
         variant="ghost"
         size="icon"
         className={BUTTON_STYLES.default}
-        onClick={zoomIn}
+        onClick={() => {
+          zoomIn();
+          track('toolbar_btn_click', { button: 'zoom_in' });
+        }}
         aria-label="放大"
       >
         <Plus className="w-4 h-4" />
@@ -141,7 +157,10 @@ function ZoomControls({
               variant="ghost"
               size="icon"
               className={BUTTON_STYLES.default}
-              onClick={fitView}
+              onClick={() => {
+                fitView();
+                track('toolbar_btn_click', { button: 'fit_view' });
+              }}
             >
               <Maximize className="w-4 h-4" />
             </Button>
@@ -157,7 +176,10 @@ function ZoomControls({
               variant="ghost"
               size="icon"
               className={BUTTON_STYLES.default}
-              onClick={organizeNodes}
+              onClick={() => {
+                organizeNodes();
+                track('toolbar_btn_click', { button: 'organize_nodes' });
+              }}
             >
               <Network className="w-4 h-4" />
             </Button>
@@ -187,7 +209,10 @@ function RunButton({
             variant="ghost"
             size="icon"
             className={isRunning ? BUTTON_STYLES.running : "h-9 w-9 rounded-full text-gray-900 hover:bg-gray-100 hover:text-black transition-all duration-150"}
-            onClick={() => runFlow()}
+            onClick={() => {
+              runFlow();
+              track('toolbar_btn_click', { button: 'run_flow' });
+            }}
             disabled={isRunning}
           >
             <Play className={`w-4 h-4 ${isRunning ? "fill-current" : "fill-gray-900"}`} />
@@ -215,7 +240,10 @@ function ClearCacheButton({
             variant="ghost"
             size="icon"
             className={BUTTON_STYLES.default}
-            onClick={onClear}
+            onClick={() => {
+              onClear();
+              track('toolbar_btn_click', { button: 'clear_cache' });
+            }}
           >
             <Trash2 className="w-4 h-4" />
           </Button>

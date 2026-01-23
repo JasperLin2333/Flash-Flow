@@ -67,7 +67,7 @@ export const createCopilotActions = (set: any, get: any) => ({
         }
 
         // user is guaranteed non-null here (validated above)
-        set({ copilotStatus: "thinking", copilotStep: 0 });
+        set({ copilotStatus: "thinking", copilotMode: "classic", copilotStep: 0 });
 
         try {
             const ownerId = user.id;
@@ -166,7 +166,12 @@ export const createCopilotActions = (set: any, get: any) => ({
     /**
      * 设置 Copilot 状态
      */
-    setCopilotStatus: (status: "idle" | "thinking" | "completed") => set({ copilotStatus: status }),
+    setCopilotStatus: (status: "idle" | "thinking" | "completed" | "awaiting_input" | "awaiting_plan_confirm") => set({ copilotStatus: status }),
+
+    /**
+     * 设置 Copilot Feed (思维链内容)
+     */
+    setCopilotFeed: (feed: import("@/types/flow").FeedItem[]) => set({ copilotFeed: feed }),
 
     optimizeLayout: () => {
         const { nodes, edges } = get();

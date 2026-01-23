@@ -1,6 +1,7 @@
 "use client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TrackedSwitch } from "@/components/ui/tracked-switch";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
@@ -45,8 +46,10 @@ function FieldEditor({
                     </div>
                     <span className="text-[11px] font-bold text-gray-700">字段配置</span>
                     <div className="flex items-center gap-1.5 ml-2 pl-2 border-l border-gray-100">
-                        <Switch
+                        <TrackedSwitch
                             id={`req-${field.name}`}
+                            trackingName="field_required"
+                            nodeType="input_field"
                             checked={field.required}
                             onCheckedChange={(checked) => onUpdate(index, { required: checked })}
                             className="scale-75"

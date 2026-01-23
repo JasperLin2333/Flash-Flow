@@ -9,6 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "^2.0.4",
+    "@ai-sdk/openai": "^3.0.7",
     "@e2b/code-interpreter": "^2.3.3",
     "@google/genai": "^1.30.0",
     "@google/generative-ai": "^0.24.1",
@@ -36,6 +38,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dagre": "^0.8.5",
+    "dotenv": "^17.2.3",
     "lucide-react": "^0.554.0",
     "mammoth": "^1.11.0",
     "mathjs": "^15.1.0",

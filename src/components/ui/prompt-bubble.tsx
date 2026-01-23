@@ -1,14 +1,15 @@
 "use client";
-import { Send, Paperclip, BookOpen, X, File as FileIcon, Image as ImageIcon, FileText } from "lucide-react";
+import { Send, Paperclip, BookOpen, X, File as FileIcon, Image as ImageIcon, FileText, Zap, Brain } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/hooks/use-toast";
-import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
+import type { InputNodeData, FormFieldConfig } from "@/types/flow";
 import { NodeForm } from "../run/NodeForm";
 
 interface PromptBubbleProps {
@@ -27,6 +28,14 @@ interface PromptBubbleProps {
   onFileRemove?: (file: File) => void;
   onFormDataChange?: (formData: Record<string, unknown>) => void;
   selectedFiles?: File[];
+
+  // Clarification
+  enableClarification?: boolean;
+  onToggleClarification?: (enabled: boolean) => void;
+
+  // Generation Mode
+  generationMode?: "quick" | "agent";
+  onGenerationModeChange?: (mode: "quick" | "agent") => void;
 }
 
 // File type icon helper
@@ -50,6 +59,10 @@ export default function PromptBubble(props: PromptBubbleProps) {
     onFileRemove,
     onFormDataChange,
     selectedFiles = [],
+    enableClarification = false,
+    onToggleClarification,
+    generationMode,
+    onGenerationModeChange,
   } = props;
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -282,7 +295,43 @@ export default function PromptBubble(props: PromptBubbleProps) {
       {/* Bottom: Toolbar */}
       <div className="flex items-center justify-between px-3 pb-3 pt-1">
         {/* Left: Config Buttons */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          {/* Generation Mode Hover Menu */}
+          {/* Clarification Toggle */}
+          {onToggleClarification && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-200 cursor-pointer select-none",
+                    enableClarification
+                      ? "bg-[#3A8DD4]/10"
+                      : "bg-gray-50 hover:bg-gray-100"
+                  )}
+                  onClick={() => onToggleClarification(!enableClarification)}
+                >
+                  <span className={cn(
+                    "text-xs font-medium",
+                    enableClarification ? "text-[#3A8DD4]" : "text-gray-600"
+                  )}>规划模式</span>
+                  <Switch
+                    checked={enableClarification}
+                    onCheckedChange={(c) => onToggleClarification(c)}
+                    className={cn(
+                      "scale-75 origin-right data-[state=checked]:bg-[#3A8DD4]",
+                      // Override sizing slightly to fit pill better if needed
+                      "h-4 w-8"
+                    )}
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-sm px-3 py-2">
+                <p>点击开启规划模式</p>
+                <p className="opacity-70 font-normal text-xs mt-0.5">AI 会在生成前规划好任务</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+
           {/* File Upload */}
           {enableFileInput && (
             <>
@@ -402,28 +451,80 @@ export default function PromptBubble(props: PromptBubbleProps) {
               </DialogContent>
             </Dialog>
           )}
+
+
         </div>
 
-        {/* Right: Send Button */}
-        <Button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            handleSubmit();
-          }}
-          disabled={!canSubmit}
-          className={cn(
-            "h-8 w-8 rounded-full p-0 flex items-center justify-center transition-all duration-200",
-            canSubmit
-              ? "bg-black text-white hover:bg-black/90 shadow-sm"
-              : needsFormAttention
-                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+        {/* Right: Actions */}
+        <div className="flex items-center gap-2">
+          {/* Generation Mode Hover Menu (Moved to Right) */}
+          {generationMode && onGenerationModeChange && (
+            <div className="relative group z-20">
+              <button
+                type="button"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-gray-100 transition-colors select-none group-hover:bg-gray-200/60"
+              >
+                {generationMode === "quick" ? (
+                  <Zap className="w-4 h-4 text-orange-500 fill-orange-500" />
+                ) : (
+                  <Brain className="w-4 h-4 text-pink-500 fill-pink-100" />
+                )}
+                <span className="text-sm font-medium text-gray-700">
+                  {generationMode === "quick" ? "快速" : "思考"}
+                </span>
+              </button>
+
+              {/* Hover Dropdown - Align right since it's on the right side */}
+              <div className="absolute bottom-full right-0 mb-2 w-32 bg-white border border-gray-100 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-bottom scale-95 group-hover:scale-100 flex flex-col p-1">
+                <button
+                  onClick={() => onGenerationModeChange("quick")}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left",
+                    generationMode === "quick" && "bg-blue-50 text-blue-600 hover:bg-blue-50"
+                  )}
+                >
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                    <Zap className={cn("w-4 h-4", generationMode === "quick" ? "text-blue-600" : "text-gray-500")} />
+                  </div>
+                  <span>快速</span>
+                </button>
+                <button
+                  onClick={() => onGenerationModeChange("agent")}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left",
+                    generationMode === "agent" && "bg-blue-50 text-blue-600 hover:bg-blue-50"
+                  )}
+                >
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                    <Brain className={cn("w-4 h-4", generationMode === "agent" ? "text-blue-600" : "text-gray-500")} />
+                  </div>
+                  <span>思考</span>
+                </button>
+              </div>
+            </div>
           )}
-        >
-          <Send className="w-4 h-4" />
-        </Button>
+
+          {/* Send Button */}
+          <Button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              handleSubmit();
+            }}
+            disabled={!canSubmit}
+            className={cn(
+              "h-8 w-8 rounded-full p-0 flex items-center justify-center transition-all duration-200",
+              canSubmit
+                ? "bg-black text-white hover:bg-black/90 shadow-sm"
+                : needsFormAttention
+                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+            )}
+          >
+            <Send className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
-    </div>
+    </div >
   );
 }

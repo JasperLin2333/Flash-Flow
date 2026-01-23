@@ -2,6 +2,7 @@
 import { useCallback, useMemo, memo, useEffect } from "react";
 import { ReactFlow, Background, BackgroundVariant, useReactFlow, SelectionMode, PanOnScrollMode } from "@xyflow/react";
 import { useFlowStore } from "@/store/flowStore";
+import { trackNodeSelect, trackKeyboardShortcut, track } from "@/lib/trackingService";
 import CustomNode from "./CustomNode";
 // NOTE: ToolNode is deprecated, all node types now use unified CustomNode
 import LLMDebugDialog from "./LLMDebugDialog";
@@ -75,12 +76,16 @@ function FlowCanvasComponent() {
         }
         e.preventDefault();
         copyNode();
+        // 埋点：复制快捷键
+        trackKeyboardShortcut('Cmd+C', 'copy_node');
       }
 
       // Cmd/Ctrl + V: 粘贴节点
       if ((e.metaKey || e.ctrlKey) && e.key === "v") {
         e.preventDefault();
         pasteNode();
+        // 埋点：粘贴快捷键
+        trackKeyboardShortcut('Cmd+V', 'paste_node');
       }
     };
 
@@ -127,7 +132,11 @@ function FlowCanvasComponent() {
         nodeTypes={nodeTypes}
         onDragOver={onDragOver}
         onDrop={onDrop}
-        onNodeClick={(_, node) => setSelectedNode(node.id)}
+        onNodeClick={(_, node) => {
+          setSelectedNode(node.id);
+          // 埋点：节点选中
+          trackNodeSelect(node.id, node.type || 'unknown');
+        }}
         onPaneClick={() => setSelectedNode(null)}
         fitView
         panOnScroll={interactionMode === "pan"}

@@ -8,6 +8,7 @@ import {
     type Connection,
 } from "@xyflow/react";
 import { hasCycle } from "../utils/cycleDetection";
+import { trackNodeDelete, trackEdgeConnect, trackEdgeDelete, track } from "@/lib/trackingService";
 
 // Zustand store action creator types
 type SetState = (partial: ((state: FlowState) => Partial<FlowState>) | Partial<FlowState>) => void;
@@ -28,6 +29,15 @@ export const createEdgeActions = (set: SetState, get: GetState) => ({
             .map((c) => c.id);
 
         if (deletedNodeIds.length > 0) {
+            // 埋点：节点删除
+            const { nodes } = get();
+            deletedNodeIds.forEach(nodeId => {
+                const node = nodes.find((n: AppNode) => n.id === nodeId);
+                if (node) {
+                    trackNodeDelete(nodeId, node.type || 'unknown');
+                }
+            });
+
             set((state: any) => ({
                 nodes: applyNodeChanges(changes, state.nodes) as AppNode[],
                 edges: state.edges.filter(
@@ -57,6 +67,12 @@ export const createEdgeActions = (set: SetState, get: GetState) => ({
         });
 
         if (needsSave) {
+            // 埋点：节点拖拽结束
+            changes.forEach(change => {
+                if (change.type === 'position' && change.dragging === false && change.position) {
+                    track('node_drag_end', { node_id: change.id, position: change.position });
+                }
+            });
             get().scheduleSave();
         }
     },
@@ -65,6 +81,13 @@ export const createEdgeActions = (set: SetState, get: GetState) => ({
      * 处理边变更
      */
     onEdgesChange: (changes: EdgeChange[]) => {
+        // 埋点：边删除
+        changes.forEach(change => {
+            if (change.type === 'remove') {
+                trackEdgeDelete(change.id);
+            }
+        });
+
         set({ edges: applyEdgeChanges(changes, get().edges) });
         get().scheduleSave();
     },
@@ -92,6 +115,9 @@ export const createEdgeActions = (set: SetState, get: GetState) => ({
 
         set({ edges: tempEdges });
         get().scheduleSave();
+
+        // 埋点：边连接
+        trackEdgeConnect(connection.source!, connection.target!);
     },
 
     /**

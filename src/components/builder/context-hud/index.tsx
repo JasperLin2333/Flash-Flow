@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
 import { handleNodeTest } from "@/store/utils/nodeTestUtils";
+import { track } from "@/lib/trackingService";
 
 // Node form components
 import { LLMNodeForm } from "../node-forms/LLMNodeForm";
@@ -186,12 +187,22 @@ export default function ContextHUD() {
     const executionOutput = selectedNode ? flowContext[selectedNode.id] : undefined;
     const nodeLabel = selectedNode?.data?.label as string | undefined;
 
+    // 埋点：节点配置面板打开
+    useEffect(() => {
+        if (selectedNode && type) {
+            track('node_config_open', { node_id: selectedNode.id, node_type: type });
+        }
+    }, [selectedNode?.id, type]);
+
     // Check if this node is currently running
     const isNodeRunning = selectedNodeId ? runningNodeIds.has(selectedNodeId) : false;
     const nodeStatus = (selectedNode?.data?.status as ExecutionStatus) || "idle";
 
     const handleTestNode = () => {
         if (!selectedNodeId || !selectedNode) return;
+
+        // 埋点：测试按钮点击
+        track('node_test_click', { node_id: selectedNodeId, node_type: type });
 
         // Unified test logic using the same utility as CustomNode
         handleNodeTest(
@@ -274,7 +285,10 @@ export default function ContextHUD() {
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-                            onClick={() => setSelectedNode(null)}
+                            onClick={() => {
+                                track('node_config_close', { node_id: selectedNode.id, node_type: type });
+                                setSelectedNode(null);
+                            }}
                         >
                             <X className="w-3 h-3" />
                         </Button>

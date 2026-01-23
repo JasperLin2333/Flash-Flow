@@ -31,6 +31,6 @@ export const PLAN_PROMPT = `
 1. **NO TEMPLATE LOGIC**: You are NOT allowed to use Handlebars logic like \`{{#each}}\` or \`{{#if}}\` in Output templates.
    - ❌ WRONG: \`template: "{{#each items}} - {{this}} {{/each}}"\`
    - ✅ RIGHT: Ask the LLM to generate the list string, then use \`template: "{{LLM.response}}"\`.
-2. **NO RAW USER INPUT**: Never pass \`{{Input.user_input}}\` to untrusted tools without strict validation.
+2. **NO RAW USER INPUT**: Never pass \`{{用户输入.user_input}}\` to untrusted tools without strict validation.
 </anti_patterns>
 `;

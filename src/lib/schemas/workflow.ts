@@ -1,37 +1,41 @@
 import { z } from "zod";
 
 /**
- * Strict Workflow Schema for LLM Structured Output Validation
+ * Relaxed Workflow Schema for LLM Structured Output Validation
  * 
- * Ensures the generated JSON matches the expected structure for the Flow builder.
+ * Phase 2: Relaxed validation - only checks basic structure
+ * Allows through if nodes have id/type, avoids blocking valid workflows
  */
 
-// Basic Node Schema
+// Basic Node Schema - relaxed
 const NodeSchema = z.object({
     id: z.string().describe("Unique identifier for the node"),
-    type: z.enum(["input", "llm", "rag", "output", "branch", "tool"]).describe("Node type"),
-    data: z.record(z.string(), z.any()).describe("Node configuration data"),
-    // Position is optional in generation, UI can auto-layout, but good to have constraint if model provides it
+    // Include all valid node types including imagegen
+    type: z.enum(["input", "llm", "rag", "output", "branch", "tool", "imagegen"]).describe("Node type"),
+    // Use passthrough to allow any additional data fields
+    data: z.record(z.string(), z.any()).optional().default({}),
+    // Position is fully optional
     position: z.object({
         x: z.number().optional(),
         y: z.number().optional(),
     }).optional(),
-});
+}).passthrough(); // Allow additional properties
 
-// Basic Edge Schema
+// Basic Edge Schema - relaxed
 const EdgeSchema = z.object({
-    id: z.string().optional().describe("Unique identifier for the edge (optional, can be auto-generated)"),
+    id: z.string().optional(),
     source: z.string().describe("Source node ID"),
     target: z.string().describe("Target node ID"),
-    sourceHandle: z.string().optional(),
-    targetHandle: z.string().optional(),
-});
+    sourceHandle: z.string().optional().nullable(),
+    targetHandle: z.string().optional().nullable(),
+}).passthrough(); // Allow additional properties
 
-// Root Workflow Schema
+// Root Workflow Schema - relaxed
 export const WorkflowZodSchema = z.object({
-    title: z.string().describe("The name of the workflow"),
+    title: z.string().optional().default("Untitled Workflow"),
     nodes: z.array(NodeSchema).describe("List of nodes in the workflow"),
-    edges: z.array(EdgeSchema).describe("List of edges connecting the nodes"),
-});
+    edges: z.array(EdgeSchema).optional().default([]),
+}).passthrough(); // Allow additional properties
 
 export type GeneratedWorkflow = z.infer<typeof WorkflowZodSchema>;
+

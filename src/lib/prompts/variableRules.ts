@@ -4,15 +4,20 @@ export const VARIABLE_RULES = `
 > 🔴 **核心语法**
 > 1. **必须包含双大括号**: \`{{节点名.变量名}}\`
 > 2. **严格基于 Label 引用**: 必须使用节点的 **显示名称 (Label)**，**严禁**使用 ID。
->    - ✅ 正确: \`{{用户输入.user_input}}\`, \`{{搜索.results}}\`
->    - ❌ 错误: \`{{input_1.text}}\` (ID 不稳定，禁止使用)
+>    - ✅ 正确: \`{{用户输入.user_input}}\`, \`{{搜索节点.results}}\`
+>    - ❌ 错误: \`{{input_1.text}}\` (ID 不稳定，严禁使用)
+>    - ❌ 错误: \`{{Input.text}}\` (Type 不是变量名，严禁使用)
 > 3. **严禁嵌入逻辑** (Branch 节点除外):
 >    - ❌ 严禁: \`{{A + B}}\`, \`{{A || B}}\`
 >    - ❌ 严禁: \`{{#each ...}}\`, \`{{#if ...}}\` (不支持 Handlebars 逻辑)
 >    - ✅ 逻辑处理请使用 LLM (让模型生成完整内容)、Branch 或 code_interpreter
 > 4. **严禁裸变量**:
 >    - ❌ 严禁: \`{{user_input}}\` → ✅ 修正: \`{{输入节点.user_input}}\`
-> 5. **去重原则** (LLM 节点):
+> 5. **变量名命名规范 (Naming Convention)**:
+>    - 变量 ID (尤其 FormField name / LLM JSON keys) **必须纯英文**。
+>    - ❌ \`formData.Topic (主题)\`
+>    - ✅ \`formData.topic\` (Name="topic", Label="主题")
+> 6. **去重原则** (LLM 节点):
 >    - ❌ **严禁重复引用**: 禁止在 \`System Prompt\` 和 \`User Input\` 中同时引用同一个变量。
 >    - ✅ **分工明确**: 
 >         - **System Prompt**: 放置背景信息、规则、静态上下文 (如 RAG 文档)。
@@ -23,20 +28,20 @@ export const VARIABLE_RULES = `
 ### ⚡ 访问模式
 
 **1. 成员访问** (点号连接):
-   - \`{{LLM.response}}\` — 标准访问
-   - \`{{Input.formData.email}}\` — 嵌套对象访问
+   - \`{{翻译节点.response}}\` — 标准访问
+   - \`{{用户输入.formData.email}}\` — 嵌套对象访问
 
 **2. 数组索引**:
-   - \`{{搜索.results[0]}}\` — 访问第一项
-   - \`{{Input.files[0].url}}\` — 访问第一个文件的 URL
-   - \`{{Input.files[0].name}}\` — 访问第一个文件的名称
+   - \`{{搜索节点.results[0]}}\` — 访问第一项
+   - \`{{用户输入.files[0].url}}\` — 访问第一个文件的 URL
+   - \`{{用户输入.files[0].name}}\` — 访问第一个文件的名称
 
 **3. JSON 结构化引用** (当 LLM 开启 \`json_object\`):
    - **前提**: System Prompt 必须定义明确的 JSON Schema。
    - **引用**:
-     - ✅ **取值**: \`{{LLM.response.title}}\` (获取字段值)
-     - ✅ **取对象**: \`{{LLM.response.items[0]}}\` (获取子对象)
-     - ⚠️ **取全量**: \`{{LLM.response}}\` (返回 JSON 字符串，仅用于传递给代码解释器)
+     - ✅ **取值**: \`{{分析节点.response.title}}\` (获取字段值)
+     - ✅ **取对象**: \`{{分析节点.response.items[0]}}\` (获取子对象)
+     - ⚠️ **取全量**: \`{{分析节点.response}}\` (返回 JSON 字符串，仅用于传递给代码解释器)
 
 ---
 
@@ -46,9 +51,9 @@ export const VARIABLE_RULES = `
 
 | 原始类型 | 转换结果 | 示例 |
 |----------|----------|------|
-| **文件对象** | 返回 URL | \`{{Input.files[0]}}\` → \`"https://..."\` |
-| **文件数组** | 逗号分隔的 URL | \`{{Input.files}}\` → \`"url1, url2, url3"\` |
-| **普通对象** | JSON 字符串 | \`{{LLM.response}}\` (JSON模式) → \`"{\\"key\\":\\"value\\"}"\` |
-| **数组** | JSON 字符串 | \`{{搜索.results}}\` → \`"[{\\"title\\":...}]"\` |
-| **基本类型** | 直接转字符串 | \`{{计算.result}}\` → \`"42"\` |
+| **文件对象** | 返回 URL | \`{{用户输入.files[0]}}\` → \`"https://..."\` |
+| **文件数组** | 逗号分隔的 URL | \`{{用户输入.files}}\` → \`"url1, url2, url3"\` |
+| **普通对象** | JSON 字符串 | \`{{分析节点.response}}\` (JSON模式) → \`"{\\"key\\":\\"value\\"}"\` |
+| **数组** | JSON 字符串 | \`{{搜索节点.results}}\` → \`"[{\\"title\\":...}]"\` |
+| **基本类型** | 直接转字符串 | \`{{计算器.result}}\` → \`"42"\` |
 `;

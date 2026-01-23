@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { useWatch } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { TrackedSwitch } from "@/components/ui/tracked-switch";
 import type { FormFieldConfig, FileInputConfig } from "@/types/flow";
 import {
     LABEL_CLASS,
@@ -135,7 +135,12 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                             <span className="text-xs font-semibold text-gray-700">文本输入</span>
                             <span className="text-[10px] text-gray-500">允许输入文本内容</span>
                         </div>
-                        <Switch checked={enableTextInput} onCheckedChange={handleTextInputToggle} />
+                        <TrackedSwitch
+                            trackingName="enableTextInput"
+                            nodeType="input"
+                            checked={enableTextInput}
+                            onCheckedChange={handleTextInputToggle}
+                        />
                     </div>
 
                     {/* File Input Toggle */}
@@ -144,7 +149,12 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                             <span className="text-xs font-semibold text-gray-700">文件 / 图像上传</span>
                             <span className="text-[10px] text-gray-500">允许各类文件上传</span>
                         </div>
-                        <Switch checked={enableFileInput} onCheckedChange={handleFileInputToggle} />
+                        <TrackedSwitch
+                            trackingName="enableFileInput"
+                            nodeType="input"
+                            checked={enableFileInput}
+                            onCheckedChange={handleFileInputToggle}
+                        />
                     </div>
 
                     {/* Structured Form Toggle */}
@@ -153,7 +163,12 @@ export function InputNodeForm({ form, selectedNodeId, updateNodeData }: InputNod
                             <span className="text-xs font-semibold text-gray-700">快捷表单</span>
                             <span className="text-[10px] text-gray-500">通过表单快速描述需求，让对话更有条理</span>
                         </div>
-                        <Switch checked={enableStructuredForm} onCheckedChange={handleStructuredFormToggle} />
+                        <TrackedSwitch
+                            trackingName="enableStructuredForm"
+                            nodeType="input"
+                            checked={enableStructuredForm}
+                            onCheckedChange={handleStructuredFormToggle}
+                        />
                     </div>
                 </div>
             </div>

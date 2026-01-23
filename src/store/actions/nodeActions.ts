@@ -3,6 +3,7 @@ import type { AppNode, AppNodeData, NodeKind, FlowState, LLMNodeData, BranchNode
 import { getDefaultNodeData } from "../utils/nodeDefaults";
 import { toast } from "@/hooks/use-toast";
 import { NODE_LAYOUT } from "../constants/layout";
+import { trackNodeAdd } from "@/lib/trackingService";
 
 // Zustand store action creator types
 type SetState = (partial: ((state: FlowState) => Partial<FlowState>) | Partial<FlowState>) => void;
@@ -251,6 +252,9 @@ export const createNodeActions = (set: SetState, get: GetState) => ({
         set({ nodes: [...get().nodes, node] });
         set({ selectedNodeId: id });
         get().scheduleSave();
+
+        // 埋点：节点添加
+        trackNodeAdd(type, finalPosition);
     },
 
     /**

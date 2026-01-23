@@ -1,0 +1,973 @@
+"use client";
+import { useEffect, useState, useRef, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+    Sparkles,
+    Search,
+    GitGraph,
+    Settings,
+    Loader2,
+    Terminal,
+    Zap,
+    CheckCircle2,
+    AlertCircle,
+    Command,
+    ArrowRight,
+    ChevronDown,
+    Play,
+    BrainCircuit,
+    Lightbulb,
+    Target,
+    Check,
+    FileJson,
+    Cpu,
+    RefreshCw,
+    HelpCircle,
+    Box,
+    BookOpen,
+    LogIn,
+    LogOut,
+    Code,
+    Globe,
+    Layers,
+    Database,
+    Wrench,
+    Image as ImageIcon
+
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useFlowStore } from "@/store/flowStore";
+import type { FeedItem, ThoughtItem, ToolCallItem, SuggestionItem, StepItem, ClarificationItem, PlanItem } from "@/types/flow";
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
+import { cn } from "@/lib/utils";
+import { track } from "@/lib/trackingService";
+
+// ========== Shared UI Components ==========
+
+/**
+ * UnifiedStep: The base layout for all agent actions to ensure visual consistency
+ */
+interface UnifiedStepProps {
+    icon: any;
+    label: string;
+    color: string;
+    bg: string;
+    status: 'pending' | 'streaming' | 'completed' | 'error';
+    children?: React.ReactNode;
+    isLast?: boolean;
+    defaultCollapsed?: boolean;
+    collapsible?: boolean;
+    previewText?: string;
+}
+
+function UnifiedStep({
+    icon: Icon,
+    label,
+    color,
+    bg,
+    status,
+    children,
+    isLast = false,
+    defaultCollapsed = true,
+    collapsible = true,
+    previewText
+}: UnifiedStepProps) {
+    // Determine collapsed state
+    // Streaming active -> Always expanded
+    // Pending -> Expanded for visibility
+    // Completed -> Default collapsed (can be toggled)
+    // Error -> Expanded
+    const isStreaming = status === 'streaming';
+    const isPending = status === 'pending';
+    const isCompleted = status === 'completed';
+    const isError = status === 'error';
+
+    const [isOpen, setIsOpen] = useState(!defaultCollapsed);
+    const contentRef = useRef<HTMLDivElement>(null);
+    // Track if user has manually scrolled away inside this step's content
+    const userScrolledInsideRef = useRef(false);
+
+    // Auto-state management
+    useEffect(() => {
+        if (isStreaming || isPending || isError) {
+            setIsOpen(true);
+            // Reset scroll intent when step becomes active
+            userScrolledInsideRef.current = false;
+        } else if (isCompleted) {
+            setIsOpen(false);
+        }
+    }, [status]);
+
+    // Detect user scroll inside this step's content area
+    const handleInternalScroll = () => {
+        if (!contentRef.current) return;
+        const el = contentRef.current;
+        const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+        // If user scrolled away from bottom, mark it
+        if (!isAtBottom) {
+            userScrolledInsideRef.current = true;
+        } else {
+            // User scrolled back to bottom, resume auto-scroll
+            userScrolledInsideRef.current = false;
+        }
+    };
+
+    // Auto-scroll internal content when streaming (only if user hasn't scrolled away)
+    useEffect(() => {
+        if (isStreaming && contentRef.current && !userScrolledInsideRef.current) {
+            contentRef.current.scrollTop = contentRef.current.scrollHeight;
+        }
+    }, [children, isStreaming]);
+
+    const toggle = () => {
+        if (collapsible) {
+            const newState = !isOpen;
+            setIsOpen(newState);
+            // 埋点：步骤展开/收起
+            track(newState ? 'step_expand' : 'step_collapse', { step_type: label });
+        }
+    };
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex gap-4 group mb-6 relative"
+        >
+            {/* Timeline Line */}
+            {!isLast && (
+                <div className="absolute left-[15px] top-8 bottom-[-30px] w-px bg-slate-100 -z-10" />
+            )}
+
+            {/* Icon */}
+            <div className={cn(
+                "w-8 h-8 rounded-full flex items-center justify-center border shadow-sm shrink-0 z-10 transition-all duration-500",
+                isCompleted
+                    ? "bg-white border-slate-200 text-slate-400"
+                    : isPending
+                        ? "bg-white border-slate-200 text-slate-300"
+                        : `${bg} ${color} ring-2 ring-white`
+            )}>
+                {isCompleted ? (
+                    <Check className="w-4 h-4" />
+                ) : isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                    <Icon className={cn(
+                        "w-4 h-4",
+                        isStreaming && (label === "自动修复优化" ? "animate-spin" : "animate-pulse")
+                    )} />
+                )}
+            </div>
+
+            {/* Content Body */}
+            <div className="flex-1 min-w-0 pt-0.5">
+                {/* Header */}
+                <div
+                    onClick={toggle}
+                    className={cn(
+                        "flex items-center gap-2 mb-2 transition-colors -ml-2 px-2 py-1.5 rounded-lg border border-transparent",
+                        collapsible ? "cursor-pointer hover:bg-slate-100 hover:border-slate-200/60" : ""
+                    )}
+                >
+                    <span className={cn(
+                        "text-sm font-semibold select-none",
+                        isPending ? "text-slate-400" : color
+                    )}>
+                        {label}
+                    </span>
+
+                    {/* Status Indicators */}
+                    {isStreaming && (
+                        <div className="flex gap-0.5 items-end h-3 mb-0.5 ml-2">
+                            <span className="w-1 h-1 bg-current rounded-full animate-bounce [animation-delay:0ms]" />
+                            <span className="w-1 h-1 bg-current rounded-full animate-bounce [animation-delay:150ms]" />
+                            <span className="w-1 h-1 bg-current rounded-full animate-bounce [animation-delay:300ms]" />
+                        </div>
+                    )}
+
+
+
+                    {/* Toggle Indicator - Always Visible for Affordance */}
+                    {collapsible && !isStreaming && !isPending && (
+                        <div className="ml-auto flex items-center gap-1.5 transition-opacity text-slate-400 hover:text-slate-600">
+                            <span className="text-[10px] font-medium">
+                                {isOpen ? "收起" : "展开"}
+                            </span>
+                            {isOpen ? <ChevronDown className="w-3 h-3" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+                        </div>
+                    )}
+                </div>
+
+                {/* Content */}
+                <AnimatePresence initial={false}>
+                    {isOpen && children && (
+                        <motion.div
+                            initial={{ height: 0 }}
+                            animate={{ height: "auto" }}
+                            exit={{ height: 0 }}
+                            transition={{ duration: 0.15, ease: "easeOut" }}
+                            className="overflow-hidden"
+                        >
+                            <div
+                                ref={contentRef}
+                                onScroll={handleInternalScroll}
+                                className={cn(
+                                    "rounded-2xl border p-4 shadow-sm transition-all duration-500 mb-2 max-h-44 overflow-y-auto custom-scrollbar",
+                                    isStreaming ? "bg-white border-blue-200/60 shadow-blue-100/50" : "bg-white/50 border-slate-200/60"
+                                )}>
+                                {children}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Collapsed Preview */}
+                {!isOpen && !isPending && previewText && (
+                    <div
+                        onClick={toggle}
+                        className="text-xs text-slate-400 cursor-pointer hover:text-slate-600 transition-colors mt-1 truncate max-w-[90%] font-medium opacity-80"
+                    >
+                        {previewText.slice(0, 60)}{previewText.length > 60 ? "..." : ""}
+                    </div>
+                )}
+            </div>
+        </motion.div>
+    );
+}
+
+// ========== Specific Item Renderers ==========
+
+function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) {
+    const stepConfig: Record<string, any> = {
+        analysis: { icon: Target, label: "深度理解需求", color: "text-blue-600", bg: "bg-blue-50 border-blue-100" },
+        strategy: { icon: BrainCircuit, label: "规划工作流方案", color: "text-purple-600", bg: "bg-purple-50 border-purple-100" },
+        reflection: { icon: Lightbulb, label: "深度逻辑审查", color: "text-amber-600", bg: "bg-amber-50 border-amber-100" },
+        modified_plan: { icon: Wrench, label: "执行优化修正", color: "text-pink-600", bg: "bg-pink-50 border-pink-100" },
+        drafting: { icon: FileJson, label: "生成工作流结构", color: "text-indigo-600", bg: "bg-indigo-50 border-indigo-100" },
+        validation: { icon: CheckCircle2, label: "最终逻辑校验", color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100" },
+        retry: { icon: RefreshCw, label: "自动修复优化", color: "text-blue-600", bg: "bg-blue-50 border-blue-100" }
+    };
+
+    let config = stepConfig[item.stepType] || {
+        icon: Sparkles,
+        label: item.stepType,
+        color: "text-slate-600",
+        bg: "bg-slate-50 border-slate-100"
+    };
+
+    // Override for Validation Error
+    if (item.stepType === 'validation' && item.status === 'error') {
+        config = {
+            icon: AlertCircle,
+            label: "校验未通过",
+            color: "text-red-600",
+            bg: "bg-red-50 border-red-100"
+        };
+    }
+
+    return (
+        <UnifiedStep
+            icon={config.icon}
+            label={config.label}
+            color={config.color}
+            bg={config.bg}
+            status={item.status}
+            isLast={isLast}
+            previewText={item.content.replace(/[#*`]/g, '')} // Simple cleanup for preview
+        >
+            {item.content ? (
+                <MarkdownRenderer
+                    content={item.content}
+                    isStreaming={item.status === 'streaming'}
+                    className="text-xs leading-relaxed text-slate-600 prose-p:my-1 prose-pre:my-2 prose-li:my-0.5 [&>p]:leading-relaxed [&>ul]:my-1"
+                />
+            ) : null}
+        </UnifiedStep>
+    );
+}
+
+function ToolCallBlockRender({ item, isLast }: { item: ToolCallItem, isLast: boolean }) {
+    // Hide 'validate_flow' if it's already covered by the Validation Step to reduce noise
+    // But keep others
+    if (item.tool === 'validate_flow') return null;
+
+    return (
+        <UnifiedStep
+            icon={Terminal}
+            label={`执行工具: ${item.tool}`}
+            color="text-indigo-600"
+            bg="bg-indigo-50 border-indigo-100"
+            status={item.status === 'calling' ? 'streaming' : item.status === 'error' ? 'error' : 'completed'}
+            isLast={isLast}
+            previewText={typeof item.result === 'string' ? item.result : "JSON Result..."}
+        >
+            <div className="text-xs leading-relaxed font-mono text-slate-600 whitespace-pre-wrap break-all max-h-60 overflow-y-auto custom-scrollbar">
+                {typeof item.result === 'string' ? item.result : JSON.stringify(item.result, null, 2)}
+            </div>
+        </UnifiedStep>
+    );
+}
+
+function SuggestionBlockRender({ item, isLast }: { item: SuggestionItem, isLast: boolean }) {
+    return (
+        <UnifiedStep
+            icon={Zap}
+            label={item.scenario ? `最佳实践: ${item.scenario}` : "AI 建议"}
+            color="text-amber-600"
+            bg="bg-amber-50 border-amber-100"
+            status="completed"
+            isLast={isLast}
+            defaultCollapsed={false} // Suggestions should usually be visible? Or maybe collapsed if long. Let's keep visible.
+            previewText={item.content}
+        >
+            <div className="text-xs leading-relaxed text-slate-600 font-medium">
+                {item.content}
+            </div>
+        </UnifiedStep>
+    );
+}
+
+/**
+ * InlineClarificationCard - 内联式澄清卡片
+ * 替代原来的全屏弹窗，直接在 Feed 流中显示
+ */
+function InlineClarificationCard({ item }: { item: ClarificationItem }) {
+    const submitClarification = useFlowStore(s => s.submitClarification);
+    const currentCopilotPrompt = useFlowStore(s => s.currentCopilotPrompt);
+    const [answers, setAnswers] = useState<string[]>(new Array(item.questions.length).fill(""));
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleSubmit = async () => {
+        if (!currentCopilotPrompt) return;
+        setIsSubmitting(true);
+        try {
+            await submitClarification(currentCopilotPrompt, answers);
+        } catch (e) {
+            console.error("Failed to submit clarification", e);
+            setIsSubmitting(false);
+        }
+    };
+
+    const isAllFilled = answers.every(a => a.trim().length > 0);
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-5 shadow-lg"
+        >
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-3">
+                <HelpCircle className="w-5 h-5 text-amber-600" />
+                <span className="text-amber-700 font-bold text-base">需要更多信息</span>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">为了生成更精准的工作流，请回答以下问题：</p>
+
+            {/* Questions */}
+            <div className="space-y-3 mb-4">
+                {item.questions.map((q, idx) => (
+                    <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="flex gap-2 mb-2 items-start">
+                            <span className="text-amber-500 font-bold shrink-0">Q{idx + 1}:</span>
+                            <span className="text-sm font-medium text-slate-700">{q}</span>
+                        </div>
+                        <Input
+                            value={answers[idx]}
+                            onChange={e => {
+                                const newAnswers = [...answers];
+                                newAnswers[idx] = e.target.value;
+                                setAnswers(newAnswers);
+                            }}
+                            disabled={isSubmitting}
+                            placeholder="请输入您的回答..."
+                            className="bg-slate-50 border-slate-200 focus:bg-white transition-colors"
+                        />
+                    </div>
+                ))}
+            </div>
+
+            {/* Action Button */}
+            <div className="flex justify-end">
+                <Button
+                    onClick={handleSubmit}
+                    disabled={isSubmitting || !isAllFilled}
+                    className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-md"
+                >
+                    {isSubmitting ? (
+                        <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            提交中...
+                        </>
+                    ) : (
+                        <>
+                            确认并继续生成
+                            <ArrowRight className="w-4 h-4 ml-2" />
+                        </>
+                    )}
+                </Button>
+            </div>
+        </motion.div>
+    );
+}
+
+/**
+ * PlanPreviewCard - 任务规划预览卡片（内联式）
+ * 替代 StandaloneClarificationCard，无全屏遮罩
+ */
+function PlanPreviewCard({ item }: { item: PlanItem }) {
+    const confirmPlan = useFlowStore(s => s.confirmPlan);
+    const adjustPlan = useFlowStore(s => s.adjustPlan);
+    const [isEditMode, setIsEditMode] = useState(false);
+    const [feedback, setFeedback] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleConfirm = async () => {
+        setIsSubmitting(true);
+        try {
+            await confirmPlan();
+        } catch (e) {
+            console.error("Failed to confirm plan", e);
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleAdjust = async () => {
+        if (!feedback.trim()) return;
+        setIsSubmitting(true);
+        try {
+            await adjustPlan(feedback);
+        } catch (e) {
+            console.error("Failed to adjust plan", e);
+            setIsSubmitting(false);
+        }
+    };
+
+    // Check if we have the new structured data
+    const { refinedIntent, workflowNodes, useCases, howToUse } = item;
+    const hasNewFormat = !!(refinedIntent || (workflowNodes && workflowNodes.length > 0));
+
+    // Helper to get icon for node type
+    const getNodeIcon = (type: string) => {
+        const t = type.toLowerCase();
+        if (t.includes('input')) return LogIn;
+        if (t.includes('output')) return LogOut;
+        if (t.includes('llm') || t.includes('ai')) return Sparkles;
+        if (t.includes('code')) return Code;
+        if (t.includes('web') || t.includes('api')) return Globe;
+        if (t.includes('rag') || t.includes('db')) return Database;
+        if (t.includes('tool')) return Wrench;
+        if (t.includes('image')) return ImageIcon;
+        return Layers; // Default
+    };
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-5 shadow-lg"
+        >
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-4">
+                <CheckCircle2 className="w-5 h-5 text-blue-600" />
+                <span className="text-blue-700 font-bold text-base">任务规划</span>
+            </div>
+
+            {hasNewFormat ? (
+                <div className="space-y-6 mb-6">
+                    {/* 1. Intent - Clean, No Label */}
+                    <div className="text-sm text-slate-800 font-medium leading-relaxed bg-white/60 p-3 rounded-xl border border-blue-100">
+                        <span className="text-blue-600 font-bold">猜你想要：</span>
+                        {refinedIntent || item.userPrompt}
+                    </div>
+
+                    {/* 2. Visual Workflow Diagram */}
+                    {workflowNodes && workflowNodes.length > 0 && (
+                        <div className="relative">
+                            <div className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wide flex items-center gap-1 pl-1">
+                                <Box className="w-3 h-3" /> 核心流程
+                            </div>
+
+                            <div className="flex flex-col md:flex-row flex-wrap items-start gap-3">
+                                {workflowNodes.map((node, i) => {
+                                    const NodeIcon = getNodeIcon(node.type || 'default');
+                                    return (
+                                        <div key={i} className="flex items-center group relative">
+                                            {/* Node Card */}
+                                            <div className="flex flex-col gap-1.5 bg-white p-3 rounded-xl border border-slate-200 shadow-sm w-[140px] h-[90px] hover:border-blue-300 hover:shadow-md transition-all">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <div className="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                                                        <NodeIcon className="w-3.5 h-3.5" />
+                                                    </div>
+                                                    <div className="text-xs font-bold text-slate-700 truncate" title={node.label}>{node.label}</div>
+                                                </div>
+                                                <div className="text-[10px] text-slate-500 leading-snug line-clamp-2">
+                                                    {node.description}
+                                                </div>
+                                            </div>
+
+                                            {/* Arrow (except last) */}
+                                            {i < workflowNodes.length - 1 && (
+                                                <ArrowRight className="w-4 h-4 text-slate-300 mx-2 hidden md:block" />
+                                            )}
+                                            {/* Arrow for mobile (vertical) */}
+                                            {i < workflowNodes.length - 1 && (
+                                                <ArrowRight className="w-4 h-4 text-slate-300 my-1 mx-auto rotate-90 md:hidden md:rotate-0" />
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* 3. Use Cases */}
+                        {useCases && useCases.length > 0 && (
+                            <div className="bg-blue-50/50 rounded-xl p-3 border border-blue-100">
+                                <div className="text-xs font-bold text-blue-600 mb-2 flex items-center gap-1">
+                                    <Target className="w-3 h-3" /> 适用场景
+                                </div>
+                                <ul className="space-y-1">
+                                    {useCases.map((useCase, i) => (
+                                        <li key={i} className="text-xs text-slate-600 flex items-start gap-1.5 leading-snug">
+                                            <span className="mt-1.5 w-1 h-1 rounded-full bg-blue-400 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <MarkdownRenderer content={useCase} className="text-xs text-slate-600 [&>p]:leading-snug [&>p]:my-0" />
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* 4. How To Use */}
+                        {howToUse && howToUse.length > 0 && (
+                            <div className="bg-emerald-50/50 rounded-xl p-3 border border-emerald-100">
+                                <div className="text-xs font-bold text-emerald-600 mb-2 flex items-center gap-1">
+                                    <BookOpen className="w-3 h-3" /> 使用方法
+                                </div>
+                                <ol className="space-y-1">
+                                    {howToUse.map((step, i) => (
+                                        <li key={i} className="text-xs text-slate-600 flex items-start gap-1.5 leading-snug">
+                                            <span className="font-mono text-emerald-500 font-bold text-[10px] mt-0.5">{i + 1}.</span>
+                                            <div className="flex-1 min-w-0">
+                                                <MarkdownRenderer content={step} className="text-xs text-slate-600 [&>p]:leading-snug [&>p]:my-0" />
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ol>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ) : (
+                /* Legacy View */
+                <>
+                    <div className="mb-3">
+                        <span className="text-xs text-slate-500">• 用户问题: </span>
+                        <span className="text-sm text-slate-700 font-medium">{item.userPrompt}</span>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4 space-y-2">
+                        {item.steps.map((step, idx) => (
+                            <div key={idx} className="text-sm text-slate-600 leading-relaxed">
+                                <span className="font-mono text-blue-600 mr-2">{idx + 1}.</span>
+                                {step}
+                            </div>
+                        ))}
+                    </div>
+                </>
+            )}
+
+            {/* Edit Mode - Feedback Input */}
+            {isEditMode && (
+                <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    className="mb-4"
+                >
+                    <textarea
+                        value={feedback}
+                        onChange={e => setFeedback(e.target.value)}
+                        placeholder="请输入修改意见"
+                        disabled={isSubmitting}
+                        className="w-full min-h-[100px] p-3 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:bg-white transition-all resize-none"
+                    />
+                </motion.div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-3">
+                {!isEditMode ? (
+                    <>
+                        <Button
+                            variant="outline"
+                            onClick={() => setIsEditMode(true)}
+                            disabled={isSubmitting}
+                            className="rounded-xl"
+                        >
+                            调整规划
+                        </Button>
+                        <Button
+                            onClick={handleConfirm}
+                            disabled={isSubmitting}
+                            className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md"
+                        >
+                            {isSubmitting ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    处理中...
+                                </>
+                            ) : (
+                                <>
+                                    开始任务
+                                    <ArrowRight className="w-4 h-4 ml-2" />
+                                </>
+                            )}
+                        </Button>
+                    </>
+                ) : (
+                    <>
+                        <Button
+                            variant="outline"
+                            onClick={() => { setIsEditMode(false); setFeedback(""); }}
+                            disabled={isSubmitting}
+                            className="rounded-xl"
+                        >
+                            取消
+                        </Button>
+                        <Button
+                            onClick={handleAdjust}
+                            disabled={isSubmitting || !feedback.trim()}
+                            className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md"
+                        >
+                            {isSubmitting ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    处理中...
+                                </>
+                            ) : (
+                                "确认并执行"
+                            )}
+                        </Button>
+                    </>
+                )}
+            </div>
+        </motion.div>
+    );
+}
+
+
+// Legacy ClarificationBlockRender kept for Feed history display (read-only)
+function ClarificationBlockRender({ item, isLast }: { item: ClarificationItem, isLast: boolean }) {
+    return (
+        <UnifiedStep
+            icon={HelpCircle}
+            label="需要澄清意图"
+            color="text-amber-600"
+            bg="bg-amber-50 border-amber-100"
+            status="completed"
+            isLast={isLast}
+            defaultCollapsed={true}
+            previewText={item.questions[0] || "澄清问题"}
+        >
+            <div className="text-xs text-slate-500">
+                {item.questions.map((q, i) => (
+                    <div key={i} className="mb-1">Q{i + 1}: {q}</div>
+                ))}
+            </div>
+        </UnifiedStep>
+    );
+}
+
+function HistoryPlanBlockRender({ item, isLast }: { item: PlanItem, isLast: boolean }) {
+    const { refinedIntent, workflowNodes } = item;
+    const hasNewFormat = !!(refinedIntent || (workflowNodes && workflowNodes.length > 0));
+
+    return (
+        <UnifiedStep
+            icon={GitGraph}
+            label="已调整规划 (历史版本)"
+            color="text-slate-400"
+            bg="bg-slate-50 border-slate-100"
+            status="completed"
+            isLast={isLast}
+            defaultCollapsed={true}
+            previewText={refinedIntent || item.userPrompt}
+        >
+            <div className="opacity-75 grayscale-[0.5]">
+                <div className="text-xs font-bold text-slate-500 mb-2">版本快照</div>
+                {hasNewFormat ? (
+                    <div className="space-y-3">
+                        <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-100">
+                            <span className="font-bold">意图:</span> {refinedIntent || item.userPrompt}
+                        </div>
+                        {workflowNodes && (
+                            <div className="flex flex-wrap gap-2">
+                                {workflowNodes.map((n, i) => (
+                                    <div key={i} className="text-[10px] px-2 py-1 bg-white border border-slate-200 rounded text-slate-500">
+                                        {n.label}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="space-y-1">
+                        {item.steps.map((step, idx) => (
+                            <div key={idx} className="text-xs text-slate-500">
+                                {idx + 1}. {step}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </UnifiedStep>
+    );
+}
+
+// ========== Next Step Prediction Logic ==========
+
+function NextStepPreview({ lastItem, isCompleted }: { lastItem: FeedItem | undefined, isCompleted: boolean }) {
+    if (isCompleted) return null;
+
+    let nextStepConfig = null;
+
+    if (!lastItem) {
+        nextStepConfig = { icon: Target, label: "准备开始..." };
+    } else if (lastItem.type === 'step') {
+        const step = lastItem as StepItem;
+        if (step.status === 'completed') {
+            switch (step.stepType) {
+                case 'analysis':
+                    nextStepConfig = { icon: BrainCircuit, label: "规划工作流方案" };
+                    break;
+                case 'strategy':
+                    nextStepConfig = { icon: Lightbulb, label: "深度逻辑审查" };
+                    break;
+                case 'reflection':
+                    // After reflection comes modified_plan (optimization)
+                    nextStepConfig = { icon: Wrench, label: "执行优化修正" };
+                    break;
+                case 'modified_plan':
+                    // After modified_plan comes drafting
+                    nextStepConfig = { icon: FileJson, label: "生成工作流结构" };
+                    break;
+                case 'drafting':
+                    // After drafting comes validation
+                    nextStepConfig = { icon: CheckCircle2, label: "最终逻辑校验" };
+                    break;
+                case 'validation':
+                    // If validation IS completed, that usually means success (no error status)
+                    // If warnings exist, it's still 'completed'. 
+                    // However, if we wanted to show next steps after validation?
+                    // Usually validation is the last step unless suggestions follow.
+                    break;
+                case 'retry':
+                    // After retry, we go back to validation
+                    nextStepConfig = { icon: CheckCircle2, label: "最终逻辑校验" };
+                    break;
+            }
+        } else if (step.status === 'error' && step.stepType === 'validation') {
+            nextStepConfig = { icon: RefreshCw, label: "自动修复优化" };
+        }
+    } else if (lastItem.type === 'tool-call') {
+        // If a tool call just finished, maybe Suggestion next?
+        nextStepConfig = { icon: Zap, label: "生成建议" };
+    }
+
+    if (!nextStepConfig) return null;
+
+    return (
+        <UnifiedStep
+            icon={nextStepConfig.icon}
+            label={nextStepConfig.label}
+            color="text-slate-400"
+            bg="bg-slate-50"
+            status="pending"
+            isLast={true}
+            collapsible={false}
+        />
+    );
+}
+
+
+// ========== Main Component ==========
+
+export default function AgentCopilotOverlay() {
+    const copilotStatus = useFlowStore((s) => s.copilotStatus);
+    const feed = useFlowStore((s) => s.copilotFeed);
+    const copilotMode = useFlowStore((s) => s.copilotMode);
+
+    // Auto-scroll refs
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    // CRITICAL: Track user intent - has user manually scrolled away from bottom?
+    const userHasScrolledAwayRef = useRef(false);
+
+    // Detect user scroll intent in REAL-TIME via onScroll event
+    // This is the KEY fix - we capture user intent immediately, not in useEffect
+    const handleMainScroll = () => {
+        if (!scrollContainerRef.current) return;
+        const el = scrollContainerRef.current;
+        const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+
+        if (isAtBottom) {
+            // User scrolled back to bottom - resume auto-scroll
+            userHasScrolledAwayRef.current = false;
+        } else {
+            // User scrolled away from bottom - stop auto-scroll
+            userHasScrolledAwayRef.current = true;
+        }
+    };
+
+    // Auto-scroll to bottom when new content arrives (ONLY if user hasn't scrolled away)
+    useEffect(() => {
+        // Skip if user has explicitly scrolled away
+        if (userHasScrolledAwayRef.current) return;
+
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTo({
+                top: scrollContainerRef.current.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+    }, [feed.length, feed]);
+
+    // Only render if active AND in Agent mode
+    if (copilotStatus === "idle" || copilotMode !== "agent") return null;
+
+    const isCompleted = copilotStatus === "completed";
+    const isAwaitingInput = copilotStatus === "awaiting_input";
+    const isAwaitingPlanConfirm = copilotStatus === "awaiting_plan_confirm";
+
+    // Extract clarification items and filter Feed
+    const lastClarification = useMemo(() => {
+        const clarifications = feed.filter(f => f.type === 'clarification') as ClarificationItem[];
+        return clarifications.length > 0 ? clarifications[clarifications.length - 1] : null;
+    }, [feed]);
+
+    // Filter out clarification from Feed when awaiting input (shown separately)
+    const filteredFeed = useMemo(() => {
+        if (isAwaitingInput) {
+            return feed.filter(f => f.type !== 'clarification');
+        }
+        return feed;
+    }, [feed, isAwaitingInput]);
+
+    const lastFeedItem = filteredFeed.length > 0 ? filteredFeed[filteredFeed.length - 1] : undefined;
+
+    return (
+        <AnimatePresence>
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[100] flex items-center justify-center bg-white/40 backdrop-blur-sm p-4 md:p-6"
+            >
+                {/* Main Container */}
+                <motion.div
+                    layoutId="agent-container"
+                    className="w-full max-w-3xl bg-white/95 backdrop-blur-xl border border-white/20 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.02)] overflow-hidden flex flex-col min-h-[600px] max-h-[85vh] relative"
+                >
+                    {/* Header */}
+                    <div className="h-16 border-b border-slate-100/80 bg-white/50 flex items-center justify-between px-6 shrink-0 z-20">
+                        <div className="flex items-center gap-3">
+                            <div className={cn(
+                                "p-2 rounded-xl transition-colors shadow-sm",
+                                isCompleted ? "bg-emerald-50 text-emerald-600" : "bg-indigo-50 text-indigo-600"
+                            )}>
+                                {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
+                            </div>
+                            <div className="flex flex-col justify-center">
+                                <span className="text-sm font-semibold text-slate-800 tracking-tight">
+                                    {isCompleted ? "工作流与方案已就绪" : "AI 正在深入思考"}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Right Actions: Removed ESC */}
+                        <div />
+                    </div>
+
+                    {/* Feed Content - Overscroll Contain for "Natural Scrolling" */}
+                    <div
+                        ref={scrollContainerRef}
+                        onScroll={handleMainScroll}
+                        className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent bg-slate-50/30 overscroll-contain"
+                    >
+                        {/* FIX: Add key based on first item ID to force full remount on new session */}
+                        {/* This prevents "flash" of old items animating out when feed is reset */}
+                        <AnimatePresence mode="popLayout" key={filteredFeed[0]?.id || 'empty'}>
+                            {filteredFeed.map((item, index) => {
+                                // Decide if the connector line should be shown
+                                const hasPreview = !isCompleted && !isAwaitingInput;
+                                const isLastItem = index === filteredFeed.length - 1;
+                                const showConnector = !isLastItem || hasPreview;
+
+                                switch (item.type) {
+                                    case 'step':
+                                        return <StepBlockRender key={item.id} item={item as StepItem} isLast={!showConnector} />;
+
+                                    case 'tool-call':
+                                        return <ToolCallBlockRender key={item.id} item={item as ToolCallItem} isLast={!showConnector} />;
+
+                                    case 'suggestion':
+                                        return <SuggestionBlockRender key={item.id} item={item as SuggestionItem} isLast={!showConnector} />;
+
+                                    case 'clarification':
+                                        // Render inline when awaiting input, or as read-only historical record
+                                        if (isAwaitingInput && isLastItem) {
+                                            return <InlineClarificationCard key={item.id} item={item as ClarificationItem} />;
+                                        }
+                                        // Historical - show read-only block
+                                        return <ClarificationBlockRender key={item.id} item={item as ClarificationItem} isLast={!showConnector} />;
+
+                                    case 'plan':
+                                        // Render PlanPreviewCard inline in the feed
+                                        if (isAwaitingPlanConfirm && isLastItem) {
+                                            return <PlanPreviewCard key={item.id} item={item as PlanItem} />;
+                                        }
+                                        // Historical plan - show as read-only block
+                                        return <HistoryPlanBlockRender key={item.id} item={item as PlanItem} isLast={!showConnector} />;
+
+                                    default:
+                                        return null;
+                                }
+                            })}
+
+                            {/* Predictive Loading State */}
+                            {!isCompleted && !isAwaitingInput && !isAwaitingPlanConfirm && (
+                                <NextStepPreview key="preview" lastItem={lastFeedItem} isCompleted={isCompleted} />
+                            )}
+                        </AnimatePresence>
+
+                        {/* Spacer*/}
+                        <div className="h-12" />
+                    </div>
+
+                    {/* Fixed Footer - Completed State */}
+                    {isCompleted && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="absolute bottom-0 inset-x-0 p-6 bg-gradient-to-t from-white via-white/90 to-transparent shrink-0 z-30 flex justify-center"
+                        >
+                            <button
+                                onClick={() => useFlowStore.setState({ copilotStatus: 'idle' })}
+                                className="group relative flex items-center gap-3 px-8 py-3.5 bg-slate-900 text-white text-sm font-bold rounded-full hover:bg-slate-800 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 shadow-xl shadow-slate-900/20"
+                            >
+                                <span>进入工作流</span>
+                                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                            </button>
+                        </motion.div>
+                    )}
+
+                    {/* Clarification is now rendered inline in feed, no footer modal needed */}
+
+                </motion.div>
+            </motion.div>
+        </AnimatePresence>
+    );
+}

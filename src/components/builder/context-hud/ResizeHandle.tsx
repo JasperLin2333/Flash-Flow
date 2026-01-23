@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
+
 interface ResizeHandleProps {
     /** Current panel width */
     width: number;
@@ -79,21 +80,11 @@ export function ResizeHandle({
         <div
             className={cn(
                 // Position on left edge
-                "absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10",
-                // Visual feedback
-                "transition-colors duration-150",
-                // Hover state
-                "hover:bg-gray-300",
-                // Dragging state
-                isDragging && "bg-gray-400"
+                "absolute left-0 top-0 bottom-0 w-5 cursor-col-resize z-50 flex items-center group",
+                // Visual feedback for the area
+                "start-0"
             )}
             onMouseDown={handleMouseDown}
-            // Extend clickable area with pseudo-element styling
-            style={{
-                // Expand hit area for easier grabbing
-                marginLeft: "-2px",
-                paddingRight: "4px",
-            }}
         >
             {/* Visual indicator line */}
             <div
@@ -104,6 +95,21 @@ export function ResizeHandle({
                     isDragging ? "bg-gray-400" : "hover:bg-gray-300"
                 )}
             />
+            {/* Draggable Icon Handle */}
+            <div
+                className={cn(
+                    "flex items-center justify-center w-4 h-8 z-10"
+                )}
+            >
+                <div
+                    className={cn(
+                        "w-1 h-4 rounded-full transition-colors duration-200",
+                        isDragging
+                            ? "bg-gray-600"
+                            : "bg-gray-300 group-hover:bg-gray-400"
+                    )}
+                />
+            </div>
         </div>
     );
 }

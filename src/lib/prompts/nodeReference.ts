@@ -32,6 +32,10 @@ type FormFieldConfig =
   | { type: "select"; name: string; label: string; options: string[]; required: boolean; defaultValue?: string }
   | { type: "text"; name: string; label: string; placeholder?: string; required: boolean; defaultValue?: string }
   | { type: "multi-select"; name: string; label: string; options: string[]; required: boolean; defaultValue?: string[] };
+  
+  // 🔴 关键约束:
+  // 1. name: 必须是纯英文变量名 (camelCase/snake_case)，禁止中文/括号/空格。如 "topic", "art_style"
+  // 2. label: 面向用户的展示名称，可以是中文。如 "文章主题", "艺术风格"
 \`\`\`
 
 ### 1.2 输出变量 (供下游引用)
@@ -68,8 +72,11 @@ interface LLMNodeData {
   responseFormat?: "text" | "json_object"; // 默认: "text"
   
   inputMappings?: {
-    user_input?: string;          // 如 "{{Input.user_input}}"
+    user_input?: string;          // 如 "{{用户输入.user_input}}"
   };
+  // 🔴 inputMappings 的 Key 必须是纯英文，禁止中文。
+  // ✅ inputMappings: { "context": "...", "topic": "..." }
+  // ❌ inputMappings: { "用户输入": "..." }
 }
 \`\`\`
 
@@ -77,7 +84,7 @@ interface LLMNodeData {
 | 变量 | 类型 | 说明 |
 |------|------|------|
 | \`response\` | string \\| object | LLM 生成的内容。当 responseFormat="json_object" 时为 JSON 对象 |
-| \`response.字段名\` | any | JSON 模式下可直接访问字段，如 \`{{LLM.response.title}}\`, \`{{LLM.response.items[0]}}\` |
+| \`response.字段名\` | any | JSON 模式下可直接访问字段，如 \`{{翻译节点.response.title}}\`, \`{{翻译节点.response.items[0]}}\` |
 
 ### 2.3 参数可选值
 **model 推荐选择策略**:
@@ -100,17 +107,17 @@ interface LLMNodeData {
 
 ### 2.4 设计指南
 > 🔴 **输入隔离原则**
-> - System Prompt: 静态人设 + 动态上下文 (\`{{RAG.documents}}\`)
-> - User Input: 当前指令 (\`{{Input.user_input}}\`)
+> - System Prompt: 静态人设 + 动态上下文 (\`{{RAG节点.documents}}\`)
+> - User Input: 当前指令 (\`{{用户输入.user_input}}\`)
 
 > 🟢 **JSON 模式协议 (关键)**
 > 当下游节点需要引用 LLM 输出的**特定字段**时 (如用于 Branch 判断或 Code Interpreter 参数):
 > 1. **必须开启**: 设置 \`responseFormat: "json_object"\`.
 > 2. **Prompt 约束**: System Prompt 必须包含 "Output JSON" 并定义 Schema，例如: \`{"key": "value"}\`.
 > 3. **精准引用**: 下游**必须**使用 \`{{节点.response.字段名}}\`。
->    - ❌ \`{{LLM.response}}\` -> \`"{ \\"status\\": \\"ok\\" }"\` (字符串)
->    - ✅ \`{{LLM.response.status}}\` -> \`"ok"\` (值)
->    - ✅ \`{{LLM.response.items[0]}}\` -> (数组首项)
+>    - ❌ \`{{翻译节点.response}}\` -> \`"{ \\"status\\": \\"ok\\" }"\` (字符串)
+>    - ✅ \`{{翻译节点.response.status}}\` -> \`"ok"\` (值)
+>    - ✅ \`{{翻译节点.response.items[0]}}\` -> (数组首项)
 
 ---
 
@@ -124,8 +131,8 @@ interface RAGNodeData {
   
   // 动态模式 (fileMode="variable")
   inputMappings?: {
-    query?: string;     // 必填，如 "{{Input.user_input}}"
-    files?: string;     // 必填 (主槽位)，如 "{{Input.files}}"
+    query?: string;     // 必填，如 "{{用户输入.user_input}}"
+    files?: string;     // 必填 (主槽位)，如 "{{用户输入.files}}"
     files2?: string;    // 可选 (槽位2)
     files3?: string;    // 可选 (槽位3)
   };
@@ -236,7 +243,7 @@ interface BranchNodeData {
 | 字符串 | \`.includes()\`, \`.startsWith()\`, \`.endsWith()\` |
 | 逻辑 | \`&&\`, \`||\` |
 
-**示例**: \`{{LLM.response}}.includes("成功")\`
+**示例**: \`{{翻译节点.response}}.includes("成功")\`
 
 ---
 
@@ -254,7 +261,7 @@ interface ImageGenNodeData {
   numInferenceSteps?: number; // (建议显式设置)
   
   referenceImageMode?: "variable" | "static";
-  referenceImageVariable?: string;  // 如 "{{Input.files[0].url}}"
+  referenceImageVariable?: string;  // 如 "{{用户输入.files[0].url}}"
 }
 \`\`\`
 
@@ -294,14 +301,14 @@ interface OutputNodeData {
     
     sources?: Array<{
       type: "variable" | "static";
-      value: string;           // 如 "{{LLM.response}}"
+      value: string;           // 如 "{{翻译节点.response}}"
     }>;
     
     template?: string;         // mode="template" 时必填
     
     attachments?: Array<{
       type: "variable" | "static";
-      value: string;           // 如 "{{ImageGen.imageUrl}}"
+      value: string;           // 如 "{{绘图节点.imageUrl}}"
     }>;
   };
 }

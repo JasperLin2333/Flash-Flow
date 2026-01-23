@@ -273,7 +273,73 @@ export interface DialogDataMap {
 }
 
 
+
+// ============ Agent Feed Types ============
+
+export type FeedItemType = 'thought' | 'tool-call' | 'suggestion' | 'progress' | 'step' | 'clarification' | 'plan';
+
+export interface BaseFeedItem {
+  id: string;
+  type: FeedItemType;
+  timestamp: number;
+}
+
+export interface ThoughtItem extends BaseFeedItem {
+  type: 'thought';
+  content: string;
+  isComplete: boolean;
+}
+
+export interface ToolCallItem extends BaseFeedItem {
+  type: 'tool-call';
+  tool: string;
+  status: 'calling' | 'completed' | 'error';
+  result?: unknown;
+}
+
+export interface SuggestionItem extends BaseFeedItem {
+  type: 'suggestion';
+  content: string;
+  scenario?: string;
+}
+
+export interface StepItem extends BaseFeedItem {
+  type: 'step';
+  stepType: string;
+  status: 'streaming' | 'completed' | 'error';
+  content: string;
+}
+
+export interface ProgressItem extends BaseFeedItem {
+  type: 'progress';
+  content: string;
+}
+
+export interface ClarificationItem extends BaseFeedItem {
+  type: 'clarification';
+  questions: string[];
+}
+
+export interface PlanItem extends BaseFeedItem {
+  type: 'plan';
+  userPrompt: string;
+  steps: string[];
+  status: 'awaiting_confirm' | 'confirmed' | 'adjusting';
+  // 新增：用户友好的结构化信息
+  refinedIntent?: string;      // 补全后的用户意图（如"翻译"→"将文本从一种语言翻译成另一种语言"）
+  workflowNodes?: {            // 工作流节点概览
+    type: string;              // 节点类型 (input, llm, output, etc.)
+    label: string;             // 节点名称
+    description: string;       // 节点功能描述
+  }[];
+  useCases?: string[];         // 适用场景
+  howToUse?: string[];         // 使用方法步骤
+}
+
+export type FeedItem = ThoughtItem | ToolCallItem | SuggestionItem | ProgressItem | StepItem | ClarificationItem | PlanItem;
+
 // Complete FlowStore State Type
+
 export type FlowState = {
   // State
   nodes: AppNode[];
@@ -290,9 +356,12 @@ export type FlowState = {
   flowContext: FlowContext;
   interactionMode: "select" | "pan";
   isAppMode: boolean;
-  copilotStatus: "idle" | "thinking" | "completed";
+  copilotStatus: "idle" | "thinking" | "completed" | "awaiting_input" | "awaiting_plan_confirm";
+  copilotMode: "classic" | "agent";
   copilotStep: number;
   copilotBackdrop: "blank" | "overlay";
+  copilotFeed: FeedItem[];
+  currentCopilotPrompt: string | null;
 
   // Streaming state for real-time AI response
   streamingText: string;
@@ -324,7 +393,6 @@ export type FlowState = {
   // inputPromptOpen: boolean;
   // inputPromptTargetNodeId: string | null;  // null = 显示所有 Input 节点
 
-
   // Node Actions
   addNode: (type: NodeKind, position: { x: number; y: number }, data?: Partial<AppNodeData>) => void;
   updateNodeData: (id: string, data: Partial<AppNodeData>) => void;
@@ -351,9 +419,14 @@ export type FlowState = {
 
   // Copilot Actions
   startCopilot: (prompt: string) => Promise<void>;
+  startAgentCopilot: (prompt: string, options?: { enableClarification?: boolean }) => Promise<void>;  // Agent 版本 (带思维链)
+  submitClarification: (originalPrompt: string, answers: string[]) => Promise<void>; // [New]
   optimizeLayout: () => void;
   setCopilotBackdrop: (b: "blank" | "overlay") => void;
-  setCopilotStatus: (status: "idle" | "thinking" | "completed") => void;
+  setCopilotStatus: (status: "idle" | "thinking" | "completed" | "awaiting_input" | "awaiting_plan_confirm") => void;
+  confirmPlan: () => Promise<void>;
+  adjustPlan: (feedback: string) => Promise<void>;
+  setCopilotFeed: (feed: FeedItem[]) => void;
 
   // Simple Setters
   setFlowTitle: (title: string) => void;
@@ -513,4 +586,28 @@ export function getTypedNodeData<T extends NodeKind>(
   AppNodeData | undefined {
   if (node.type !== expectedType) return undefined as any;
   return node.data as any;
+}
+
+/** Agent SSE Event Type */
+export interface SSEEvent {
+  type: string;
+  content?: string;
+  tool?: string;
+  args?: unknown;
+  result?: unknown;
+  nodes?: unknown[];
+  edges?: unknown[];
+  warnings?: string[];
+  title?: string;
+  scenario?: string;
+  stepType?: string;
+  status?: string;
+  questions?: string[];
+  // Plan event fields
+  steps?: string[];
+  userPrompt?: string;
+  refinedIntent?: string;
+  workflowNodes?: { type: string; label: string; description: string }[];
+  useCases?: string[];
+  howToUse?: string[];
 }

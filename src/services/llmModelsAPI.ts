@@ -172,13 +172,19 @@ export const llmModelsAPI = {
                 .single();
 
             if (error) {
-                console.error(`[llmModelsAPI] getModelByModelId error for ${modelId}:`, error);
+                console.warn(`[llmModelsAPI] getModelByModelId DB error for ${modelId}, trying defaults`);
+                // Fallback: try to find in default models
+                const defaultModel = getDefaultModels().find(m => m.model_id === modelId);
+                if (defaultModel) return defaultModel;
                 return null;
             }
 
             return data as unknown as LLMModel;
         } catch (e) {
             console.error(`[llmModelsAPI] getModelByModelId exception for ${modelId}:`, e);
+            // Fallback: try to find in default models
+            const defaultModel = getDefaultModels().find(m => m.model_id === modelId);
+            if (defaultModel) return defaultModel;
             return null;
         }
     },
