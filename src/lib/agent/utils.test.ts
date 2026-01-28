@@ -34,6 +34,22 @@ describe('Agent Utils', () => {
             const input = '{"nodes": [{"data": {"info": "{}"}}], "edges": []}';
             expect(extractBalancedJson(input)).toBe('{"nodes": [{"data": {"info": "{}"}}], "edges": []}');
         });
+
+        it('should skip invalid JSON blocks and find the valid one', () => {
+            const input = `
+                Some thoughts with partial json: {"nodes": []} 
+                Final JSON: {"nodes": ["real"], "edges": []}
+            `;
+            expect(extractBalancedJson(input)).toBe('{"nodes": ["real"], "edges": []}');
+        });
+
+        it('should return the last valid JSON block if multiple exist', () => {
+            const input = `
+                First: {"nodes": ["1"], "edges": []}
+                Second: {"nodes": ["2"], "edges": []}
+            `;
+            expect(extractBalancedJson(input)).toBe('{"nodes": ["2"], "edges": []}');
+        });
     });
 
     describe('validateWorkflow - Structure Healing', () => {

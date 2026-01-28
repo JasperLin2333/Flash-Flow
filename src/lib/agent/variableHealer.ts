@@ -1,5 +1,5 @@
 import { AppNode } from "@/types/flow";
-import { extractVariables } from "@/lib/promptParser";
+import { extractVariables, escapeRegExp } from "@/lib/promptParser";
 
 /**
  * 变量自愈结果接口
@@ -99,8 +99,9 @@ export function healVariables(nodes: any[]): HealerResult {
                     if (idToLabelMap.has(prefix)) {
                         const correctLabel = idToLabelMap.get(prefix)!;
                         const newVarName = [correctLabel, ...parts.slice(1)].join('.');
-                        // 全局替换该变量
-                        newValue = newValue.replace(new RegExp(`\\{\\{\\s*${varName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
+                        // 全局替换该变量 (注意转义 varName)
+                        const escapedVarName = escapeRegExp(varName);
+                        newValue = newValue.replace(new RegExp(`\\{\\{\\s*${escapedVarName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
                         modified = true;
                         fixes.push(`Node '${nodeId}': Auto-fixed ID reference '{{${varName}}}' to '{{${newVarName}}}'`);
                         continue;
@@ -129,7 +130,8 @@ export function healVariables(nodes: any[]): HealerResult {
                         const correctLabel = typeToLabelMap.get(normalizedType);
                         if (correctLabel) {
                             const newVarName = [correctLabel, ...parts.slice(1)].join('.');
-                            newValue = newValue.replace(new RegExp(`\\{\\{\\s*${varName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
+                            const escapedVarName = escapeRegExp(varName);
+                            newValue = newValue.replace(new RegExp(`\\{\\{\\s*${escapedVarName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
                             modified = true;
                             fixes.push(`Node '${nodeId}': Auto-fixed Singleton Type reference '{{${varName}}}' to '{{${newVarName}}}'`);
                             continue;
@@ -142,7 +144,8 @@ export function healVariables(nodes: any[]): HealerResult {
                     const matchedLabel = allLabels.find(l => l.replace(/\s+/g, '').toLowerCase() === cleanPrefix);
                     if (matchedLabel) {
                         const newVarName = [matchedLabel, ...parts.slice(1)].join('.');
-                        newValue = newValue.replace(new RegExp(`\\{\\{\\s*${varName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
+                        const escapedVarName = escapeRegExp(varName);
+                        newValue = newValue.replace(new RegExp(`\\{\\{\\s*${escapedVarName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
                         modified = true;
                         fixes.push(`Node '${nodeId}': Auto-fixed typo '{{${varName}}}' to '{{${newVarName}}}'`);
                         continue;

@@ -710,11 +710,8 @@ export async function POST(req: Request) {
                         // Parse and validate result
                         let parsedResult: { title?: string; nodes?: unknown[]; edges?: unknown[] } = {};
                         try {
-                            // Clean steps tags to extract JSON
-                            let cleanedText = accumulatedText.replace(/<step[\s\S]*?<\/step>/g, "");
-                            cleanedText = cleanedText.replace(/<thinking>[\s\S]*?<\/thinking>/g, ""); // Legacy support
-
-                            const jsonMatch = extractBalancedJson(cleanedText);
+                            // 使用增强后的提取器，不再预先删除 step 标签，以防 JSON 在标签内
+                            const jsonMatch = extractBalancedJson(accumulatedText);
                             if (jsonMatch) {
                                 parsedResult = JSON.parse(jsonMatch);
                             }
@@ -726,6 +723,12 @@ export async function POST(req: Request) {
 
                         const nodes = parsedResult.nodes || [];
                         const edges = parsedResult.edges || [];
+
+                        if (nodes.length === 0) {
+                            lastError = "No valid JSON workflow found in the output";
+                            validationAttempt++;
+                            continue;
+                        }
 
                         // Emit Drafting Step (Completed)
                         // This visualizes the "Structure Generation" phase
@@ -929,14 +932,19 @@ export async function POST(req: Request) {
                                 })}\n\n`)
                             );
 
-                            // 增量修复：只传递错误信息，要求 LLM 输出修正后的节点
+                            // 增量修复：提供更明确的错误反馈和规则提醒
                             messages.push({ role: "assistant", content: accumulatedText });
                             messages.push({
                                 role: "user",
-                                content: `工作流存在以下问题，请修正后重新输出 JSON：
+                                content: `工作流校验未通过，请根据以下错误信息进行修正：
 
-错误信息：
+### ❌ 发现的问题：
 ${validation.errors.join("\n")}
+
+### ⚠️ 修正提示：
+1. **变量引用规则**：必须使用节点的 **Label** (如 {{用户输入.text}})，严禁使用节点 ID (如 {{input_1.text}})。
+2. **结构完整性**：确保输出完整的 JSON，包含 "nodes" 和 "edges" 数组。
+3. **节点一致性**：如果你修改了节点的 Label，请同步更新所有引用该节点的变量。
 
 请直接输出修正后的完整工作流 JSON，无需其他解释。`
                             });

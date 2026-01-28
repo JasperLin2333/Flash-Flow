@@ -36,7 +36,7 @@ export function extractVariables(prompt: string): string[] {
  * 转义正则表达式中的特殊字符
  * 确保变量名中的 . * + ? 等字符被正确转义
  */
-function escapeRegExp(string: string): string {
+export function escapeRegExp(string: string): string {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 

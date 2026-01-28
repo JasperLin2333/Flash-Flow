@@ -3,64 +3,71 @@ import { WorkflowZodSchema } from "@/lib/schemas/workflow";
 // ============ JSON Extraction ============
 // Bug #2 Fix: 使用平衡括号算法替代贪婪正则匹配
 export function extractBalancedJson(text: string): string | null {
-    // 查找包含 "nodes" 的 JSON 对象起始位置 (Case-insensitive)
-    let nodesIndex = text.indexOf('"nodes"');
-    if (nodesIndex === -1) {
-        nodesIndex = text.indexOf('"Nodes"');
+    const validJsonBlocks: string[] = [];
+    
+    // 查找所有包含 "nodes" 的位置 (Case-insensitive)
+    const nodesIndices: number[] = [];
+    let lastIndex = -1;
+    const lowerText = text.toLowerCase();
+    
+    while ((lastIndex = lowerText.indexOf('"nodes"', lastIndex + 1)) !== -1) {
+        nodesIndices.push(lastIndex);
     }
-    if (nodesIndex === -1) return null;
 
-    // 向前搜索最近的 '{'
-    let startIndex = -1;
-    for (let i = nodesIndex - 1; i >= 0; i--) {
-        if (text[i] === '{') {
-            startIndex = i;
-            break;
+    for (const nodesIndex of nodesIndices) {
+        // 向前搜索最近的 '{'
+        let startIndex = -1;
+        for (let i = nodesIndex - 1; i >= 0; i--) {
+            if (text[i] === '{') {
+                startIndex = i;
+                break;
+            }
         }
-    }
-    if (startIndex === -1) return null;
+        if (startIndex === -1) continue;
 
-    // 从 startIndex 开始使用平衡括号算法
-    let depth = 0;
-    let inString = false;
-    let escape = false;
+        // 使用平衡括号算法提取 JSON
+        let depth = 0;
+        let inString = false;
+        let escape = false;
 
-    for (let i = startIndex; i < text.length; i++) {
-        const char = text[i];
+        for (let i = startIndex; i < text.length; i++) {
+            const char = text[i];
 
-        if (escape) {
-            escape = false;
-            continue;
-        }
+            if (escape) {
+                escape = false;
+                continue;
+            }
 
-        if (char === '\\' && inString) {
-            escape = true;
-            continue;
-        }
+            if (char === '\\' && inString) {
+                escape = true;
+                continue;
+            }
 
-        if (char === '"') {
-            inString = !inString;
-            continue;
-        }
+            if (char === '"') {
+                inString = !inString;
+                continue;
+            }
 
-        if (!inString) {
-            if (char === '{') depth++;
-            else if (char === '}') {
-                depth--;
-                if (depth === 0) {
-                    const jsonStr = text.slice(startIndex, i + 1);
-                    // 验证提取的 JSON 包含必需字段 (Case-insensitive)
-                    const lowerJson = jsonStr.toLowerCase();
-                    if (lowerJson.includes('"nodes"') && lowerJson.includes('"edges"')) {
-                        return jsonStr;
+            if (!inString) {
+                if (char === '{') depth++;
+                else if (char === '}') {
+                    depth--;
+                    if (depth === 0) {
+                        const jsonStr = text.slice(startIndex, i + 1);
+                        // 验证提取的 JSON 是否包含必需字段 (Case-insensitive)
+                        const lowerJson = jsonStr.toLowerCase();
+                        if (lowerJson.includes('"nodes"') && lowerJson.includes('"edges"')) {
+                            validJsonBlocks.push(jsonStr);
+                        }
+                        break; // 找到平衡块，尝试下一个 nodesIndex
                     }
-                    return null;
                 }
             }
         }
     }
 
-    return null; // 未找到平衡的 JSON
+    // 返回最后一个有效的 JSON 块（通常是 AI 的最终输出）
+    return validJsonBlocks.length > 0 ? validJsonBlocks[validJsonBlocks.length - 1] : null;
 }
 
 // ============ Validation ============
