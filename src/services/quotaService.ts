@@ -223,7 +223,7 @@ export const quotaService = {
             case "image_generation":
                 return 12;
             case "rag_search":
-            return this.getLLMPointsCost("gemini-2.5-flash");
+            return this.getLLMPointsCost("gemini-3-pro-preview");
         case "tool_usage":
             if (itemKey === "web_search") return 5;
             if (itemKey === "code_interpreter") return 10;

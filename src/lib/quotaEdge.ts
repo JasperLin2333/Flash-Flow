@@ -205,7 +205,7 @@ function getPointsCost(actionType: PointsActionType, itemKey?: string | null): n
         case "image_generation":
             return 12;
         case "rag_search":
-            return getLLMPointsCost("gemini-2.5-flash");
+            return getLLMPointsCost("gemini-3-pro-preview");
         case "tool_usage":
             if (itemKey === "web_search") return 5;
             if (itemKey === "code_interpreter") return 10;
@@ -229,7 +229,7 @@ async function getPointsCostOnServer(
         case "image_generation":
             return 12;
         case "rag_search":
-            return await getLLMPointsCostFromDb(supabase, "gemini-2.5-flash");
+            return await getLLMPointsCostFromDb(supabase, "gemini-3-pro-preview");
         case "tool_usage":
             if (itemKey === "web_search") return 5;
             if (itemKey === "code_interpreter") return 10;

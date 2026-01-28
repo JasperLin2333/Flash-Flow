@@ -15,7 +15,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderInfo> = {
     doubao: {
         baseURL: "https://ark.cn-beijing.volces.com/api/v3",
         getApiKey: () => process.env.DOUBAO_API_KEY || process.env.VOLCENGINE_API_KEY || "",
-        prefixes: ["doubao", "deepseek-v3"],  // 火山引擎的 DeepSeek 模型
+        prefixes: ["doubao", "deepseek-v3", "deepseek-r1"],  // 火山引擎的 DeepSeek 模型
     },
     deepseek: {
         baseURL: "https://api.deepseek.com",

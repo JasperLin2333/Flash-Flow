@@ -11,7 +11,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 // ============ Constants ============
-const RAG_MODEL = 'gemini-2.5-flash';
+const RAG_MODEL = 'gemini-3-pro-preview';
 
 // ============ Types ============
 interface SearchRequest {

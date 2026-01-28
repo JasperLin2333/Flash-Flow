@@ -11,7 +11,7 @@ import { extractBalancedJson, validateWorkflow } from "@/lib/agent/utils";
 import type { AppNode, AppEdge } from "@/types/flow";
 
 // ============ Agent Configuration ============
-const DEFAULT_MODEL = process.env.DEFAULT_LLM_MODEL || "deepseek-chat";
+const DEFAULT_MODEL = process.env.DEFAULT_LLM_MODEL || "deepseek-v3.2";
 const MAX_RETRIES = 5; // Phase 2: Allow more self-correction rounds
 const PLAN_MAX_RETRIES = 2;
 const TIMEOUT_ANALYSIS_MS = 25000;

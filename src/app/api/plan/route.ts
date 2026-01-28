@@ -9,7 +9,8 @@ import { WorkflowZodSchema } from "@/lib/schemas/workflow";
 import { extractBalancedJson, validateWorkflow } from "@/lib/agent/utils";
 
 // ============ 兜底策略配置 ============
-const FALLBACK_MODEL = "gemini-3-flash-preview"; // 备选模型 (视觉+文本)
+const FALLBACK_MODEL = "gemini-3-pro-preview"; // 备选模型 (视觉+文本)
+const OFFICIAL_MODEL = "deepseek-chat"; // 官方 DeepSeek 降级
 const MAX_RETRIES = 2; // 每个模型最大重试次数
 const RETRY_DELAY_MS = 1000; // 重试延迟
 
@@ -81,7 +82,7 @@ export async function POST(req: Request) {
     const files: { name: string; size?: number; type?: string }[] = [];
 
     // 3. Model configuration (reads from environment variable for easy updates)
-    const preferredModel = process.env.DEFAULT_LLM_MODEL || "deepseek-ai/DeepSeek-V3.2";
+    const preferredModel = process.env.DEFAULT_LLM_MODEL || "deepseek-v3.2";
 
     // Import shared prompt modules
     // Note: Constants are imported from '@/lib/prompts' at the top of the file
@@ -112,7 +113,7 @@ ${NEGATIVE_EXAMPLES}
 
     const stream = new ReadableStream({
       async start(controller) {
-        const modelsToTry = [preferredModel, FALLBACK_MODEL];
+        const modelsToTry = [preferredModel, OFFICIAL_MODEL, FALLBACK_MODEL];
         let lastError: unknown = null;
         let success = false;
 
