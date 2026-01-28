@@ -5,7 +5,7 @@
  * Handles file validation, local preview, upload to storage, and state management.
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useMemo, useCallback, createRef } from "react";
 import { fileUploadService } from "@/services/fileUploadService";
 import { showError } from "@/utils/errorNotify";
 
@@ -45,8 +45,9 @@ export function useImageUpload({
     const [localPreviews, setLocalPreviews] = useState<Record<string, string>>({});
 
     // Create refs for each slot
-    const fileInputRefs = Array.from({ length: maxSlots }, () =>
-        useRef<HTMLInputElement | null>(null)
+    const fileInputRefs = useMemo(
+        () => Array.from({ length: maxSlots }, () => createRef<HTMLInputElement>()),
+        [maxSlots]
     );
 
     const handleUpload = useCallback(async (

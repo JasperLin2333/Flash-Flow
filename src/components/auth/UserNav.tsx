@@ -38,17 +38,20 @@ export function UserNav() {
                 <button
                     className="text-sm text-gray-600 hover:text-gray-900 transition-colors cursor-pointer py-1"
                 >
-                    <span>查看积分</span>
+                    <span>我的算力</span>
                     <span className="block h-0.5 bg-gray-900 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-200" />
                 </button>
 
                 {/* Dropdown Panel */}
                 <div className="absolute top-full right-0 mt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-                    <div className="bg-white rounded-lg shadow-xl border border-gray-200 p-4 min-w-[280px]">
-                        <h3 className="text-sm font-semibold text-gray-900 mb-3">积分详情</h3>
-                        <QuotaDisplay compact className="flex-col gap-2" />
-                        <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500 text-center">
-                            如需提升额度，请联系WX号：JasperXHL
+                    <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-5 min-w-[300px]">
+                        <h3 className="text-sm font-semibold text-gray-900 mb-4">算力中心</h3>
+                        <QuotaDisplay compact />
+                        <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-400 flex flex-col items-center gap-1.5">
+                            <span>获取更多算力，请联系微信</span>
+                            <span className="font-medium text-gray-900 bg-gray-100 px-2 py-0.5 rounded select-all cursor-text hover:bg-gray-200 transition-colors">
+                                JasperXHL
+                            </span>
                         </div>
                     </div>
                 </div>

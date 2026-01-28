@@ -134,6 +134,15 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
     );
   };
 
+  // Determine status styles
+  const getStatusStyles = () => {
+    if (isNodeRunning) return "ring-2 ring-blue-400 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]";
+    if (status === "error") return "ring-2 ring-red-400 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)]";
+    if (status === "completed") return "ring-2 ring-green-400 border-green-400 shadow-[0_0_15px_rgba(34,197,94,0.3)]";
+    if (selected) return "ring-2 ring-black border-transparent shadow-xl scale-[1.02]";
+    return "hover:border-gray-300 hover:shadow-lg hover:-translate-y-0.5";
+  };
+
   return (
     <Card
       tabIndex={0}
@@ -141,16 +150,24 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
       onMouseLeave={hoverTracker.onLeave}
       className={cn(
         "group relative min-w-[240px] border bg-white transition-all duration-200 outline-none",
-        "border-gray-200 shadow-md",
-        // 统一圆角设计：所有节点使用相同的圆角
+        "border-gray-200 shadow-sm",
         "rounded-2xl",
-        selected ? "ring-2 ring-black border-transparent shadow-lg" : "hover:border-gray-300 hover:shadow-lg"
+        getStatusStyles()
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-200">
+      <div className={cn(
+        "flex items-center justify-between px-4 py-3 border-b border-gray-100 rounded-t-2xl transition-colors",
+        (isNodeRunning || status === "completed") ? "bg-gray-50/80" : "bg-gray-50/50"
+      )}>
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-gray-100 rounded-lg border border-gray-200">
+          <div className={cn(
+            "p-2 rounded-lg border shadow-sm transition-colors",
+            isNodeRunning ? "bg-blue-50 border-blue-100" :
+            status === "completed" ? "bg-green-50 border-green-100" :
+            status === "error" ? "bg-red-50 border-red-100" :
+            "bg-white border-gray-200"
+          )}>
             {ICON[type || "llm"]}
           </div>
           <span className="text-sm font-bold text-gray-900 tracking-tight">{(data?.label as string) || type}</span>
@@ -206,7 +223,12 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
         <Handle
           type="target"
           position={Position.Left}
-          className={cn(HANDLE_STYLE, "-ml-[5px]", selected ? "!border-black" : "")}
+          className={cn(
+            HANDLE_STYLE, 
+            "w-3 h-3 !bg-white !border-2 !border-gray-400 transition-all duration-200 hover:!border-blue-500 hover:scale-125 hover:!bg-blue-50",
+            "-ml-[6px]", 
+            selected ? "!border-black" : ""
+          )}
         />
       )}
 
@@ -221,8 +243,9 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
               className={cn(
                 HANDLE_STYLE,
                 "!relative !transform-none !left-auto !right-auto !bg-green-500 !border-green-600",
+                "w-3 h-3 transition-all duration-200 hover:scale-125",
                 selected ? "!border-black" : "",
-                branchConditionResult === true && "!scale-125 !ring-2 !ring-green-400 !ring-opacity-75"
+                branchConditionResult === true && "!scale-150 !ring-4 !ring-green-200 !border-green-600"
               )}
             />
             <span className={cn(
@@ -242,8 +265,9 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
               className={cn(
                 HANDLE_STYLE,
                 "!relative !transform-none !left-auto !right-auto !bg-red-500 !border-red-600",
+                "w-3 h-3 transition-all duration-200 hover:scale-125",
                 selected ? "!border-black" : "",
-                branchConditionResult === false && "!scale-125 !ring-2 !ring-red-400 !ring-opacity-75"
+                branchConditionResult === false && "!scale-150 !ring-4 !ring-red-200 !border-red-600"
               )}
             />
             <span className={cn(
@@ -260,7 +284,12 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
           <Handle
             type="source"
             position={Position.Right}
-            className={cn(HANDLE_STYLE, "-mr-[5px]", selected ? "!border-black" : "")}
+            className={cn(
+              HANDLE_STYLE, 
+              "w-3 h-3 !bg-white !border-2 !border-gray-400 transition-all duration-200 hover:!border-blue-500 hover:scale-125 hover:!bg-blue-50",
+              "-mr-[6px]", 
+              selected ? "!border-black" : ""
+            )}
           />
         )
       )}

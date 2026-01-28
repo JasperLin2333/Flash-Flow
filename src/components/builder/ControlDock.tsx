@@ -56,7 +56,7 @@ function InteractionModeGroup({
               <MousePointer2 className="w-4 h-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">选择模式</TooltipContent>
+          <TooltipContent side="top">框选模式</TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
@@ -248,7 +248,7 @@ function ClearCacheButton({
             <Trash2 className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="top">清除运行记录</TooltipContent>
+        <TooltipContent side="top">重置画布</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
@@ -291,11 +291,11 @@ export default function ControlDock() {
   return (
     <>
       {/* 控制库 */}
-      <div className="fixed bottom-8 left-8 z-10 flex items-center gap-1 bg-white shadow-xl border border-gray-200 rounded-full px-2 py-1.5 h-12">
+      <div className="fixed bottom-8 left-8 z-10 flex items-center gap-2 bg-white/80 backdrop-blur-md shadow-xl border border-gray-200/50 rounded-full px-3 py-2 h-14 transition-all hover:bg-white/90 hover:shadow-2xl hover:scale-[1.02]">
         <InteractionModeGroup interactionMode={interactionMode} setInteractionMode={setInteractionMode} />
-        <Separator orientation="vertical" className="h-6 bg-gray-200" />
+        <Separator orientation="vertical" className="h-6 bg-gray-300/50" />
         <ZoomControls zoomPct={zoomPct} zoomIn={zoomIn} zoomOut={zoomOut} zoomTo={zoomTo} fitView={fitView} organizeNodes={organizeNodes} />
-        <Separator orientation="vertical" className="h-6 bg-gray-200" />
+        <Separator orientation="vertical" className="h-6 bg-gray-300/50" />
 
         <ClearCacheButton onClear={() => resetExecution(true)} />
         <RunButton isRunning={isRunning} runFlow={runFlow} />

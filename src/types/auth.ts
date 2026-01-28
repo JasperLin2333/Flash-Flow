@@ -31,6 +31,8 @@ export interface UserQuota {
     flow_generations_limit: number;
     app_usages_limit: number;
     image_gen_executions_limit: number;
+    points_balance: number;
+    points_used: number;
     created_at: string;
     updated_at: string;
 }
@@ -75,6 +77,32 @@ export interface QuotaCheckResult {
     remaining: number;
 }
 
+export type PointsActionType =
+    | "llm"
+    | "flow_generation"
+    | "app_usage"
+    | "image_generation"
+    | "rag_search"
+    | "tool_usage";
+
+export interface PointsCheckResult {
+    allowed: boolean;
+    required: number;
+    balance: number;
+    remaining: number;
+}
+
+export interface PointsLedgerEntry {
+    id: string;
+    user_id: string;
+    action_type: PointsActionType;
+    item_key: string | null;
+    title: string;
+    points: number;
+    balance_after: number;
+    created_at: string;
+}
+
 /**
  * Convert Supabase User to Application User
  * 🧹 REFACTORED: Now includes email confirmation status
@@ -88,4 +116,3 @@ export function toAppUser(supabaseUser: SupabaseUser): User {
         created_at: supabaseUser.created_at,
     };
 }
-

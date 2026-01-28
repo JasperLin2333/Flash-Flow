@@ -15,7 +15,7 @@ export interface StreamingActions {
     // Legacy single-stream actions (backward compatible)
     setStreamingText: (text: string) => void;
     appendStreamingText: (chunk: string) => void;
-    appendStreamingReasoning: (chunk: string) => void;
+    appendStreamingReasoning: (chunk: string, sourceId?: string) => void;
     clearStreaming: () => void;
     abortStreaming: () => void;
     resetStreamingAbort: () => void;
@@ -42,12 +42,12 @@ export const createStreamingActions: StateCreator<
 
     appendStreamingText: (chunk: string) => set((state: FlowState) => {
         // 如果 streaming 已被主动中断（用户点击了"新建对话"），则忽略后续的流式内容
-        if ((state as any)._streamingAborted) {
+        if (state._streamingAborted) {
             return state; // 不做任何改变
         }
 
         // Check if in select mode and source is locked
-        const streamingMode = (state as any).streamingMode as StreamingMode | undefined;
+        const streamingMode = state.streamingMode;
         if (streamingMode === 'select') {
             // In select mode, only append if no source is locked yet
             // The actual source check happens in tryLockSource
@@ -60,15 +60,40 @@ export const createStreamingActions: StateCreator<
         };
     }),
 
-    appendStreamingReasoning: (chunk: string) => set((state: FlowState) => {
-        if ((state as any)._streamingAborted) {
+    appendStreamingReasoning: (chunk: string, sourceId?: string) => set((state: FlowState) => {
+        if (state._streamingAborted) {
             return state;
         }
+
+        // Handle Select Mode Locking for Reasoning
+        const streamingMode = state.streamingMode;
+        if (streamingMode === 'select' && sourceId) {
+            const lockedSourceId = state.lockedSourceId;
+            const selectSourceIds = state.selectSourceIds || [];
+
+            // 1. If locked by another node, ignore reasoning
+            if (lockedSourceId && lockedSourceId !== sourceId) {
+                return state;
+            }
+
+            // 2. If valid source but not locked, lock it!
+            if (!lockedSourceId && selectSourceIds.includes(sourceId)) {
+                return {
+                    streamingReasoning: (state.streamingReasoning || "") + chunk,
+                    isStreaming: true,
+                    isStreamingReasoning: true,
+                    lockedSourceId: sourceId
+                } as Partial<FlowState>;
+            }
+            
+            // 3. If locked by us, append
+        }
+
         return {
-            streamingReasoning: ((state as any).streamingReasoning || "") + chunk,
+            streamingReasoning: (state.streamingReasoning || "") + chunk,
             isStreaming: true,
             isStreamingReasoning: true,
-        } as any;
+        } as Partial<FlowState>;
     }),
 
     // 正常清理 streaming（开始新的 streaming 前调用）
@@ -81,7 +106,7 @@ export const createStreamingActions: StateCreator<
         streamingSegments: [],
         lockedSourceId: null,
         selectSourceIds: [],
-    } as any),
+    } as Partial<FlowState>),
 
     // 主动中断 streaming（用户点击新建对话时调用）
     abortStreaming: () => set({
@@ -93,10 +118,10 @@ export const createStreamingActions: StateCreator<
         streamingMode: 'single',
         streamingSegments: [],
         lockedSourceId: null,
-    } as any),
+    } as Partial<FlowState>),
 
     // 重置中断标志（开始新的 streaming 前调用）
-    resetStreamingAbort: () => set({ _streamingAborted: false } as any),
+    resetStreamingAbort: () => set({ _streamingAborted: false } as Partial<FlowState>),
 
     // ===== Segmented Streaming for Merge Mode =====
 
@@ -112,13 +137,13 @@ export const createStreamingActions: StateCreator<
             streamingSegments: segments,
             streamingText: '',
             isStreaming: true,
-        } as any);
+        } as Partial<FlowState>);
     },
 
     appendToSegment: (sourceId: string, chunk: string) => set((state: FlowState) => {
-        if ((state as any)._streamingAborted) return state;
+        if (state._streamingAborted) return state;
 
-        const segments = ((state as any).streamingSegments || []) as StreamSegment[];
+        const segments = (state.streamingSegments || []) as StreamSegment[];
         const segmentIndex = segments.findIndex(s => s.sourceId === sourceId);
 
         if (segmentIndex === -1) return state;
@@ -139,11 +164,11 @@ export const createStreamingActions: StateCreator<
         return {
             streamingSegments: updatedSegments,
             streamingText: combinedText,
-        } as any;
+        } as Partial<FlowState>;
     }),
 
     completeSegment: (sourceId: string) => set((state: FlowState) => {
-        const segments = ((state as any).streamingSegments || []) as StreamSegment[];
+        const segments = (state.streamingSegments || []) as StreamSegment[];
         const segmentIndex = segments.findIndex(s => s.sourceId === sourceId);
 
         if (segmentIndex === -1) return state;
@@ -169,11 +194,11 @@ export const createStreamingActions: StateCreator<
         return {
             streamingSegments: updatedSegments,
             isStreaming: !allCompleted,
-        } as any;
+        } as Partial<FlowState>;
     }),
 
     failSegment: (sourceId: string, error: string) => set((state: FlowState) => {
-        const segments = ((state as any).streamingSegments || []) as StreamSegment[];
+        const segments = (state.streamingSegments || []) as StreamSegment[];
         const updatedSegments = segments.map(s => ({
             ...s,
             status: 'error' as const,
@@ -183,7 +208,7 @@ export const createStreamingActions: StateCreator<
             streamingSegments: updatedSegments,
             isStreaming: false,
             _streamingError: `Segment ${sourceId} failed: ${error}`,
-        } as any;
+        } as Partial<FlowState>;
     }),
 
     // ===== Select Mode (First-Char Lock) =====
@@ -195,11 +220,11 @@ export const createStreamingActions: StateCreator<
             lockedSourceId: null,
             streamingText: '',
             isStreaming: true,
-        } as any);
+        } as Partial<FlowState>);
     },
 
     tryLockSource: (sourceId: string): boolean => {
-        const state = get() as any;
+        const state = get();
 
         // Already locked to a different source
         if (state.lockedSourceId && state.lockedSourceId !== sourceId) {
@@ -214,7 +239,7 @@ export const createStreamingActions: StateCreator<
 
         // Lock to this source
         if (!state.lockedSourceId) {
-            set({ lockedSourceId: sourceId } as any);
+            set({ lockedSourceId: sourceId } as Partial<FlowState>);
         }
 
         return true;

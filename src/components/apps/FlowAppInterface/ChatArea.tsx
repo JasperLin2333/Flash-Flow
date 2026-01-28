@@ -39,7 +39,7 @@ function EmptyState({ inputNodeData, flowTitle, onSend, onFormDataChange }: Empt
     return (
         <div className="text-center text-gray-400 mt-32 max-w-lg mx-auto px-4">
             <h3 className="text-3xl font-bold text-gray-800 mb-3">
-                欢迎使用「{appName}」
+                你好，我是「{appName}」
             </h3>
             <p className="text-gray-500 leading-relaxed">{greeting}</p>
         </div>

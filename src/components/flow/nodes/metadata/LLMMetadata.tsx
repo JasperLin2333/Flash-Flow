@@ -45,18 +45,18 @@ export function LLMMetadata({ llm }: { llm: LLMNodeData }) {
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-                <span className={METADATA_LABEL_STYLE}>模型</span>
+                <span className={METADATA_LABEL_STYLE}>核心模型</span>
                 <span className={METADATA_VALUE_STYLE}>{modelName || "加载中..."}</span>
             </div>
             {typeof llm.temperature === "number" && (
                 <div className="flex items-center gap-2">
-                    <span className={METADATA_LABEL_STYLE}>温度</span>
+                    <span className={METADATA_LABEL_STYLE}>创意度</span>
                     <span className={METADATA_VALUE_STYLE}>{llm.temperature}</span>
                 </div>
             )}
             {llm.enableMemory && (
                 <div className="flex items-center gap-2">
-                    <span className={METADATA_LABEL_STYLE}>记忆</span>
+                    <span className={METADATA_LABEL_STYLE}>对话记忆</span>
                     <span className={METADATA_VALUE_STYLE}>开启 ({llm.memoryMaxTurns || 10}轮)</span>
                 </div>
             )}

@@ -2,16 +2,20 @@ import OpenAI from "openai";
 export const runtime = 'edge';
 
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
-import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
+import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { CORE_RULES, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES, FLOW_EXAMPLES, NEGATIVE_EXAMPLES } from "@/lib/prompts";
 import { WorkflowZodSchema } from "@/lib/schemas/workflow";
 import { detectIntentFromPrompt, getProactiveSuggestions, BEST_PRACTICES } from "@/lib/agent/bestPractices";
 import { extractBalancedJson, validateWorkflow } from "@/lib/agent/utils";
+import type { AppNode, AppEdge } from "@/types/flow";
 
 // ============ Agent Configuration ============
 const DEFAULT_MODEL = process.env.DEFAULT_LLM_MODEL || "deepseek-chat";
 const MAX_RETRIES = 5; // Phase 2: Allow more self-correction rounds
+const PLAN_MAX_RETRIES = 2;
+const TIMEOUT_ANALYSIS_MS = 25000;
+const TIMEOUT_GENERATION_MS = 45000;
 
 // ============ Agent System Prompt (Modular) ============
 
@@ -119,9 +123,20 @@ const GENERATION_PROMPT = `你是 Flash Flow Agent，一个专业的工作流设
    - 基于以上审查，我将对方案做出的具体修正...
 </step>
 
-### 步骤 3：优化实施
+### 步骤 3：合规性自查
+<step type="verification">
+请对照以下核心规则，逐项检查你的设计方案。如有违反，必须在下一步中修正：
+
+1. **依赖检查**: 每一个变量引用 (如 {{A.res}}) 是否都对应一条 A -> Current 的连线？
+2. **分支检查**: Branch 节点是否正确配置了 \`sourceHandle: "true"\` 和 \`"false"\`？
+3. **输出检查**: Output 节点是否在汇聚多分支？是否严禁了 Handlebars 逻辑？
+4. **安全检查**: 是否存在将 \`{{Input.files}}\` 直接传给 LLM 的违规行为？
+5. **拓扑检查**: 是否存在自环或循环依赖？
+</step>
+
+### 步骤 4：优化实施
 <step type="modified_plan">
-作为技术负责人，请确认最终的实施方案。不要复述废话，直接列出变动点：
+作为技术负责人，请根据上述自查结果，确认最终的实施方案。不要复述废话，直接列出变动点：
 
 1. **修正执行记录**:
    - [保留/删除/新增] 节点X: *原因...*
@@ -132,13 +147,13 @@ const GENERATION_PROMPT = `你是 Flash Flow Agent，一个专业的工作流设
    - *确认*: 这就是即将写入 JSON 的最终版本。
 </step>
 
-### 步骤 4：生成 JSON
+### 步骤 5：生成 JSON
 \`\`\`json
 {"title": "工作流标题", "nodes": [...], "edges": [...]}
 \`\`\`
 
 ## ⚡️ 规则
-- 严格按顺序执行步骤 1 → 2 → 3 → 4
+- 严格按顺序执行步骤 1 → 2 → 3 → 4 → 5
 - 每个步骤使用对应的 <step type="xxx"> 标签
 - 最后输出合法 JSON
 
@@ -224,9 +239,20 @@ const DIRECT_MODE_PROMPT = `你是 Flash Flow Agent，一个专业的工作流�
    - 基于以上审查，我将对方案做出的具体修正...
 </step>
 
-### 步骤 4：优化实施
+### 步骤 4：合规性自查
+<step type="verification">
+请对照以下核心规则，逐项检查你的设计方案。如有违反，必须在下一步中修正：
+
+1. **依赖检查**: 每一个变量引用 (如 {{A.res}}) 是否都对应一条 A -> Current 的连线？
+2. **分支检查**: Branch 节点是否正确配置了 \`sourceHandle: "true"\` 和 \`"false"\`？
+3. **输出检查**: Output 节点是否在汇聚多分支？是否严禁了 Handlebars 逻辑？
+4. **安全检查**: 是否存在将 \`{{Input.files}}\` 直接传给 LLM 的违规行为？
+5. **拓扑检查**: 是否存在自环或循环依赖？
+</step>
+
+### 步骤 5：优化实施
 <step type="modified_plan">
-作为技术负责人，请确认最终的实施方案。不要复述废话，直接列出变动点：
+作为技术负责人，请根据上述自查结果，确认最终的实施方案。不要复述废话，直接列出变动点：
 
 1. **修正执行记录**:
    - [保留/删除/新增] 节点X: *原因...*
@@ -237,14 +263,14 @@ const DIRECT_MODE_PROMPT = `你是 Flash Flow Agent，一个专业的工作流�
    - *确认*: 这就是即将写入 JSON 的最终版本。
 </step>
 
-### 步骤 5：生成 JSON
+### 步骤 6：生成 JSON
 在所有 step 标签结束后，输出最终的工作流 JSON：
 \`\`\`json
 {"title": "工作流标题", "nodes": [...], "edges": [...]}
 \`\`\`
 
 ## ⚡️ 规则
-- 严格按顺序执行步骤 1 → 2 → 3 → 4 → 5
+- 严格按顺序执行步骤 1 → 2 → 3 → 4 → 5 → 6
 - 每个步骤使用对应的 <step type="xxx"> 标签
 - 最后输出合法 JSON
 
@@ -278,9 +304,9 @@ export async function POST(req: Request) {
         }
 
         // Server-side quota check
-        const quotaCheck = await checkQuotaOnServer(req, user.id, "flow_generations");
-        if (!quotaCheck.allowed) {
-            return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "Flow 生成次数");
+        const pointsCheck = await checkPointsOnServer(req, user.id, "flow_generation");
+        if (!pointsCheck.allowed) {
+            return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
         }
 
         const body = await reqClone.json();
@@ -314,6 +340,8 @@ export async function POST(req: Request) {
                 let success = false;
                 let lastError: string | null = null;
                 let validationAttempt = 0;
+                let planAttempt = 0;
+                let fallbackToDirect = false;
 
                 // Detect Plan Confirmation
                 const isPlanConfirmed = prompt.includes("[PLAN_CONFIRMED]");
@@ -324,7 +352,7 @@ export async function POST(req: Request) {
                 // we use completely different prompts for each phase.
 
                 let systemPrompt: string;
-                let isAnalysisPhase = false; // Track if we're in phase 1 (need to force stop after analysis)
+                let isAnalysisPhase = false;
 
                 if (isPlanConfirmed) {
                     // Phase 2: User confirmed plan, do strategy → reflection → JSON
@@ -339,20 +367,25 @@ export async function POST(req: Request) {
                     systemPrompt = DIRECT_MODE_PROMPT;
                 }
 
-                const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+                let messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: `请根据以下需求设计工作流:\n\n${effectivePrompt}` },
                 ];
 
                 while (!success && validationAttempt < MAX_RETRIES) {
                     try {
+                        // Create timeout signal for this generation attempt
+                        const abortController = new AbortController();
+                        const timeoutMs = isAnalysisPhase ? TIMEOUT_ANALYSIS_MS : TIMEOUT_GENERATION_MS;
+                        const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
+
                         const completion = await client.chat.completions.create({
                             model: modelName,
                             temperature: isPlanConfirmed ? 0.2 : 0.4, // Higher temp for planning/analysis
                             messages,
                             stream: true,
                             // Note: JSON mode removed to allow <thinking> and other XML tags
-                        });
+                        }, { signal: abortController.signal });
 
                         accumulatedText = "";
 
@@ -580,6 +613,99 @@ export async function POST(req: Request) {
                                 );
                             }
                         }
+                        
+                        // Clear timeout as soon as generation is done (or loop finishes)
+                        clearTimeout(timeoutId);
+
+                        if (isAnalysisPhase) {
+                            const textWithoutPlanExamples = accumulatedText.replace(/\[PLAN_EXAMPLE_START\][\s\S]*?\[PLAN_EXAMPLE_END\]/g, '');
+                            const planMatch = textWithoutPlanExamples.match(/<plan>([\s\S]*?)<\/plan>/);
+                            if (planMatch) {
+                                const planContent = planMatch[1].trim();
+                                const refinedIntentMatch = planContent.match(/## 需求理解\n([\s\S]*?)(?=\n##|$)/);
+                                const refinedIntent = refinedIntentMatch ? refinedIntentMatch[1].trim() : "";
+
+                                const nodesMatch = planContent.match(/## 工作流结构\n([\s\S]*?)(?=\n##|$)/);
+                                const workflowNodesRaw = nodesMatch ? nodesMatch[1].trim() : "";
+
+                                const workflowNodes = workflowNodesRaw.split('\n')
+                                    .map(line => {
+                                        const match = line.match(/^[-*]\s*(?:\[type:(\w+)\])?\s*(.*?)[：:]\s*(.*)/);
+                                        if (match) {
+                                            return {
+                                                type: match[1] || 'default',
+                                                label: match[2].trim(),
+                                                description: match[3].trim()
+                                            };
+                                        }
+                                        return null;
+                                    })
+                                    .filter((n): n is { type: string; label: string; description: string } => n !== null);
+
+                                const useCasesMatch = planContent.match(/## 适用场景\n([\s\S]*?)(?=\n##|$)/);
+                                const useCases = useCasesMatch
+                                    ? useCasesMatch[1].split('\n').map(l => l.replace(/^[-*]\s*/, '').trim()).filter(l => l.length > 2)
+                                    : [];
+
+                                const howToUseMatch = planContent.match(/## 使用方法\n([\s\S]*?)(?=\n##|$)/);
+                                const howToUse = howToUseMatch
+                                    ? howToUseMatch[1].split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(l => l.length > 2)
+                                    : [];
+
+                                const steps = workflowNodes.length > 0
+                                    ? workflowNodes.map(n => `${n.label}: ${n.description}`)
+                                    : planContent.split('\n').filter(l => l.startsWith('-')).map(l => l.replace(/^[-*]\s*/, '').trim());
+
+                                const userPrompt = refinedIntent || effectivePrompt;
+
+                                controller.enqueue(
+                                    encoder.encode(`data: ${JSON.stringify({
+                                        type: "plan",
+                                        userPrompt: userPrompt,
+                                        steps: steps,
+                                        refinedIntent,
+                                        workflowNodes,
+                                        useCases,
+                                        howToUse
+                                    })}\n\n`)
+                                );
+                                controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                                controller.close();
+                                return;
+                            }
+
+                            planAttempt++;
+
+                            if (planAttempt < PLAN_MAX_RETRIES && !fallbackToDirect) {
+                                messages.push({
+                                    role: "user",
+                                    content: `请严格只输出 <plan> 标签内的内容，必须包含以下 4 个小节标题：\n## 需求理解\n## 工作流结构\n## 适用场景\n## 使用方法\n不要输出 JSON、<step> 或其他标签。`
+                                });
+                                lastError = "Plan not generated";
+                                validationAttempt++;
+                                continue;
+                            }
+
+                            if (!fallbackToDirect) {
+                                fallbackToDirect = true;
+                                isAnalysisPhase = false;
+                                systemPrompt = DIRECT_MODE_PROMPT;
+                                messages = [
+                                    { role: "system", content: systemPrompt },
+                                    { role: "user", content: `请根据以下需求设计工作流:\n\n${effectivePrompt}` },
+                                ];
+                                controller.enqueue(
+                                    encoder.encode(`data: ${JSON.stringify({
+                                        type: "step",
+                                        stepType: "fallback",
+                                        status: "completed",
+                                        content: "规划阶段未产出有效计划，已切换为直接生成流程"
+                                    })}\n\n`)
+                                );
+                                validationAttempt++;
+                                continue;
+                            }
+                        }
 
                         // Parse and validate result
                         let parsedResult: { title?: string; nodes?: unknown[]; edges?: unknown[] } = {};
@@ -661,7 +787,7 @@ export async function POST(req: Request) {
                                 encoder.encode(`data: ${JSON.stringify({
                                     type: "tool-call",
                                     tool: "validate_flow",
-                                    args: { nodeCount: (nodes as unknown[]).length, edgeCount: (edges as unknown[]).length }
+                                    args: { nodeCount: (nodes as AppNode[]).length, edgeCount: (edges as AppEdge[]).length }
                                 })}\n\n`)
                             );
                             controller.enqueue(
@@ -700,7 +826,7 @@ export async function POST(req: Request) {
                                 const practice = BEST_PRACTICES[scenario];
 
                                 // Analyze workflow for specific suggestions
-                                const nodeTypes = (nodes as Array<{ type: string; data?: { negativePrompt?: string } }>).map(n => n.type);
+                                const nodeTypes = (nodes as AppNode[]).map(n => n.type);
                                 const hasImageGen = nodeTypes.includes("imagegen");
                                 const hasBranch = nodeTypes.includes("branch");
 
@@ -712,10 +838,20 @@ export async function POST(req: Request) {
                                 }
 
                                 if (hasImageGen) {
-                                    const imageGenNode = (nodes as Array<{ type: string; data?: { negativePrompt?: string } }>)
-                                        .find(n => n.type === "imagegen");
-                                    if (imageGenNode && !imageGenNode.data?.negativePrompt) {
-                                        workflowSuggestions.push("建议为图片生成节点添加 negativePrompt 以提高生成质量");
+                                    const imageGenNode = (nodes as AppNode[]).find(n => n.type === "imagegen");
+                                    if (imageGenNode && (imageGenNode.data as any)?.negativePrompt === undefined) {
+                                         // Note: accessing data.negativePrompt directly requires narrowing, keeping it safe for now or using cast
+                                         // Actually AppNode union makes data access tricky without narrowing.
+                                         // Let's use 'as any' just for the property check if TS complains, or rely on the fact that ImageGenNodeData has it.
+                                    }
+                                    // Re-writing the logic to be cleaner:
+                                    const imgNode = (nodes as AppNode[]).find(n => n.type === "imagegen");
+                                    if (imgNode) {
+                                        // We need to cast data because AppNode is a union and not all data has negativePrompt
+                                        const data = imgNode.data as { negativePrompt?: string };
+                                        if (!data.negativePrompt) {
+                                            workflowSuggestions.push("建议为图片生成节点添加 negativePrompt 以提高生成质量");
+                                        }
                                     }
                                 }
 
@@ -738,7 +874,7 @@ export async function POST(req: Request) {
                                 // Suggestion generation is optional, don't fail on errors
                             }
 
-                            await incrementQuotaOnServer(req, user.id, "flow_generations");
+                            await deductPointsOnServer(req, user.id, "flow_generation", null, "Flow 生成");
                             success = true;
                         } else {
                             // Hard validation failure (no softPass) - emit error and retry
@@ -746,7 +882,7 @@ export async function POST(req: Request) {
                                 encoder.encode(`data: ${JSON.stringify({
                                     type: "tool-call",
                                     tool: "validate_flow",
-                                    args: { nodeCount: (nodes as unknown[]).length, edgeCount: (edges as unknown[]).length }
+                                    args: { nodeCount: (nodes as AppNode[]).length, edgeCount: (edges as AppEdge[]).length }
                                 })}\n\n`)
                             );
                             controller.enqueue(
@@ -811,7 +947,12 @@ ${validation.errors.join("\n")}
                             suggestionEmitted = false;
                         }
                     } catch (error) {
-                        lastError = error instanceof Error ? error.message : "Unknown error";
+                        // Check for AbortError (timeout)
+                        if (error instanceof Error && (error.name === 'AbortError' || (error as any).code === 'ETIMEDOUT')) {
+                             lastError = "Generation timed out (limit reached)";
+                        } else {
+                             lastError = error instanceof Error ? error.message : "Unknown error";
+                        }
                         validationAttempt++;
                     }
                 }

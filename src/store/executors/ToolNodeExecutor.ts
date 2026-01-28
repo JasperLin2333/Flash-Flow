@@ -5,6 +5,8 @@ import { TOOL_REGISTRY, type ToolType } from "@/lib/tools/registry";
 import { replaceVariables } from "@/lib/promptParser";
 import { useFlowStore } from "@/store/flowStore";
 import { collectVariables } from "./utils/variableUtils";
+import { authService } from "@/services/authService";
+import { quotaService } from "@/services/quotaService";
 
 /**
  * Type guard for ToolNodeData
@@ -21,6 +23,39 @@ function isValidToolType(toolType: unknown): toolType is ToolType {
 }
 
 export class ToolNodeExecutor extends BaseNodeExecutor {
+    /**
+     * Check quota for tool usage
+     */
+    private async checkQuota(toolType: ToolType): Promise<ExecutionResult | null> {
+        try {
+            // Check if tool requires points
+            const requiredPoints = quotaService.getPointsCost("tool_usage", toolType);
+            if (requiredPoints <= 0) return null;
+
+            const user = await authService.getCurrentUser();
+            if (!user) {
+                return {
+                    output: { error: "请先登录以使用工具功能" },
+                    executionTime: 0,
+                };
+            }
+
+            const pointsCheck = await quotaService.checkPoints(user.id, requiredPoints);
+            if (!pointsCheck.allowed) {
+                return {
+                    output: { error: `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分。` },
+                    executionTime: 0,
+                };
+            }
+        } catch (e) {
+            return {
+                output: { error: "积分检查失败，请稍后重试或联系支持" },
+                executionTime: 0,
+            };
+        }
+        return null;
+    }
+
     async execute(
         node: AppNode,
         context: FlowContext,
@@ -38,6 +73,16 @@ export class ToolNodeExecutor extends BaseNodeExecutor {
                 throw new Error("Tool type is not configured or invalid");
             }
             const toolType = data.toolType;
+
+            // Check quota before execution
+            const quotaError = await this.checkQuota(toolType);
+            if (quotaError) {
+                // If it's a quota error, we want to return it as the result, not throw
+                // But BaseNodeExecutor expects result to be returned or thrown
+                // Here we throw to stop execution flow, but we might want to return structured error
+                // However, throwing Error with message is standard for now
+                throw new Error(quotaError.output.error as string);
+            }
 
             // Check for mock data in argument OR in context (passed by executionActions)
             const mockInputs = mockData || (context.mock as Record<string, unknown>);

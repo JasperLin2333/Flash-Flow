@@ -3,7 +3,7 @@ export const runtime = 'nodejs'; // Node.js runtime required for file system ope
 import { GoogleGenAI } from '@google/genai';
 import { GoogleAIFileManager } from "@google/generative-ai/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
-import { incrementQuotaOnServer } from "@/lib/quotaEdge";
+import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
 import { getMimeType } from "@/utils/mimeUtils";
 import fs from 'fs';
 import os from 'os';
@@ -86,6 +86,11 @@ export async function POST(req: Request) {
                 );
             }
 
+            const pointsCheck = await checkPointsOnServer(req, user.id, "rag_search");
+            if (!pointsCheck.allowed) {
+                return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
+            }
+
             const response = await ai.models.generateContent({
                 model: RAG_MODEL,
                 contents: query,
@@ -145,8 +150,7 @@ export async function POST(req: Request) {
             // Extract document content from citations or use response text
             const documents = citations.map(c => c.chunk).filter(Boolean);
 
-            // Deduct quota on success
-            await incrementQuotaOnServer(req, user.id, "llm_executions");
+            await deductPointsOnServer(req, user.id, "rag_search", null, "RAG 检索");
 
             return NextResponse.json({
                 documents: documents.length > 0 ? documents : [text],
@@ -258,6 +262,11 @@ export async function POST(req: Request) {
 
             parts.push({ text: query });
 
+            const pointsCheck = await checkPointsOnServer(req, user.id, "rag_search");
+            if (!pointsCheck.allowed) {
+                return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
+            }
+
             // 2. Generate Content
             const response = await ai.models.generateContent({
                 model: RAG_MODEL,
@@ -265,12 +274,8 @@ export async function POST(req: Request) {
             });
 
             const text = response.text || '';
-            await incrementQuotaOnServer(req, user.id, "llm_executions");
 
-            return NextResponse.json({
-                documents: [text],
-                citations: files.map(f => ({ source: f.name, chunk: '' }))
-            });
+            await deductPointsOnServer(req, user.id, "rag_search", null, "RAG 检索");
 
         } else {
             return NextResponse.json(

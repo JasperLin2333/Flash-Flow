@@ -194,6 +194,7 @@ export type Database = {
           is_active: boolean
           model_id: string
           model_name: string
+          points_cost: number
           provider: string
           updated_at: string | null
         }
@@ -204,6 +205,7 @@ export type Database = {
           is_active?: boolean
           model_id: string
           model_name: string
+          points_cost?: number
           provider?: string
           updated_at?: string | null
         }
@@ -214,6 +216,7 @@ export type Database = {
           is_active?: boolean
           model_id?: string
           model_name?: string
+          points_cost?: number
           provider?: string
           updated_at?: string | null
         }
@@ -325,6 +328,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      points_ledger: {
+        Row: {
+          action_type: string
+          balance_after: number
+          created_at: string
+          id: string
+          item_key: string | null
+          points: number
+          title: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          balance_after: number
+          created_at?: string
+          id?: string
+          item_key?: string | null
+          points: number
+          title: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          balance_after?: number
+          created_at?: string
+          id?: string
+          item_key?: string | null
+          points?: number
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       user_profiles: {
         Row: {

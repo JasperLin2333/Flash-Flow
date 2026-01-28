@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { flowAPI } from "@/services/flowAPI";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { track } from "@/lib/trackingService";
+import { INITIAL_FLOW_STATE } from "@/store/constants/initialState";
 
 function BuilderContent() {
     const searchParams = useSearchParams();
@@ -28,6 +29,7 @@ function BuilderContent() {
     const setFlowTitle = useFlowStore((s) => s.setFlowTitle);
     const startCopilot = useFlowStore((s) => s.startCopilot);
     const setCopilotBackdrop = useFlowStore((s) => s.setCopilotBackdrop);
+    const copilotStatus = useFlowStore((s) => s.copilotStatus);
     const router = useRouter();
     const hasGeneratedRef = useRef(false);
     // FIX: Track if we're loading a flow to prevent infinite loop
@@ -51,6 +53,21 @@ function BuilderContent() {
     // CRITICAL FIX: Subscribe to currentFlowId to auto-sync URL
     // WHY: flowId becomes available asynchronously after save completes
     const currentFlowId = useFlowStore((s) => s.currentFlowId);
+
+    // CRITICAL FIX: Reset store when entering in "new flow" mode (no URL params)
+    // WHY: Prevents redirecting to previous flow ID if store wasn't cleared
+    useEffect(() => {
+        const flowIdParam = searchParams.get('flowId');
+        const initialPrompt = searchParams.get('initialPrompt');
+        const isCopilotActive = copilotStatus !== "idle";
+        
+        // If no flowId and no prompt, we are in "new blank flow" mode.
+        // We MUST clear the store, otherwise the next useEffect will see the old currentFlowId
+        // and redirect us back to the previous flow (causing an Abort loop if we just navigated here).
+        if (!flowIdParam && !initialPrompt && !isGeneratingInitial && !isCopilotActive) {
+             useFlowStore.setState(INITIAL_FLOW_STATE);
+        }
+    }, [searchParams, copilotStatus, isGeneratingInitial]);
 
     // CRITICAL FIX: Load flow from URL if flowId is present
     // FIX (Bug 2 & 4): Enhanced with URL sync and generation state recovery
@@ -89,9 +106,6 @@ function BuilderContent() {
                         // ✅ OPTIMIZATION: Mark this ID as loaded to prevent redundant fetch on URL update
                         loadedFlowIdRef.current = currentFlowId;
                         router.replace(`/builder?flowId=${currentFlowId}`);
-                    } else {
-                        // EDGE: No flowId yet (save may still be pending), just clean URL
-                        router.replace("/builder");
                     }
                 })
                 .catch((error) => {
@@ -183,7 +197,8 @@ function BuilderContent() {
         const flowIdParam = searchParams.get('flowId');
 
         // TIMING: Only update URL if we have a flowId but URL doesn't have it yet
-        if (currentFlowId && currentFlowId !== flowIdParam) {
+        // FIX: Only sync if URL has NO flowId. If URL already has an ID, trust it (prevents race condition during navigation)
+        if (currentFlowId && !flowIdParam) {
             // DEFENSIVE: Avoid infinite loop - only update if actually different
             router.replace(`/builder?flowId=${currentFlowId}`, { scroll: false });
         }
@@ -253,24 +268,23 @@ function BuilderContent() {
                     <LaunchCard />
                 </div>
 
-                {/* Top-left Back Button */}
-                <div className="pointer-events-auto">
-                    <div className="fixed top-6 left-6 z-20">
+                {/* Top Floating Header Island */}
+                <div className="pointer-events-auto fixed top-6 left-1/2 -translate-x-1/2 z-20">
+                    <div className="flex items-center gap-1 p-1.5 bg-white/80 backdrop-blur-md border border-gray-200/50 shadow-lg rounded-full transition-all duration-200 hover:shadow-xl hover:border-gray-300/50 hover:bg-white/90">
+                        {/* Back Button */}
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-9 w-9 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-gray-100"
+                            className="h-8 w-8 rounded-full hover:bg-black/5 text-gray-600 hover:text-black transition-colors"
                             onClick={() => router.back()}
                         >
-                            <ArrowLeft className="w-4 h-4 text-black" />
+                            <ArrowLeft className="w-4 h-4" />
                         </Button>
-                    </div>
-                </div>
 
-                {/* Top-center Title + Preview */}
-                <div className="pointer-events-auto">
-                    <div className="fixed top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3">
-                        <div className="group flex items-center gap-2">
+                        <div className="w-px h-4 bg-gray-200 mx-1" />
+
+                        {/* Title */}
+                        <div className="group flex items-center px-2">
                             <div
                                 key={flowTitle}
                                 contentEditable
@@ -283,21 +297,26 @@ function BuilderContent() {
                                         track('flow_title_edit', { new_title_length: newTitle.length });
                                     }
                                 }}
-                                className="inline-flex items-center h-9 px-2 rounded-lg bg-transparent text-sm font-semibold text-black cursor-text hover:bg-gray-100/60 focus:outline-none whitespace-nowrap leading-none"
+                                className="inline-flex items-center h-8 px-2 rounded-md text-sm font-semibold text-gray-800 cursor-text hover:bg-black/5 focus:bg-white focus:ring-2 focus:ring-black/5 focus:outline-none whitespace-nowrap leading-none transition-all"
                             >
                                 {flowTitle}
                             </div>
-                            <Pencil className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 self-center" />
+                            <Pencil className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 ml-1.5 transition-opacity" />
                         </div>
+
+                        <div className="w-px h-4 bg-gray-200 mx-1" />
+
+                        {/* Preview Button */}
                         <Button
-                            className="h-9 px-4 rounded-lg bg-black text-white hover:bg-black/90 gap-2"
+                            size="sm"
+                            className="h-8 px-4 rounded-full bg-black text-white hover:bg-black/80 shadow-sm transition-all hover:scale-105 active:scale-95 ml-1"
                             onClick={() => {
                                 setAppMode(true);
                                 track('toolbar_btn_click', { button: 'preview' });
                             }}
                         >
-                            <Eye className="w-4 h-4" />
-                            预览
+                            <Eye className="w-3.5 h-3.5 mr-1.5" />
+                            预览运行效果
                         </Button>
                     </div>
                 </div>

@@ -4,6 +4,7 @@ import { calculateOptimalLayout } from "../utils/layoutAlgorithm";
 import { quotaService } from "@/services/quotaService";
 import { authService } from "@/services/authService";
 import { useQuotaStore } from "@/store/quotaStore";
+import { showError } from "@/utils/errorNotify";
 
 export const createCopilotActions = (set: any, get: any) => ({
     /**
@@ -35,10 +36,10 @@ export const createCopilotActions = (set: any, get: any) => ({
                 throw new Error("请先登录以生成 Flow");
             }
 
-            // Check quota availability
-            const quotaCheck = await quotaService.checkQuota(user.id, "flow_generations");
-            if (!quotaCheck.allowed) {
-                const errorMsg = `Flow 生成次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。`;
+            const requiredPoints = quotaService.getPointsCost("flow_generation");
+            const pointsCheck = await quotaService.checkPoints(user.id, requiredPoints);
+            if (!pointsCheck.allowed) {
+                const errorMsg = `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分。`;
                 set({
                     copilotStatus: "idle",
                     error: errorMsg
@@ -56,9 +57,9 @@ export const createCopilotActions = (set: any, get: any) => ({
             // SECURITY FIX: Fail fast for other errors instead of degraded mode
             set({
                 copilotStatus: "idle",
-                error: "配额检查失败，请稍后重试"
+                error: "积分检查失败，请稍后重试"
             });
-            throw new Error("配额检查失败，请稍后重试");
+            throw new Error("积分检查失败，请稍后重试");
         }
 
         // PERSISTENCE: Mark that copilot is running (for refresh recovery)
@@ -86,32 +87,41 @@ export const createCopilotActions = (set: any, get: any) => ({
             const decoder = new TextDecoder();
             let plan: Plan = { nodes: [], edges: [] };
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
 
-                const text = decoder.decode(value, { stream: true });
-                const lines = text.split("\n");
+                    const text = decoder.decode(value, { stream: true });
+                    const lines = text.split("\n");
 
-                for (const line of lines) {
-                    if (line.startsWith("data: ")) {
-                        const data = line.slice(6);
-                        if (data === "[DONE]") break;
+                    for (const line of lines) {
+                        if (line.startsWith("data: ")) {
+                            const data = line.slice(6);
+                            if (data === "[DONE]") break;
 
-                        try {
-                            const parsed = JSON.parse(data);
-                            if (parsed.type === "result") {
-                                plan = {
-                                    title: parsed.title,
-                                    nodes: parsed.nodes || [],
-                                    edges: parsed.edges || [],
-                                };
+                            try {
+                                const parsed = JSON.parse(data);
+                                if (parsed.type === "result") {
+                                    plan = {
+                                        title: parsed.title,
+                                        nodes: parsed.nodes || [],
+                                        edges: parsed.edges || [],
+                                    };
+                                }
+                            } catch {
+                                // Ignore parse errors for progress events
                             }
-                        } catch {
-                            // Ignore parse errors for progress events
                         }
                     }
                 }
+            } catch (streamError) {
+                console.warn("Stream reading interrupted:", streamError);
+                // If we haven't received valid nodes yet, re-throw the error
+                if (!plan.nodes || plan.nodes.length === 0) {
+                    throw streamError;
+                }
+                // Otherwise continue with what we have
             }
 
             const { nodes, edges } = normalizePlan(plan, prompt);
@@ -149,6 +159,8 @@ export const createCopilotActions = (set: any, get: any) => ({
 
             set({ copilotStatus: "completed" });
         } catch (error) {
+            console.error("Copilot generation failed:", error);
+            showError("生成失败", error instanceof Error ? error.message : "请稍后重试");
             set({ copilotStatus: "idle" });
         } finally {
             // CLEANUP: Remove copilot operation flag

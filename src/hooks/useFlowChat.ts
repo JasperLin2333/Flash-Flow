@@ -96,11 +96,12 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
                 return;
             }
 
-            const quotaCheck = await quotaService.checkQuota(currentUser.id, "app_usages");
-            if (!quotaCheck.allowed) {
+            const requiredPoints = quotaService.getPointsCost("app_usage");
+            const pointsCheck = await quotaService.checkPoints(currentUser.id, requiredPoints);
+            if (!pointsCheck.allowed) {
                 setMessages(prev => [...prev, {
                     role: "assistant",
-                    content: `您的 APP 使用次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额以继续使用。`,
+                    content: `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分以继续使用。`,
                     timestamp: new Date()
                 }]);
                 return;
@@ -269,15 +270,14 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
             setMessages(updatedMessages);
             updateSessionCache(activeSessionId, updatedMessages, false);
 
-            // 11. Increment Quota (async, non-blocking)
+            // 11. Refresh Quota UI (server handles deduction)
             try {
                 if (currentUser) {
-                    await quotaService.incrementUsage(currentUser.id, "app_usages");
                     const { refreshQuota } = await import("@/store/quotaStore").then(m => m.useQuotaStore.getState());
                     await refreshQuota(currentUser.id);
                 }
             } catch (e) {
-                console.error("Quota increment failed:", e);
+                console.error("Quota refresh failed:", e);
             }
 
         } catch (error) {

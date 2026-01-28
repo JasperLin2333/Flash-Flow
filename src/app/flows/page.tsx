@@ -98,18 +98,18 @@ function FlowsPageContent() {
     <div className="min-h-screen bg-white">
       <div className="max-w-[1600px] mx-auto px-6 md:px-12 py-12">
         <div className="flex items-center justify-between mb-8">
-          <h1 className="text-[22px] font-semibold text-black">Flow Box（我的助手）</h1>
+          <h1 className="text-[22px] font-semibold text-black">我的智能体</h1>
           <div className="flex items-center gap-3">
             <div className="relative">
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索助手" className="w-[240px] pl-8 shadow-sm" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="查找我的智能体..." className="w-[240px] pl-8 shadow-sm" />
               <SearchIcon className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
             </div>
             <Button className="bg-gray-100 text-gray-700 hover:bg-gray-200 gap-2 rounded-lg px-6 h-11 disabled:opacity-50" onClick={handleCreateFlow} disabled={isCreating}>
               {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              {isCreating ? "创建中..." : "新建 Flow"}
+              {isCreating ? "创建中..." : "创建新智能体"}
             </Button>
             <Button className="bg-black text-white hover:bg-black/90 gap-2 rounded-lg px-6 h-11" onClick={() => router.push("/")}>
-              <Home className="w-4 h-4" /> 首页
+              <Home className="w-4 h-4" /> 返回首页
             </Button>
           </div>
         </div>
@@ -145,14 +145,14 @@ function FlowsPageContent() {
             <div className="w-16 h-16 bg-white border border-gray-200 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
               <Plus className="w-8 h-8 text-gray-400" />
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">还没有工作流</h3>
-            <p className="text-gray-500 text-sm mb-6">创建你的第一个 AI 工作流</p>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">还没有创建任何智能体</h3>
+            <p className="text-gray-500 text-sm mb-6">打造你的第一个 AI 智能体</p>
             <Button
               onClick={handleCreateFlow}
               className="bg-black text-white hover:bg-black/90 gap-2"
             >
               <Plus className="w-4 h-4" />
-              创建 Flow
+              创建新智能体
             </Button>
           </div>
         )}
@@ -174,7 +174,7 @@ function FlowsPageContent() {
               <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <SearchIcon className="w-6 h-6 text-gray-400" />
               </div>
-              <p className="text-gray-500 text-sm">未找到匹配 "{query}" 的结果</p>
+              <p className="text-gray-500 text-sm">未找到匹配 &quot;{query}&quot; 的结果</p>
               <Button
                 variant="ghost"
                 size="sm"

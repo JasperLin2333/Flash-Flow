@@ -9,7 +9,7 @@ import type { FlowRecord } from "@/types/flow";
 import { Pencil, MoreVertical, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { formatUpdateTime, getNodeCount } from "./flowCardUtils";
+import { formatUpdateTime, getNodeCount, formatRelativeTime } from "./flowCardUtils";
 import { EditFlowDialog } from "./EditFlowDialog";
 import { AvatarDialog } from "./AvatarDialog";
 import { IconDisplay } from "./IconDisplay";
@@ -17,12 +17,12 @@ import { toast } from "@/hooks/use-toast";
 
 // ============ 常量 ============
 const CARD_STYLES = {
-  container: "group relative flex flex-col h-[220px] w-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-300 hover:shadow-lg hover:border-gray-300",
+  container: "group relative flex flex-col h-[220px] w-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-300 hover:shadow-lg hover:border-gray-300 cursor-pointer",
   header: "mb-3 flex items-start justify-between",
   titleSection: "flex items-center gap-3 flex-1 min-w-0 mr-2",
   iconWrapper: "flex-shrink-0 w-12 h-12 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden",
   titleInfo: "flex flex-col min-w-0",
-  title: "text-[15px] font-semibold text-gray-900 truncate",
+  title: "text-base font-bold text-gray-900 truncate",
   nodeCount: "flex items-center gap-1 text-xs text-amber-500 font-medium mt-0.5",
   content: "text-sm text-gray-500 line-clamp-2 mt-1",
   footer: "absolute bottom-5 left-5 right-5 text-xs text-gray-400 transition-opacity duration-300 group-hover:opacity-0",
@@ -49,29 +49,31 @@ function FlowMenu({
   onDelete: () => void;
 }) {
   return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button className={cn("rounded-lg p-2 transition-colors duration-150 hover:bg-gray-100")}>
-              <MoreVertical className="w-4 h-4 text-gray-500 hover:text-gray-700" />
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent side="top">更多</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onEdit} className="cursor-pointer">
-          编辑信息
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="text-red-600 focus:text-red-600 focus:bg-red-50 hover:text-red-700 hover:bg-red-50 cursor-pointer"
-          onClick={onDelete}
-        >
-          删除
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div onClick={(e) => e.stopPropagation()}>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button className={cn("rounded-lg p-2 transition-colors duration-150 hover:bg-gray-100")}>
+                <MoreVertical className="w-4 h-4 text-gray-500 hover:text-gray-700" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="top">更多</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={onEdit} className="cursor-pointer">
+            配置智能体
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-red-600 focus:text-red-600 focus:bg-red-50 hover:text-red-700 hover:bg-red-50 cursor-pointer"
+            onClick={onDelete}
+          >
+            删除智能体
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
@@ -81,7 +83,7 @@ function FlowMenu({
 function FlowFooter({ flow }: { flow: FlowRecord }) {
   return (
     <div className={CARD_STYLES.footer}>
-      <span>最近更新：{formatUpdateTime(flow.updated_at)}</span>
+      <span>更新于 {formatRelativeTime(flow.updated_at)}</span>
     </div>
   );
 }
@@ -95,6 +97,10 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
   const [isTruncated, setIsTruncated] = useState(false);
 
   // ========== 事件处理器 ==========
+
+  const handleCardClick = () => {
+    router.push(`/app?flowId=${flow.id}`);
+  };
 
   const handleDeleteClick = () => {
     setDeleteOpen(true);
@@ -188,7 +194,7 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
   const nodeCount = getNodeCount(flow);
 
   return (
-    <div className={CARD_STYLES.container}>
+    <div className={CARD_STYLES.container} onClick={handleCardClick}>
       {/* Header Area */}
       <div className={CARD_STYLES.header}>
         <div className={CARD_STYLES.titleSection}>
@@ -234,12 +240,12 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
       <FlowFooter flow={flow} />
 
       {/* Footer Area - Action View (visible on hover) */}
-      <div className={CARD_STYLES.actionBar}>
+      <div className={CARD_STYLES.actionBar} onClick={(e) => e.stopPropagation()}>
         <Button
           className={BUTTON_STYLES.primary + " flex-1"}
           onClick={() => router.push(`/app?flowId=${flow.id}`)}
         >
-          使用
+          立即运行
         </Button>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -252,17 +258,17 @@ export default function FlowCard({ flow, onUpdated, onDeleted }: { flow: FlowRec
               <Pencil className="w-4 h-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">画布编辑</TooltipContent>
+          <TooltipContent side="top">进入画布</TooltipContent>
         </Tooltip>
       </div>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[425px]" onClick={(e) => e.stopPropagation()}>
           <DialogHeader>
-            <DialogTitle>确认删除流程？</DialogTitle>
+            <DialogTitle>确认删除该智能体？</DialogTitle>
             <DialogDescription>
-              此操作无法撤销。这将永久删除流程 "{flow.name}" 及其所有相关数据。
+              此操作无法撤销。这将永久删除智能体 &quot;{flow.name}&quot; 及其所有相关数据。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-4 sm:gap-4">

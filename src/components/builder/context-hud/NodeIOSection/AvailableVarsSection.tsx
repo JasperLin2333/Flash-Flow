@@ -1,8 +1,9 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { ArrowDownToLine, Copy, Check } from "lucide-react";
+import { ArrowDownToLine, Copy, Check, Search, Database } from "lucide-react";
 import type { UpstreamVariable } from "../types";
 import { LABEL_CLASS } from "../constants";
 
@@ -18,30 +19,35 @@ export function AvailableVarsSection({
     upstreamVariables,
 }: AvailableVarsSectionProps) {
     const [copiedVar, setCopiedVar] = useState<string | null>(null);
-    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState("");
 
-    // 提取唯一的上游节点
-    const uniqueNodes = React.useMemo(() => {
-        const nodes = new Map<string, string>();
+    // Group variables by Node ID and filter by search query
+    const groupedVars = useMemo(() => {
+        const query = searchQuery.toLowerCase();
+        const groups = new Map<string, { label: string; vars: UpstreamVariable[] }>();
+
         upstreamVariables.forEach((v) => {
-            if (!nodes.has(v.nodeId)) {
-                nodes.set(v.nodeId, v.nodeLabel);
+            const varName = `${v.nodeLabel}.${v.field}`;
+            // Filter logic
+            if (query && !varName.toLowerCase().includes(query) && !v.value?.toString().toLowerCase().includes(query)) {
+                return;
             }
+
+            if (!groups.has(v.nodeId)) {
+                groups.set(v.nodeId, { label: v.nodeLabel, vars: [] });
+            }
+            groups.get(v.nodeId)?.vars.push(v);
         });
-        return Array.from(nodes.entries()).map(([id, label]) => ({
-            id,
-            label,
-        }));
-    }, [upstreamVariables]);
+
+        return Array.from(groups.values());
+    }, [upstreamVariables, searchQuery]);
 
     const handleCopy = async (varName: string) => {
         const textToCopy = `{{${varName}}}`;
         try {
-            // Modern clipboard API (requires HTTPS or localhost)
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
                 await navigator.clipboard.writeText(textToCopy);
             } else {
-                // Fallback for older browsers or non-secure contexts
                 const textarea = document.createElement('textarea');
                 textarea.value = textToCopy;
                 textarea.style.position = 'fixed';
@@ -58,96 +64,74 @@ export function AvailableVarsSection({
         }
     };
 
-    const filteredVars = selectedNodeId
-        ? upstreamVariables.filter((v) => v.nodeId === selectedNodeId)
-        : upstreamVariables;
-
     return (
         <div>
-            <h4 className={`${LABEL_CLASS} mb-2 flex items-center gap-1.5`}>
-                <ArrowDownToLine className="w-3 h-3" />
-                可用输入变量
-            </h4>
-
-            {/* 节点筛选器 - 只有当有多个来源节点时才显示 */}
-            {uniqueNodes.length > 1 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                    <button
-                        onClick={() => setSelectedNodeId(null)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${selectedNodeId === null
-                            ? "bg-blue-100 border-blue-200 text-blue-700 font-medium"
-                            : "bg-white border-gray-200 text-gray-600 hover:border-blue-200 hover:text-blue-600"
-                            }`}
-                    >
-                        全部
-                    </button>
-                    {uniqueNodes.map((node) => (
-                        <button
-                            key={node.id}
-                            onClick={() => setSelectedNodeId(node.id)}
-                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors max-w-[120px] truncate ${selectedNodeId === node.id
-                                ? "bg-blue-100 border-blue-200 text-blue-700 font-medium"
-                                : "bg-white border-gray-200 text-gray-600 hover:border-blue-200 hover:text-blue-600"
-                                }`}
-                            title={node.label}
-                        >
-                            {node.label}
-                        </button>
-                    ))}
-                </div>
-            )}
+            <div className="flex items-center justify-between mb-2">
+                <h4 className={`${LABEL_CLASS} flex items-center gap-1.5`}>
+                    <ArrowDownToLine className="w-3 h-3" />
+                    可用输入变量
+                </h4>
+                {upstreamVariables.length > 5 && (
+                    <div className="relative w-32">
+                        <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                        <Input
+                            className="h-6 pl-6 text-[10px] bg-white"
+                            placeholder="搜索变量..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                )}
+            </div>
 
             {upstreamVariables.length === 0 ? (
                 <p className="text-[10px] text-gray-400 italic">无上游连接</p>
+            ) : groupedVars.length === 0 ? (
+                <p className="text-[10px] text-gray-400 italic text-center py-2">未找到匹配变量</p>
             ) : (
-                <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                    {filteredVars.map((v, idx) => {
-                        const varName = `${v.nodeLabel}.${v.field}`;
-                        const isCopied = copiedVar === varName;
-                        return (
-                            <div
-                                key={`${v.nodeId}-${v.field}-${idx}`}
-                                className="group flex items-center justify-between bg-blue-50 rounded-lg px-2.5 py-1.5 border border-blue-100 hover:border-blue-200 transition-colors"
-                            >
-                                <div className="flex-1 min-w-0 flex items-center gap-2">
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <code className="text-[10px] font-mono text-blue-700 whitespace-nowrap cursor-default">
-                                                {`{{${varName}}}`}
-                                            </code>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top">
-                                            {`{{${varName}}}`}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                    {v.value && (
-                                        <Tooltip>
+                <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                    {groupedVars.map((group) => (
+                        <div key={group.label} className="bg-white rounded-lg border border-gray-100 shadow-sm p-2">
+                            <div className="flex items-center gap-1.5 mb-2 px-1">
+                                <Database className="w-3 h-3 text-gray-400" />
+                                <span className="text-[11px] font-semibold text-gray-700">{group.label}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {group.vars.map((v, idx) => {
+                                    const varName = `${v.nodeLabel}.${v.field}`;
+                                    const isCopied = copiedVar === varName;
+                                    return (
+                                        <Tooltip key={`${varName}-${idx}`}>
                                             <TooltipTrigger asChild>
-                                                <span className="text-[9px] text-gray-500 truncate cursor-default">
-                                                    = {v.value}
-                                                </span>
+                                                <button
+                                                    onClick={() => handleCopy(varName)}
+                                                    className={`
+                                                        group flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] font-mono transition-all
+                                                        ${isCopied
+                                                            ? "bg-green-50 border-green-200 text-green-700"
+                                                            : "bg-gray-50 border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50"
+                                                        }
+                                                    `}
+                                                >
+                                                    <span>{v.field}</span>
+                                                    {isCopied ? (
+                                                        <Check className="w-2.5 h-2.5" />
+                                                    ) : (
+                                                        <Copy className="w-2.5 h-2.5 opacity-0 group-hover:opacity-50" />
+                                                    )}
+                                                </button>
                                             </TooltipTrigger>
-                                            <TooltipContent side="top" className="max-w-xs">
-                                                = {v.value}
+                                            <TooltipContent side="top" className="text-xs">
+                                                <div className="font-semibold mb-1">{`{{${varName}}}`}</div>
+                                                {v.value && <div className="text-gray-400 max-w-xs break-all">= {v.value}</div>}
+                                                <div className="text-[9px] text-blue-300 mt-1">点击复制</div>
                                             </TooltipContent>
                                         </Tooltip>
-                                    )}
-                                </div>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity ml-1"
-                                    onClick={() => handleCopy(varName)}
-                                >
-                                    {isCopied ? (
-                                        <Check className="w-3 h-3 text-green-500" />
-                                    ) : (
-                                        <Copy className="w-3 h-3 text-gray-400" />
-                                    )}
-                                </Button>
+                                    );
+                                })}
                             </div>
-                        );
-                    })}
+                        </div>
+                    ))}
                 </div>
             )}
         </div>

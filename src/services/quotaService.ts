@@ -4,7 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
-import type { UserQuota, QuotaType, QuotaCheckResult } from "@/types/auth";
+import type { UserQuota, QuotaType, QuotaCheckResult, PointsCheckResult, PointsLedgerEntry, PointsActionType } from "@/types/auth";
 
 export const quotaService = {
     /**
@@ -42,6 +42,8 @@ export const quotaService = {
                 app_usages_limit: rawData.app_usages_limit as number,
                 image_gen_executions_used: (rawData.image_gen_executions_used as number) ?? 0,
                 image_gen_executions_limit: (rawData.image_gen_executions_limit as number) ?? 20,
+                points_balance: (rawData.points_balance as number) ?? 0,
+                points_used: (rawData.points_used as number) ?? 0,
                 created_at: rawData.created_at as string,
                 updated_at: rawData.updated_at as string,
             };
@@ -156,6 +158,8 @@ export const quotaService = {
                     app_usages_limit: rawData.app_usages_limit as number,
                     image_gen_executions_used: (rawData.image_gen_executions_used as number) ?? 0,
                     image_gen_executions_limit: (rawData.image_gen_executions_limit as number) ?? 20,
+                    points_balance: (rawData.points_balance as number) ?? 0,
+                    points_used: (rawData.points_used as number) ?? 0,
                     created_at: rawData.created_at as string,
                     updated_at: rawData.updated_at as string,
                 };
@@ -185,6 +189,181 @@ export const quotaService = {
             case 'image_gen_executions':
                 return { image_gen_executions_used: newValue };
         }
+    },
+
+    getLLMPointsCost(modelId?: string): number {
+        const model = (modelId || "").toLowerCase();
+        const isHigh = model.includes("reasoner")
+            || model.includes("r1")
+            || model.includes("o1")
+            || model.includes("o3")
+            || model.includes("gpt-4")
+            || model.includes("claude-3")
+            || model.includes("4o");
+        if (isHigh) return 8;
+
+        const isLow = model.includes("flash")
+            || model.includes("turbo")
+            || model.includes("3.5")
+            || model.includes("mini")
+            || model.includes("lite");
+        if (isLow) return 1;
+
+        return 3;
+    },
+
+    getPointsCost(actionType: PointsActionType, itemKey?: string | null): number {
+        switch (actionType) {
+            case "llm":
+                return this.getLLMPointsCost(itemKey || undefined);
+            case "flow_generation":
+                return 6;
+            case "app_usage":
+                return 4;
+            case "image_generation":
+                return 12;
+            case "rag_search":
+            return this.getLLMPointsCost("gemini-2.5-flash");
+        case "tool_usage":
+            if (itemKey === "web_search") return 5;
+            if (itemKey === "code_interpreter") return 10;
+            if (itemKey === "url_reader") return 3;
+            return 0;
+    }
+},
+
+    async getImageGenPointsCost(modelId?: string): Promise<number> {
+        const fallback = this.getPointsCost("image_generation");
+        if (!modelId) {
+            return fallback;
+        }
+
+        const { data, error } = await supabase
+            .from("image_gen_models")
+            .select("points_cost")
+            .eq("model_id", modelId)
+            .single();
+
+        if (error || !data) {
+            return fallback;
+        }
+
+        const points = (data as { points_cost?: number | null }).points_cost;
+        return typeof points === "number" ? points : fallback;
+    },
+
+    async checkPoints(userId: string, requiredPoints: number): Promise<PointsCheckResult> {
+        const quota = await this.getUserQuota(userId);
+
+        if (!quota) {
+            return {
+                allowed: false,
+                required: requiredPoints,
+                balance: 0,
+                remaining: 0,
+            };
+        }
+
+        const remaining = quota.points_balance - requiredPoints;
+
+        return {
+            allowed: remaining >= 0,
+            required: requiredPoints,
+            balance: quota.points_balance,
+            remaining,
+        };
+    },
+
+    async deductPoints(
+        userId: string,
+        payload: {
+            actionType: PointsActionType;
+            itemKey?: string | null;
+            title: string;
+            points: number;
+        }
+    ): Promise<UserQuota | null> {
+        const maxRetries = 3;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            const quota = await this.getUserQuota(userId);
+            if (!quota) {
+                return null;
+            }
+
+            if (quota.points_balance < payload.points) {
+                return null;
+            }
+
+            const updated_at = quota.updated_at;
+            const newBalance = quota.points_balance - payload.points;
+            const newUsed = quota.points_used + payload.points;
+
+            const { data, error } = await supabase
+                .from("users_quota")
+                .update({
+                    points_balance: newBalance,
+                    points_used: newUsed,
+                    updated_at: new Date().toISOString()
+                })
+                .eq("user_id", userId)
+                .eq("updated_at", updated_at)
+                .select()
+                .single();
+
+            if (!error && data) {
+                await (supabase as any)
+                    .from("points_ledger")
+                    .insert({
+                        user_id: userId,
+                        action_type: payload.actionType,
+                        item_key: payload.itemKey || null,
+                        title: payload.title,
+                        points: payload.points,
+                        balance_after: newBalance
+                    });
+
+                const rawData = data as Record<string, unknown>;
+                const result: UserQuota = {
+                    id: rawData.id as string,
+                    user_id: rawData.user_id as string,
+                    llm_executions_used: rawData.llm_executions_used as number,
+                    llm_executions_limit: rawData.llm_executions_limit as number,
+                    flow_generations_used: rawData.flow_generations_used as number,
+                    flow_generations_limit: rawData.flow_generations_limit as number,
+                    app_usages_used: rawData.app_usages_used as number,
+                    app_usages_limit: rawData.app_usages_limit as number,
+                    image_gen_executions_used: (rawData.image_gen_executions_used as number) ?? 0,
+                    image_gen_executions_limit: (rawData.image_gen_executions_limit as number) ?? 20,
+                    points_balance: (rawData.points_balance as number) ?? newBalance,
+                    points_used: (rawData.points_used as number) ?? newUsed,
+                    created_at: rawData.created_at as string,
+                    updated_at: rawData.updated_at as string,
+                };
+                return result;
+            }
+
+            if (attempt < maxRetries - 1) {
+                await new Promise(r => setTimeout(r, 100 * (attempt + 1)));
+            }
+        }
+
+        return null;
+    },
+
+    async getPointsLedger(userId: string, limit = 10): Promise<PointsLedgerEntry[]> {
+        const { data, error } = await (supabase as any)
+            .from("points_ledger")
+            .select("id,user_id,action_type,item_key,title,points,balance_after,created_at")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(limit);
+
+        if (error || !data) {
+            return [];
+        }
+
+        return data as unknown as PointsLedgerEntry[];
     },
 
     /**

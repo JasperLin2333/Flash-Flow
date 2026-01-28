@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Check, Link } from "lucide-react";
+import { CheckCircle2, Link, AlertCircle } from "lucide-react";
 import type { ReferencedVariable } from "../types";
 import { LABEL_CLASS } from "../constants";
 
@@ -16,41 +16,42 @@ interface ReferencedVarsSectionProps {
 export function ReferencedVarsSection({
     referencedVariables,
 }: ReferencedVarsSectionProps) {
+    if (referencedVariables.length === 0) return null;
+
     return (
-        <div>
+        <div className="mb-4">
             <h4 className={`${LABEL_CLASS} mb-2 flex items-center gap-1.5`}>
                 <Link className="w-3 h-3" />
-                引用的变量
+                已引用变量
             </h4>
-            <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-2">
                 {referencedVariables.map((ref, idx) => (
-                    <div
-                        key={`ref-${idx}`}
-                        className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border ${ref.isSatisfied
-                            ? 'bg-green-50 border-green-200'
-                            : 'bg-orange-50 border-orange-200'
-                            }`}
-                    >
-                        <code className={`text-[10px] font-mono shrink-0 ${ref.isSatisfied ? 'text-green-700' : 'text-orange-700'
-                            }`}>
-                            {`{{${ref.field}}}`}
-                        </code>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <span className="text-[9px] text-gray-500 flex-1 truncate cursor-default">
-                                    {ref.description}
+                    <Tooltip key={`ref-${idx}`}>
+                        <TooltipTrigger asChild>
+                            <div
+                                className={`
+                                    inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border cursor-default transition-colors
+                                    ${ref.isSatisfied
+                                        ? 'bg-green-50 border-green-200 text-green-700'
+                                        : 'bg-orange-50 border-orange-200 text-orange-700'
+                                    }
+                                `}
+                            >
+                                {ref.isSatisfied ? (
+                                    <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                ) : (
+                                    <AlertCircle className="w-3 h-3 shrink-0" />
+                                )}
+                                <span className="font-mono font-medium">
+                                    {`{{${ref.field}}}`}
                                 </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs">
-                                {ref.description}
-                            </TooltipContent>
-                        </Tooltip>
-                        {ref.isSatisfied ? (
-                            <Check className="w-3 h-3 text-green-500 shrink-0" />
-                        ) : (
-                            <span className="text-[9px] text-orange-500 shrink-0">未匹配</span>
-                        )}
-                    </div>
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-xs">
+                            <p>{ref.description}</p>
+                            {!ref.isSatisfied && <p className="text-orange-300 mt-1">该变量在上游节点中未找到</p>}
+                        </TooltipContent>
+                    </Tooltip>
                 ))}
             </div>
         </div>

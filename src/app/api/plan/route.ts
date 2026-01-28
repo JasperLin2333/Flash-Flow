@@ -3,7 +3,7 @@ export const runtime = 'edge';
 import { PlanRequestSchema } from "@/utils/validation";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
-import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
+import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
 import { CORE_RULES, PLAN_PROMPT, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES, FLOW_EXAMPLES, NEGATIVE_EXAMPLES } from "@/lib/prompts";
 import { WorkflowZodSchema } from "@/lib/schemas/workflow";
 import { extractBalancedJson, validateWorkflow } from "@/lib/agent/utils";
@@ -52,10 +52,9 @@ export async function POST(req: Request) {
       return unauthorizedResponse();
     }
 
-    // Server-side quota check for flow generations
-    const quotaCheck = await checkQuotaOnServer(req, user.id, "flow_generations");
-    if (!quotaCheck.allowed) {
-      return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "Flow 生成次数");
+    const pointsCheck = await checkPointsOnServer(req, user.id, "flow_generation");
+    if (!pointsCheck.allowed) {
+      return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
     }
 
     const body = await reqClone.json();
@@ -210,7 +209,7 @@ ${NEGATIVE_EXAMPLES}
 
               // 成功！发送结果
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "result", title, nodes: finalNodes, edges })}\n\n`));
-              await incrementQuotaOnServer(req, user.id, "flow_generations");
+              await deductPointsOnServer(req, user.id, "flow_generation", null, "Flow 生成");
               success = true;
 
             } catch (error) {
@@ -263,4 +262,3 @@ ${NEGATIVE_EXAMPLES}
     );
   }
 }
-

@@ -14,12 +14,12 @@ export function ImageGenMetadata({ imageGen }: { imageGen: ImageGenNodeData }) {
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-                <span className={METADATA_LABEL_STYLE}>模型</span>
+                <span className={METADATA_LABEL_STYLE}>绘画模型</span>
                 <span className={METADATA_VALUE_STYLE}>{modelName}</span>
             </div>
             {imageSize && (
                 <div className="flex items-center gap-2">
-                    <span className={METADATA_LABEL_STYLE}>比例</span>
+                    <span className={METADATA_LABEL_STYLE}>画幅比例</span>
                     <span className={METADATA_VALUE_STYLE}>{sizeName}</span>
                 </div>
             )}

@@ -1,5 +1,5 @@
 -- Enable pgvector extension
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
 
 -- Drop existing table if exists (to handle dimension change)
 DROP TABLE IF EXISTS agent_docs CASCADE;
@@ -38,6 +38,7 @@ RETURNS TABLE(
 )
 LANGUAGE sql
 STABLE
+SET search_path TO 'public', 'extensions'
 AS $$
   SELECT
     agent_docs.id,

@@ -8,7 +8,7 @@ export function OutputMetadata({ data }: { data: AppNodeData }) {
 
     return (
         <div className="flex items-center gap-2">
-            <span className={METADATA_LABEL_STYLE}>类型</span>
+            <span className={METADATA_LABEL_STYLE}>回复格式</span>
             <span className={METADATA_VALUE_STYLE}>{getOutputModeLabel(mode)}</span>
         </div>
     );

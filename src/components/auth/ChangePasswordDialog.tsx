@@ -165,6 +165,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
                             minLength={6}
                             className={FORM_STYLES.INPUT_CLASSES}
                         />
+                        <p className="text-xs text-gray-500">密码长度至少 6 位</p>
                     </div>
 
                     <div className={FORM_STYLES.FIELD_SPACING}>
@@ -198,10 +199,10 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
                     <div className="flex gap-2">
                         <Button
                             type="button"
-                            variant="outline"
+                            variant="ghost"
                             onClick={() => handleOpenChange(false)}
                             disabled={isLoading}
-                            className="flex-1"
+                            className="flex-1 text-gray-500 hover:text-gray-900"
                         >
                             {UI_TEXT.cancelButton}
                         </Button>

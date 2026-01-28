@@ -23,6 +23,10 @@ export const LLM_EXECUTOR_CONFIG = {
     MEMORY_MAX_TURNS: 20,
     /** 默认响应格式 */
     DEFAULT_RESPONSE_FORMAT: 'text' as 'text' | 'json_object',
+    /** 默认超时时间 (毫秒) */
+    DEFAULT_TIMEOUT_MS: 180000, // 3 minutes
+    /** 默认重试次数 */
+    DEFAULT_MAX_RETRIES: 2,
 } as const;
 
 // ===== 通用节点配置 =====

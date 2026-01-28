@@ -14,7 +14,7 @@ export function BranchMetadata({ branch }: { branch: import("@/types/flow").Bran
 
     return (
         <div className="flex items-center gap-2">
-            <span className={METADATA_LABEL_STYLE}>条件</span>
+            <span className={METADATA_LABEL_STYLE}>判断逻辑</span>
             <span className={METADATA_VALUE_STYLE}>{displayCondition}</span>
         </div>
     );

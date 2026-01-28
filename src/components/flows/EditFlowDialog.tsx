@@ -98,11 +98,11 @@ export function EditFlowDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={DIALOG_STYLE.content}>
+      <DialogContent className={DIALOG_STYLE.content} onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
-          <DialogTitle className="font-bold text-base">编辑助手</DialogTitle>
+          <DialogTitle className="font-bold text-base">智能体配置</DialogTitle>
           <DialogDescription className="text-xs text-gray-500">
-            修改基本信息
+            打造你的专属助手
           </DialogDescription>
         </DialogHeader>
 
@@ -116,12 +116,12 @@ export function EditFlowDialog({
               {/* 头像渲染 */}
               <IconDisplay flow={flow} className="w-7 h-7" />
             </button>
-            <div className="text-xs text-gray-500">点击头像进行更换</div>
+            <div className="text-xs text-gray-500">点击更换图标</div>
           </div>
 
           {/* 名称输入 */}
           <div>
-            <div className="text-xs font-medium text-gray-600 mb-1">名称 <span className="text-red-500">*</span></div>
+            <div className="text-xs font-medium text-gray-600 mb-1">智能体名称 <span className="text-red-500">*</span></div>
             <Input
               value={formState.name}
               onChange={(e) =>
@@ -131,14 +131,14 @@ export function EditFlowDialog({
                 }))
               }
               maxLength={50}
-              placeholder="请输入流程名称"
+              placeholder="给它起个响亮的名字..."
             />
             <div className="text-xs text-gray-400 mt-1 text-right">{formState.name.length}/50</div>
           </div>
 
           {/* 摘要输入 */}
           <div>
-            <div className="text-xs font-medium text-gray-600 mb-1">描述</div>
+            <div className="text-xs font-medium text-gray-600 mb-1">功能描述</div>
             <Textarea
               value={formState.description}
               onChange={(e) =>
@@ -149,7 +149,7 @@ export function EditFlowDialog({
               }
               className="min-h-[100px]"
               maxLength={500}
-              placeholder="简要描述这个流程的功能（可选）"
+              placeholder="它能帮你解决什么问题？例如：输入主题，自动生成小红书爆款文案..."
             />
             <div className="text-xs text-gray-400 mt-1 text-right">{formState.description.length}/500</div>
           </div>
@@ -169,7 +169,7 @@ export function EditFlowDialog({
               onClick={handleSave}
               disabled={isSaving}
             >
-              {isSaving ? "保存中..." : "保存"}
+              {isSaving ? "保存中..." : "保存配置"}
             </Button>
           </div>
         </div>

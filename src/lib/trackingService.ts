@@ -108,6 +108,11 @@ async function flushEvents(): Promise<void> {
     const userId = await getUserId();
     const sid = getSessionId();
 
+    // 更新 sessionStorage 中的 userId 以供 beforeunload 使用
+    if (userId && typeof window !== 'undefined') {
+        sessionStorage.setItem('tracking_user_id', userId);
+    }
+
     const records = eventsToSend.map(e => ({
         user_id: userId,
         session_id: sid,
@@ -171,6 +176,7 @@ if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', () => {
         // 使用 sendBeacon 确保页面关闭时事件不丢失
         if (eventQueue.length > 0) {
+            // 从 sessionStorage 获取已保存的用户 ID（由 flushEvents 异步更新或登录时设置）
             const userId = sessionStorage.getItem('tracking_user_id');
             const sid = getSessionId();
 
@@ -200,11 +206,20 @@ export const trackNodeDelete = (nodeId: string, nodeType: string) =>
 export const trackNodeSelect = (nodeId: string, nodeType: string) =>
     track('node_select', { node_id: nodeId, node_type: nodeType });
 
+export const trackNodeDataUpdate = (nodeId: string, nodeType: string, field: string) =>
+    track('node_data_update', { node_id: nodeId, node_type: nodeType, field });
+
 export const trackEdgeConnect = (source: string, target: string) =>
     track('edge_connect', { source, target });
 
 export const trackEdgeDelete = (edgeId: string) =>
     track('edge_delete', { edge_id: edgeId });
+
+export const trackCanvasMove = (x: number, y: number, zoom: number) =>
+    track('canvas_pan', { x: Math.round(x), y: Math.round(y), zoom: Number(zoom.toFixed(2)) });
+
+export const trackSelectionChange = (nodeCount: number, edgeCount: number) =>
+    track('selection_change', { node_count: nodeCount, edge_count: edgeCount });
 
 export const trackWorkflowRun = (nodeCount: number, edgeCount: number) =>
     track('workflow_run', { node_count: nodeCount, edge_count: edgeCount });

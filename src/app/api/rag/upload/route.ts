@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { nanoid } from "nanoid";
 // Note: Using nodejs runtime for file upload handling
 export const runtime = 'nodejs';
 import { GoogleGenAI } from '@google/genai';
@@ -59,12 +60,16 @@ export async function POST(req: Request) {
 
         const ai = new GoogleGenAI({ apiKey });
 
+        // Generate unique display name to prevent collision
+        const originalDisplayName = displayName || file.name;
+        const uniqueDisplayName = `${originalDisplayName}_${nanoid(8)}`;
+
         // Upload file to File Search Store
-        let operation = await ai.fileSearchStores.uploadToFileSearchStore({
+        const operation = await ai.fileSearchStores.uploadToFileSearchStore({
             file: file,
             fileSearchStoreName,
             config: {
-                displayName: displayName || file.name,
+                displayName: uniqueDisplayName,
                 chunkingConfig: {
                     whiteSpaceConfig: {
                         maxTokensPerChunk,
@@ -74,73 +79,19 @@ export async function POST(req: Request) {
             }
         });
 
-        // Poll for completion
-        let attempts = 0;
-        const maxAttempts = 60; // Max 5 minutes
-
-        while (!operation.done && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            operation = await ai.operations.get({ operation });
-            attempts++;
-        }
-
-        if (!operation.done) {
-            return NextResponse.json(
-                { error: "文件处理超时（5分钟）" },
-                { status: 408 }
-            );
-        }
-
-        if (operation.error) {
-            return NextResponse.json(
-                { error: `文件处理失败: ${operation.error.message}` },
-                { status: 500 }
-            );
-        }
-
-        // 尝试获取 Gemini 分配的资源名称 (files/xxx)
-        //由于 uploadToFileSearchStore 不直接返回 name，我们需要通过 list files 来查找
-        let geminiResourceName = "";
-        try {
-            const listResponse = await ai.files.list({
-                config: { pageSize: 100 } // 获取最近的 100 个文件应该足够找到刚刚上传的
-            });
-
-            // 在列表中查找匹配 displayName 的文件
-            // 注意：可能会有同名文件，我们假设最近的一个是刚刚上传的（API通常按时间倒序或顺序返回吗？Gemini API 文档未明确，但通常是最近的）
-            // 如果能获取到 list 的顺序，最好找到 creationTime 最近的
-
-            const matchedFiles: any[] = [];
-            const targetDisplayName = displayName || file.name;
-
-            // Iterate through the pager (Pager<File_2> is async iterable)
-            let count = 0;
-            // @ts-ignore Pager usually supports async iteration
-            for await (const f of listResponse) {
-                if (f.displayName === targetDisplayName) {
-                    matchedFiles.push(f);
-                }
-                count++;
-                if (count >= 100) break;
-            }
-
-            if (matchedFiles.length > 0) {
-                // 假设最晚创建的是我们的文件
-                matchedFiles.sort((a: any, b: any) => {
-                    return new Date(b.createTime).getTime() - new Date(a.createTime).getTime();
-                });
-                geminiResourceName = matchedFiles[0].name;
-            }
-        } catch (listError) {
-            console.warn("无法检索上传文件的资源名称:", listError);
-        }
+        // Return operation name immediately for client-side polling
+        // For small files, the operation might already be done
+        const isDone = operation.done === true || !!(operation.response as any)?.documentName;
 
         return NextResponse.json({
-            success: true,
-            name: geminiResourceName || file.name, // 优先返回 Gemini 资源名称 (files/xxx)，降级为文件名
-            originalName: file.name,
-            displayName: displayName || file.name,
-            sizeBytes: file.size
+            operationName: operation.name,
+            uniqueDisplayName: uniqueDisplayName,
+            status: isDone ? 'completed' : 'processing',
+            done: isDone,
+            result: isDone ? {
+                name: (operation.response as any)?.documentName || (operation.response as any)?.name || uniqueDisplayName,
+                displayName: uniqueDisplayName
+            } : undefined
         });
 
     } catch (error) {

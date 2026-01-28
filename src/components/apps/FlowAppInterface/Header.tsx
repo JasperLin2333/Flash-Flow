@@ -31,10 +31,10 @@ export function Header({
                     <button
                         onClick={onNewConversation}
                         className={BUTTON_STYLES.newConversation}
-                        aria-label="新建对话"
+                        aria-label="开启新会话"
                     >
                         <Plus className="w-4 h-4 inline mr-1" />
-                        新建对话
+                        开启新会话
                     </button>
                 )}
             </div>

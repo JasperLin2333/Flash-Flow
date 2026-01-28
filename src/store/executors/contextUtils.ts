@@ -40,7 +40,7 @@ export function getUpstreamEntries(context: FlowContext): [string, unknown][] {
  * @returns 提取的文本内容
  */
 export function extractTextFromUpstream(data: unknown, fallbackToJson = true): string {
-    if (!data) return "";
+    if (data === null || data === undefined) return "";
 
     if (typeof data === 'string') {
         return data;

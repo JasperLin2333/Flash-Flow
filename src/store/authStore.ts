@@ -5,8 +5,10 @@
 
 import { create } from "zustand";
 import { authService } from "@/services/authService";
+import { useQuotaStore } from "@/store/quotaStore";
 import { mapAuthError } from "@/utils/authErrorMapper";
 import type { User, LoginCredentials, RegisterData } from "@/types/auth";
+import { userProfileAPI } from "@/services/userProfileAPI";
 
 interface AuthStore {
     // State
@@ -61,16 +63,20 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
             if (user) {
                 set({ user, isAuthenticated: true, isLoading: false });
+                await useQuotaStore.getState().fetchQuota(user.id);
             } else {
                 set({ user: null, isAuthenticated: false, isLoading: false });
+                useQuotaStore.getState().clearQuota();
             }
 
             // Listen to auth state changes
-            authService.onAuthStateChange((user) => {
+            authService.onAuthStateChange(async (user) => {
                 if (user) {
                     set({ user, isAuthenticated: true });
+                    await useQuotaStore.getState().fetchQuota(user.id);
                 } else {
                     set({ user: null, isAuthenticated: false });
+                    useQuotaStore.getState().clearQuota();
                 }
             });
         } catch (e) {
@@ -233,6 +239,18 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                     otpSentAt: null,
                     isNewUser: false,
                 });
+                try {
+                    const existing = await userProfileAPI.getProfile(user.id);
+                    if (!existing) {
+                        const defaultName = user.email.split("@")[0] || "";
+                        await userProfileAPI.upsertProfile(user.id, {
+                            display_name: defaultName,
+                            avatar_kind: "emoji",
+                            avatar_emoji: "👤",
+                            avatar_url: null,
+                        });
+                    }
+                } catch (_) {}
                 return true;
             }
 

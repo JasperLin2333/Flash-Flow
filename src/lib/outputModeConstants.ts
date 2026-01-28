@@ -13,10 +13,10 @@ export const OUTPUT_MODE_OPTIONS: {
     label: string;
     description: string;
 }[] = [
-        { value: 'direct', label: '直接引用', description: '从单一上游节点获取输出' },
-        { value: 'select', label: '分支选择', description: '从多个来源中选择第一个非空结果' },
-        { value: 'merge', label: '内容合并', description: '将多个来源的内容合并输出' },
-        { value: 'template', label: '模板渲染', description: '自定义输出格式模板(非流式输出)' },
+        { value: 'direct', label: '直接输出', description: '直接透传上游回复' },
+        { value: 'select', label: '条件择优', description: '自动采纳首个有效回复' },
+        { value: 'merge', label: '内容拼接', description: '串联多个回复内容' },
+        { value: 'template', label: '自定义模版', description: '灵活编排最终回复格式' },
     ];
 
 /**
@@ -26,7 +26,7 @@ export const OUTPUT_MODE_OPTIONS: {
  */
 export function getOutputModeLabel(mode: OutputMode | string): string {
     const option = OUTPUT_MODE_OPTIONS.find(o => o.value === mode);
-    return option?.label || '直接引用';
+    return option?.label || '直接输出';
 }
 
 /**

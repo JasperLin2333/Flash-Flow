@@ -5,13 +5,12 @@
 
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "@/store/authStore";
 import { useQuotaStore } from "@/store/quotaStore";
 import { quotaService } from "@/services/quotaService";
-import { Progress } from "@/components/ui/progress";
 import { Card } from "@/components/ui/card";
-import { Zap, Sparkles, Rocket, Image } from "lucide-react";
+import type { PointsLedgerEntry } from "@/types/auth";
 
 interface QuotaDisplayProps {
     compact?: boolean;
@@ -21,12 +20,27 @@ interface QuotaDisplayProps {
 export function QuotaDisplay({ compact = false, className = "" }: QuotaDisplayProps) {
     const { user, isAuthenticated } = useAuthStore();
     const { quota, fetchQuota, isLoading, error } = useQuotaStore();
+    const [ledger, setLedger] = useState<PointsLedgerEntry[]>([]);
 
     useEffect(() => {
         if (isAuthenticated && user) {
             fetchQuota(user.id);
         }
     }, [isAuthenticated, user, fetchQuota]);
+
+    useEffect(() => {
+        let isActive = true;
+        if (isAuthenticated && user) {
+            quotaService.getPointsLedger(user.id, compact ? 4 : 8).then((entries) => {
+                if (isActive) {
+                    setLedger(entries);
+                }
+            });
+        }
+        return () => {
+            isActive = false;
+        };
+    }, [isAuthenticated, user, compact]);
 
     if (!isAuthenticated) {
         return null;
@@ -50,69 +64,32 @@ export function QuotaDisplay({ compact = false, className = "" }: QuotaDisplayPr
         );
     }
 
-    const quotaItems = [
-        {
-            icon: Zap,
-            label: "LLM 使用",
-            used: quota.llm_executions_used,
-            limit: quota.llm_executions_limit,
-            iconColor: "text-gray-400",
-            progressColor: "bg-black",
-        },
-        {
-            icon: Sparkles,
-            label: "Flow（助手） 生成",
-            used: quota.flow_generations_used,
-            limit: quota.flow_generations_limit,
-            iconColor: "text-gray-400",
-            progressColor: "bg-black",
-        },
-        {
-            icon: Rocket,
-            label: "App （助手） 使用",
-            used: quota.app_usages_used,
-            limit: quota.app_usages_limit,
-            iconColor: "text-gray-400",
-            progressColor: "bg-black",
-        },
-        {
-            icon: Image,
-            label: "图片生成",
-            used: quota.image_gen_executions_used ?? 0,
-            limit: quota.image_gen_executions_limit ?? 20,
-            iconColor: "text-gray-400",
-            progressColor: "bg-black",
-        },
-    ];
-
     if (compact) {
         return (
-            <div className={`space-y-3 ${className}`}>
-                {quotaItems.map((item) => {
-                    const percentage = quotaService.getQuotaPercentage(item.used, item.limit);
-                    const isLow = quotaService.isQuotaLow(item.used, item.limit);
-                    const isWarning = percentage > 80;
-                    const Icon = item.icon;
-
-                    return (
-                        <div key={item.label} className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <Icon className={`h-3.5 w-3.5 ${isLow ? "text-red-500" : item.iconColor}`} />
-                                    <span className="text-xs font-medium text-gray-600">{item.label}</span>
-                                </div>
-                                <span className={`text-xs font-medium ${isLow ? "text-red-600" : "text-gray-500"}`}>
-                                    {item.used}/{item.limit}
+            <div className={`space-y-4 ${className}`}>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <div className="text-xs text-gray-500 mb-1">可用算力</div>
+                    <div className="text-3xl font-bold text-gray-900 tracking-tight">
+                        {quota.points_balance}
+                    </div>
+                </div>
+                
+                <div className="space-y-2">
+                    <div className="text-[11px] font-medium text-gray-400 px-1">算力账单</div>
+                    {ledger.length === 0 && (
+                        <div className="text-xs text-gray-400 px-1">暂无记录</div>
+                    )}
+                    <div className="space-y-1">
+                        {ledger.map((entry) => (
+                            <div key={entry.id} className="flex items-center justify-between text-xs py-1.5 px-1 hover:bg-gray-50 rounded transition-colors">
+                                <span className="text-gray-600 truncate max-w-[140px]">{entry.title}</span>
+                                <span className="font-mono text-gray-500">
+                                    {((entry.item_key === "initial_grant") || (entry.title || "").includes("初始")) ? `+${entry.points}` : `-${entry.points}`}
                                 </span>
                             </div>
-                            <Progress
-                                value={percentage}
-                                className="h-1 bg-gray-50"
-                                indicatorClassName={isLow ? "bg-red-500" : isWarning ? "bg-amber-500" : item.progressColor}
-                            />
-                        </div>
-                    );
-                })}
+                        ))}
+                    </div>
+                </div>
             </div>
         );
     }
@@ -121,48 +98,38 @@ export function QuotaDisplay({ compact = false, className = "" }: QuotaDisplayPr
         <Card className={`p-5 bg-white border border-gray-100 shadow-xl shadow-black/5 ${className}`}>
             <div className="flex items-center gap-2 mb-6">
                 <div className="h-1 w-1 rounded-full bg-black" />
-                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Usage Quota</h3>
+                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">COMPUTE</h3>
             </div>
 
             <div className="space-y-6">
-                {quotaItems.map((item) => {
-                    const percentage = quotaService.getQuotaPercentage(item.used, item.limit);
-                    const isLow = quotaService.isQuotaLow(item.used, item.limit);
-                    const remaining = item.limit - item.used;
-                    const Icon = item.icon;
-
-                    return (
-                        <div key={item.label} className="group">
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <Icon className={`h-3.5 w-3.5 ${isLow ? "text-red-500" : "text-gray-400"}`} />
-                                    <span className="text-[13px] font-medium text-gray-800">{item.label}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <span className={`text-[13px] font-semibold ${isLow ? "text-red-600" : "text-gray-900"}`}>
-                                        {item.used}
-                                    </span>
-                                    <span className="text-[11px] text-gray-400">/ {item.limit}</span>
-                                </div>
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">可用算力</span>
+                    <span className="text-xl font-semibold text-gray-900">{quota.points_balance}</span>
+                </div>
+                <div className="space-y-3">
+                    <div className="text-[11px] text-gray-400">算力账单</div>
+                    {ledger.length === 0 && (
+                        <div className="text-xs text-gray-400">暂无记录</div>
+                    )}
+                    {ledger.map((entry) => (
+                        <div key={entry.id} className="flex items-center justify-between text-sm">
+                            <div className="flex flex-col">
+                                <span className="text-gray-700">{entry.title}</span>
+                                <span className="text-[11px] text-gray-400">
+                                    {new Date(entry.created_at).toLocaleString()}
+                                </span>
                             </div>
-                            <Progress
-                                value={percentage}
-                                className="h-1 bg-gray-50 overflow-hidden"
-                                indicatorClassName={`${isLow ? "bg-red-500" : "bg-black"} transition-all duration-500`}
-                            />
-                            {isLow && (
-                                <p className="mt-1 text-[10px] text-red-500 font-medium">
-                                    仅剩 {remaining} 次可用
-                                </p>
-                            )}
+                            <span className="text-gray-500">
+                                {((entry.item_key === "initial_grant") || (entry.title || "").includes("初始")) ? `+${entry.points}` : `-${entry.points}`}
+                            </span>
                         </div>
-                    );
-                })}
+                    ))}
+                </div>
             </div>
 
             <div className="mt-10 pt-4 border-t border-gray-50 flex items-center justify-center">
                 <p className="text-[11px] text-gray-400 flex items-center gap-2">
-                    如需提升额度，请联系微信: <span className="text-gray-900 font-medium select-all">JasperXHL</span>
+                    获取更多算力，请联系微信: <span className="text-gray-900 font-medium select-all">JasperXHL</span>
                 </p>
             </div>
         </Card>

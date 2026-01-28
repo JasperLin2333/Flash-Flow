@@ -22,6 +22,7 @@ export interface LLMModel {
     is_active: boolean;
     display_order: number;
     capabilities: ModelCapabilities;
+    points_cost?: number | null;
 }
 
 // ============ Default Fallback Models ============
@@ -40,6 +41,27 @@ const REASONING_CAPABILITIES: ModelCapabilities = {
     supportsStreamingReasoning: true,
 };
 
+const inferPointsCost = (modelId: string): number => {
+    const model = (modelId || "").toLowerCase();
+    const isHigh = model.includes("reasoner")
+        || model.includes("r1")
+        || model.includes("o1")
+        || model.includes("o3")
+        || model.includes("gpt-4")
+        || model.includes("claude-3")
+        || model.includes("4o");
+    if (isHigh) return 8;
+
+    const isLow = model.includes("flash")
+        || model.includes("turbo")
+        || model.includes("3.5")
+        || model.includes("mini")
+        || model.includes("lite");
+    if (isLow) return 1;
+
+    return 3;
+};
+
 const getDefaultModels = (): LLMModel[] => {
     const defaultModel = process.env.DEFAULT_LLM_MODEL || process.env.NEXT_PUBLIC_DEFAULT_LLM_MODEL || "deepseek-ai/DeepSeek-V3.2";
     const modelName = defaultModel.split("/").pop() || "DeepSeek-V3.2";
@@ -53,6 +75,7 @@ const getDefaultModels = (): LLMModel[] => {
             is_active: true,
             display_order: 1,
             capabilities: DEFAULT_CAPABILITIES,
+            points_cost: inferPointsCost(defaultModel),
         },
         {
             id: "ds-chat",
@@ -62,6 +85,7 @@ const getDefaultModels = (): LLMModel[] => {
             is_active: true,
             display_order: 2,
             capabilities: DEFAULT_CAPABILITIES,
+            points_cost: inferPointsCost("deepseek-chat"),
         },
         {
             id: "ds-reasoner",
@@ -71,6 +95,7 @@ const getDefaultModels = (): LLMModel[] => {
             is_active: true,
             display_order: 3,
             capabilities: REASONING_CAPABILITIES,
+            points_cost: inferPointsCost("deepseek-reasoner"),
         },
     ];
 };

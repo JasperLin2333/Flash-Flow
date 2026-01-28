@@ -7,10 +7,13 @@ import {
     ChevronDown,
     ArrowUpRight,
     List,
+    Search,
+    Inbox,
 } from "lucide-react";
 import Image from "next/image";
 import LogoBlack from "@/app/logoBlack.png";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { flowAPI } from "@/services/flowAPI";
@@ -42,6 +45,8 @@ interface HomeSidebarProps {
  */
 export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const currentFlowId = searchParams.get("flowId");
     const [searchQuery, setSearchQuery] = useState("");
     const [flows, setFlows] = useState<
         {
@@ -146,31 +151,34 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
 
                             {/* Flow Box Navigation Item */}
                             <div className="px-3 pt-5 pb-2">
-                                <button
-                                    onClick={() => router.push("/flows")}
+                                <Link
+                                    href="/flows"
                                     className="w-full group flex items-center justify-between px-4 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white shadow-sm hover:shadow-md transition-all duration-200"
                                 >
                                     <div className="flex items-center gap-3">
                                         <div className="w-5 h-5 flex items-center justify-center">
                                             <Image src={LogoBlack} alt="Flow Box" className="w-full h-full object-contain" />
                                         </div>
-                                        <span className="text-[15px] font-medium tracking-wide">Flow Box</span>
+                                        <span className="text-[15px] font-medium tracking-wide">我的工作台</span>
                                     </div>
                                     <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
 
-                                </button>
+                                </Link>
                             </div>
                             <Separator className="bg-gray-100 h-px mt-1" />
 
                             {/* Flowbox 快捷列表 */}
                             <div className="flex-1 overflow-y-auto py-5 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400">
                                 <div className="px-4 mb-2">
-                                    <Input
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        placeholder="搜索助手"
-                                        className="h-9 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:border-gray-200 transition-all duration-200"
-                                    />
+                                    <div className="relative group/search">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within/search:text-gray-600 transition-colors" />
+                                        <Input
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            placeholder="查找我的工作流..."
+                                            className="h-9 pl-9 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:border-gray-200 transition-all duration-200"
+                                        />
+                                    </div>
                                 </div>
                                 <div className="px-4 space-y-1.5">
                                     {loading ? (
@@ -186,31 +194,50 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
                                             </button>
                                         </div>
                                     ) : filteredFlows.length === 0 ? (
-                                        <div className="text-center py-8 text-sm text-gray-400">
-                                            {searchQuery ? "未找到相关 Flow" : "还没有创建任何 Flow"}
+                                        <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                                            <Inbox className="w-10 h-10 mb-2 opacity-20" />
+                                            <div className="text-sm">
+                                                {searchQuery ? "未找到相关工作流" : "空空如也，去创建一个吧"}
+                                            </div>
                                         </div>
                                     ) : (
-                                        filteredFlows.map((f, i) => (
-                                            <button
-                                                key={`flow-${f.id}-${i}`}
-                                                className="w-full p-2.5 text-left hover:bg-gray-100/80 cursor-pointer flex items-start gap-3 rounded-xl transition-all duration-200 group"
-                                                onClick={() => router.push(`/app?flowId=${f.id}`)}
-                                            >
-                                                {/* Flow Icon - Larger & Cleaner */}
-                                                <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center overflow-hidden group-hover:bg-white group-hover:shadow-sm transition-all duration-200">
-                                                    {renderFlowIcon(f, true)}
-                                                </div>
-                                                {/* Content */}
-                                                <div className="flex-1 min-w-0 py-0.5">
-                                                    <div className="text-[14px] font-medium text-gray-900 truncate leading-tight group-hover:text-black transition-colors">
-                                                        {f.title}
+                                        filteredFlows.map((f, i) => {
+                                            const isActive = f.id === currentFlowId;
+                                            return (
+                                                <Link
+                                                    key={`flow-${f.id}-${i}`}
+                                                    href={`/app?flowId=${f.id}`}
+                                                    className={`w-full p-3 text-left cursor-pointer flex items-start gap-3 rounded-xl transition-all duration-200 group relative ${
+                                                        isActive 
+                                                            ? "bg-blue-50/60 ring-1 ring-blue-100 shadow-sm" 
+                                                            : "hover:bg-gray-100/80 hover:shadow-sm"
+                                                    }`}
+                                                >
+                                                    {/* Flow Icon */}
+                                                    <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden transition-all duration-200 ${
+                                                        isActive 
+                                                            ? "bg-white shadow-sm ring-1 ring-black/5" 
+                                                            : "bg-gray-50 group-hover:bg-white group-hover:shadow-sm"
+                                                    }`}>
+                                                        {renderFlowIcon(f, true)}
                                                     </div>
-                                                    <div className="mt-0.5 text-[12px] text-gray-500 leading-snug truncate group-hover:text-gray-600 transition-colors">
-                                                        {f.description || "点击开始使用"}
+                                                    
+                                                    {/* Content */}
+                                                    <div className="flex-1 min-w-0 py-0.5">
+                                                        <div className={`text-[14px] font-medium truncate leading-tight transition-colors ${
+                                                            isActive ? "text-blue-700" : "text-gray-900 group-hover:text-black"
+                                                        }`}>
+                                                            {f.title}
+                                                        </div>
+                                                        <div className={`mt-0.5 text-[12px] leading-snug truncate transition-colors ${
+                                                            isActive ? "text-blue-500/80" : "text-gray-500 group-hover:text-gray-600"
+                                                        }`}>
+                                                            {f.description || "立即运行"}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </button>
-                                        ))
+                                                </Link>
+                                            );
+                                        })
                                     )}
                                 </div>
                             </div>

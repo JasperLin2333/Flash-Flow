@@ -2,7 +2,7 @@ import OpenAI from "openai";
 export const runtime = 'edge';
 
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
-import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
+import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { CORE_RULES, MODIFY_PROMPT, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES } from "@/lib/prompts";
 
@@ -136,9 +136,9 @@ export async function POST(req: Request) {
         }
 
         // Server-side quota check
-        const quotaCheck = await checkQuotaOnServer(req, user.id, "flow_generations");
-        if (!quotaCheck.allowed) {
-            return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "Flow 生成次数");
+        const pointsCheck = await checkPointsOnServer(req, user.id, "flow_generation");
+        if (!pointsCheck.allowed) {
+            return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
         }
 
         const body = await reqClone.json();
@@ -264,7 +264,7 @@ export async function POST(req: Request) {
                                         action: parsedResult.action,
                                     })}\n\n`)
                                 );
-                                await incrementQuotaOnServer(req, user.id, "flow_generations");
+                                await deductPointsOnServer(req, user.id, "flow_generation", null, "Flow 生成");
                                 success = true;
                             } else if (parsedResult.action) {
                                 // Add or delete action
@@ -275,7 +275,7 @@ export async function POST(req: Request) {
                                         ...parsedResult,
                                     })}\n\n`)
                                 );
-                                await incrementQuotaOnServer(req, user.id, "flow_generations");
+                                await deductPointsOnServer(req, user.id, "flow_generation", null, "Flow 生成");
                                 success = true;
                             } else {
                                 lastError = "No valid patches or action found";
@@ -293,7 +293,7 @@ export async function POST(req: Request) {
                                         edges: parsedResult.edges || [],
                                     })}\n\n`)
                                 );
-                                await incrementQuotaOnServer(req, user.id, "flow_generations");
+                                await deductPointsOnServer(req, user.id, "flow_generation", null, "Flow 生成");
                                 success = true;
                             } else {
                                 lastError = "No valid nodes found";

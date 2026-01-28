@@ -161,7 +161,7 @@ export function AvatarDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={DIALOG_STYLE.content}>
+      <DialogContent className={DIALOG_STYLE.content} onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle className="font-bold text-base">更换头像</DialogTitle>
         </DialogHeader>

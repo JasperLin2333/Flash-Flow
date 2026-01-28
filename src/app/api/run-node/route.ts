@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
-import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
+import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
 
 /**
  * Non-streaming LLM API Endpoint
@@ -21,17 +21,16 @@ export async function POST(req: Request) {
             return unauthorizedResponse();
         }
 
-        // Server-side quota check
-        const quotaCheck = await checkQuotaOnServer(req, user.id, "llm_executions");
-        if (!quotaCheck.allowed) {
-            return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "LLM 执行次数");
-        }
-
         const body = await reqClone.json();
         const { model, systemPrompt, input, temperature, conversationHistory } = body;
 
         if (!model) {
             return NextResponse.json({ error: "Model is required" }, { status: 400 });
+        }
+
+        const pointsCheck = await checkPointsOnServer(req, user.id, "llm", model);
+        if (!pointsCheck.allowed) {
+            return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
         }
 
         // Construct messages with proper typing
@@ -84,11 +83,10 @@ export async function POST(req: Request) {
 
         const message = completion.choices?.[0]?.message;
         const responseText = message?.content || "";
-        // @ts-ignore
+        // @ts-expect-error reasoning_content is model-specific
         const reasoningText = message?.reasoning_content || "";
 
-        // Increment quota after successful completion
-        await incrementQuotaOnServer(req, user.id, "llm_executions");
+        await deductPointsOnServer(req, user.id, "llm", model, "LLM 使用");
 
         return NextResponse.json({
             response: responseText,
@@ -101,4 +99,3 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Execution failed", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
 }
-

@@ -24,14 +24,15 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
         context: FlowContext,
         mockData?: Record<string, unknown>
     ): Promise<ExecutionResult> {
-        // Check quota first
-        const quotaError = await this.checkQuota();
+        const nodeData = node.data as ImageGenNodeData;
+        const modelId = nodeData.model || IMAGEGEN_CONFIG.DEFAULT_MODEL;
+
+        const quotaError = await this.checkQuota(modelId);
         if (quotaError) {
             return quotaError;
         }
 
         const { result, time } = await this.measureTime(async () => {
-            const nodeData = node.data as ImageGenNodeData;
 
             // Get flow store state for variable collection
             const storeState = useFlowStore.getState();
@@ -66,7 +67,6 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
             const user = await authService.getCurrentUser();
 
             // Get model capabilities
-            const modelId = nodeData.model || IMAGEGEN_CONFIG.DEFAULT_MODEL;
             const { imageGenModelsAPI } = await import("@/services/imageGenModelsAPI");
             const modelInfo = await imageGenModelsAPI.getModelByModelId(modelId);
             const capabilities = modelInfo?.capabilities || DEFAULT_IMAGEGEN_CAPABILITIES;
@@ -144,7 +144,7 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
     /**
      * Check if user has remaining image generation quota
      */
-    private async checkQuota(): Promise<ExecutionResult | null> {
+    private async checkQuota(modelId?: string): Promise<ExecutionResult | null> {
         try {
             const user = await authService.getCurrentUser();
             if (!user) {
@@ -154,16 +154,17 @@ export class ImageGenNodeExecutor extends BaseNodeExecutor {
                 };
             }
 
-            const quotaCheck = await quotaService.checkQuota(user.id, "image_gen_executions");
-            if (!quotaCheck.allowed) {
+            const requiredPoints = await quotaService.getImageGenPointsCost(modelId);
+            const pointsCheck = await quotaService.checkPoints(user.id, requiredPoints);
+            if (!pointsCheck.allowed) {
                 return {
-                    output: { error: `图片生成次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。` },
+                    output: { error: `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分。` },
                     executionTime: 0,
                 };
             }
-        } catch (e) {
+        } catch {
             return {
-                output: { error: "配额检查失败，请稍后重试" },
+                output: { error: "积分检查失败，请稍后重试" },
                 executionTime: 0,
             };
         }

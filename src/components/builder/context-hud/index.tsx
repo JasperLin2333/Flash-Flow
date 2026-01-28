@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
 import { Form } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
-import { X, Play, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { X, Play, Loader2, CheckCircle2, AlertCircle, MessageSquare, BrainCircuit, Database, Send, Hammer, GitFork, Image as ImageIcon } from "lucide-react";
 import type { NodeKind, ExecutionStatus, LLMNodeData, RAGNodeData, InputNodeData } from "@/types/flow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -35,16 +35,36 @@ import {
 } from "./constants";
 
 // Panel width constants
-const PANEL_DEFAULT_WIDTH = 320;
-const PANEL_MIN_WIDTH = 280;
+const PANEL_DEFAULT_WIDTH = 400; // Wider default for better readability
+const PANEL_MIN_WIDTH = 320;
 const PANEL_MAX_WIDTH = 800;
 const PANEL_RIGHT_OFFSET = 24; // 6 * 4 = 24px (right-6 in tailwind)
 
+const NODE_ICONS: Record<NodeKind, React.ReactNode> = {
+    input: <MessageSquare className="w-4 h-4" />,
+    llm: <BrainCircuit className="w-4 h-4" />,
+    rag: <Database className="w-4 h-4" />,
+    output: <Send className="w-4 h-4" />,
+    tool: <Hammer className="w-4 h-4" />,
+    branch: <GitFork className="w-4 h-4" />,
+    imagegen: <ImageIcon className="w-4 h-4" />,
+};
+
+const NODE_COLORS: Record<NodeKind, string> = {
+    input: "bg-blue-50 text-blue-600 border-blue-100",
+    llm: "bg-indigo-50 text-indigo-600 border-indigo-100",
+    rag: "bg-purple-50 text-purple-600 border-purple-100",
+    output: "bg-green-50 text-green-600 border-green-100",
+    tool: "bg-amber-50 text-amber-600 border-amber-100",
+    branch: "bg-slate-50 text-slate-600 border-slate-100",
+    imagegen: "bg-pink-50 text-pink-600 border-pink-100",
+};
+
 const STATUS_ICON: Record<ExecutionStatus, React.ReactNode> = {
-    idle: <div className="w-2 h-2 rounded-full bg-muted-foreground/30" />,
-    running: <Loader2 className="w-3 h-3 text-foreground animate-spin" />,
-    completed: <CheckCircle2 className="w-3 h-3 text-foreground" />,
-    error: <AlertCircle className="w-3 h-3 text-destructive" />,
+    idle: <div className="w-2 h-2 rounded-full bg-gray-300 ring-2 ring-gray-100" />,
+    running: <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />,
+    completed: <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />,
+    error: <AlertCircle className="w-3.5 h-3.5 text-red-500" />,
 };
 
 export default function ContextHUD() {
@@ -116,6 +136,7 @@ export default function ContextHUD() {
             memoryMaxTurns: type === "llm" && has("memoryMaxTurns") ? (d as Record<string, unknown>).memoryMaxTurns as number : 10,
             // LLM JSON output mode
             responseFormat: type === "llm" && has("responseFormat") ? (d as Record<string, unknown>).responseFormat as 'text' | 'json_object' : undefined,
+            inputMappings: has("inputMappings") ? (d as Record<string, unknown>).inputMappings as Record<string, string> : {},
 
             text: (type === "input" || type === "output") && has("text") ? String((d as { text?: string }).text || "") : "",
             // Input node specific fields
@@ -227,7 +248,7 @@ export default function ContextHUD() {
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: panelWidth, opacity: 0 }}
                     transition={{ duration: 0.3, ease: "easeOut" }}
-                    className="fixed top-6 right-6 max-h-[calc(100vh-48px)] bg-white border border-gray-200 shadow-xl rounded-2xl flex flex-col z-20 overflow-hidden"
+                    className="fixed top-6 right-6 max-h-[calc(100vh-48px)] bg-white/95 backdrop-blur-xl border border-gray-200/50 shadow-2xl rounded-2xl flex flex-col z-20 overflow-hidden"
                     style={{ width: panelWidth }}
                 >
                     {/* Resize Handle - Left edge drag area */}
@@ -239,59 +260,83 @@ export default function ContextHUD() {
                         onWidthChange={setPanelWidth}
                     />
 
-                    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white">
-                        <div className="flex items-center gap-4">
-                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                                {{
-                                    input: "输入",
-                                    llm: "大模型",
-                                    rag: "知识库",
-                                    output: "输出",
-                                    tool: "工具",
-                                    branch: "条件分支",
-                                    imagegen: "图像生成",
-                                }[type] || type}节点
-                            </span>
-                            <div className="flex items-center gap-1">
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                disabled={isNodeRunning}
-                                                className={cn(
-                                                    "h-6 w-6 rounded-full transition-all duration-150",
-                                                    isNodeRunning
-                                                        ? "bg-transparent text-gray-300 cursor-not-allowed"
-                                                        : "hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-                                                )}
-                                                onClick={handleTestNode}
-                                            >
-                                                <Play className="w-3 h-3" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="bottom">
-                                            {isNodeRunning ? "运行中..." : "测试"}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                                <div className="flex items-center justify-center w-5 h-5">
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100/80 bg-white/90 backdrop-blur-xl sticky top-0 z-10">
+                        <div className="flex items-center gap-3">
+                            {/* Node Icon */}
+                            <div className={cn(
+                                "w-9 h-9 rounded-xl flex items-center justify-center border shadow-sm transition-colors",
+                                NODE_COLORS[type] || "bg-gray-50 text-gray-600 border-gray-100"
+                            )}>
+                                {NODE_ICONS[type] || <BrainCircuit className="w-4 h-4" />}
+                            </div>
+                            
+                            <div className="flex flex-col gap-0.5">
+                                <span className="text-sm font-bold text-gray-900 tracking-tight">
+                                    {{
+                                        input: "输入节点",
+                                        llm: "大模型节点",
+                                        rag: "知识库节点",
+                                        output: "输出节点",
+                                        tool: "工具节点",
+                                        branch: "分支节点",
+                                        imagegen: "绘图节点",
+                                    }[type] || `${type} 节点`}
+                                </span>
+                                <div className="flex items-center gap-1.5">
                                     {STATUS_ICON[nodeStatus]}
+                                    <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">
+                                        {nodeStatus === 'idle' ? '就绪' : 
+                                         nodeStatus === 'running' ? '运行中' : 
+                                         nodeStatus === 'completed' ? '成功' : '错误'}
+                                    </span>
                                 </div>
                             </div>
                         </div>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-                            onClick={() => {
-                                track('node_config_close', { node_id: selectedNode.id, node_type: type });
-                                setSelectedNode(null);
-                            }}
-                        >
-                            <X className="w-3 h-3" />
-                        </Button>
+                        
+                        <div className="flex items-center gap-2">
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isNodeRunning}
+                                            className={cn(
+                                                "h-8 px-3 text-xs gap-2 font-medium transition-all duration-300 rounded-lg group",
+                                                isNodeRunning
+                                                    ? "bg-gray-50 text-gray-400 cursor-not-allowed"
+                                                    : "text-indigo-600 bg-indigo-50/50 hover:bg-indigo-600 hover:text-white hover:shadow-md hover:shadow-indigo-500/20 border border-indigo-100 hover:border-transparent"
+                                            )}
+                                            onClick={handleTestNode}
+                                        >
+                                            {isNodeRunning ? (
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            ) : (
+                                                <Play className="w-3.5 h-3.5 fill-current opacity-80 group-hover:opacity-100" />
+                                            )}
+                                            {isNodeRunning ? "运行中" : "运行"}
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="text-xs">
+                                        {isNodeRunning ? "节点正在执行..." : "运行此节点 (Test Run)"}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+
+                            <div className="w-px h-5 bg-gray-200/60 mx-1" />
+
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                                onClick={() => {
+                                    track('node_config_close', { node_id: selectedNode.id, node_type: type });
+                                    setSelectedNode(null);
+                                }}
+                            >
+                                <X className="w-4 h-4" />
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto min-h-0">

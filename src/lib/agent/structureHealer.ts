@@ -91,6 +91,18 @@ export function healStructure(nodes: any[], edges: any[]): StructureHealerResult
         id: e.id || `edge_${e.source}_${e.target}_${i}`
     }));
 
+    // 7. 再次去重 (防止孤岛修复引入重复边)
+    const finalEdgeSet = new Set<string>();
+    const finalUniqueEdges: EdgeInfo[] = [];
+    healedEdges.forEach(e => {
+        const key = `${e.source}::${e.target}`;
+        if (!finalEdgeSet.has(key)) {
+            finalEdgeSet.add(key);
+            finalUniqueEdges.push(e);
+        }
+    });
+    healedEdges = finalUniqueEdges;
+
     return {
         fixedNodes: healedNodes,
         fixedEdges: healedEdges,

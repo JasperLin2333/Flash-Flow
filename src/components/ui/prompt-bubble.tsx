@@ -140,7 +140,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
       return "📖 点击左下角填写表单后即可开始~";
     }
     if (enableStructuredForm && formFields.some(f => f.required)) {
-      return "搜索、提问或者说明你的需求...";
+      return "描述您的需求，我来帮您实现...";
     }
     return placeholder;
   };
@@ -513,9 +513,9 @@ export default function PromptBubble(props: PromptBubbleProps) {
             }}
             disabled={!canSubmit}
             className={cn(
-              "h-8 w-8 rounded-full p-0 flex items-center justify-center transition-all duration-200",
+              "h-9 w-9 rounded-full p-0 flex items-center justify-center transition-all duration-300",
               canSubmit
-                ? "bg-black text-white hover:bg-black/90 shadow-sm"
+                ? "bg-gradient-to-tr from-[#60B4FF] to-[#3A8DD4] text-white shadow-md hover:shadow-lg hover:shadow-blue-200 hover:scale-105 active:scale-95"
                 : needsFormAttention
                   ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                   : "bg-gray-100 text-gray-400 hover:bg-gray-200"

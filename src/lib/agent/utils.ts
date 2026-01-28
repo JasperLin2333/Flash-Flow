@@ -3,8 +3,11 @@ import { WorkflowZodSchema } from "@/lib/schemas/workflow";
 // ============ JSON Extraction ============
 // Bug #2 Fix: 使用平衡括号算法替代贪婪正则匹配
 export function extractBalancedJson(text: string): string | null {
-    // 查找包含 "nodes" 的 JSON 对象起始位置
-    const nodesIndex = text.indexOf('"nodes"');
+    // 查找包含 "nodes" 的 JSON 对象起始位置 (Case-insensitive)
+    let nodesIndex = text.indexOf('"nodes"');
+    if (nodesIndex === -1) {
+        nodesIndex = text.indexOf('"Nodes"');
+    }
     if (nodesIndex === -1) return null;
 
     // 向前搜索最近的 '{'
@@ -46,8 +49,9 @@ export function extractBalancedJson(text: string): string | null {
                 depth--;
                 if (depth === 0) {
                     const jsonStr = text.slice(startIndex, i + 1);
-                    // 验证提取的 JSON 包含必需字段
-                    if (jsonStr.includes('"nodes"') && jsonStr.includes('"edges"')) {
+                    // 验证提取的 JSON 包含必需字段 (Case-insensitive)
+                    const lowerJson = jsonStr.toLowerCase();
+                    if (lowerJson.includes('"nodes"') && lowerJson.includes('"edges"')) {
                         return jsonStr;
                     }
                     return null;

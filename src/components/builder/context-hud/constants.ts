@@ -15,6 +15,7 @@ export const formSchema = z.object({
     enableMemory: z.boolean().optional(),
     memoryMaxTurns: z.number().min(1).max(20).optional(),
     responseFormat: z.enum(['text', 'json_object']).optional(), // JSON输出模式
+    inputMappings: z.record(z.string(), z.string()).optional(), // 输入映射
     // Input node specific fields
     enableTextInput: z.boolean().optional(),
     enableFileInput: z.boolean().optional(),
@@ -62,28 +63,28 @@ export const INPUT_CLASS = "bg-gray-50 border-gray-200 text-gray-900";
 // ============ Node Output Field Definitions ============
 export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: string }[]> = {
     input: [
-        { field: "user_input", description: "输入的文本内容" },
+        { field: "user_input", description: "用户输入的文本" },
 
-        { field: "files", description: "上传的文件列表，可通过 files[n] 获取单个文件" },
-        { field: "formData", description: "快捷表单，可通过 节点名.formData.字段名 引用" },
+        { field: "files", description: "上传的文件列表" },
+        { field: "formData", description: "表单数据对象" },
     ],
     llm: [
-        { field: "response", description: "AI生成的回复内容" },
-        { field: "reasoning", description: "思考内容" },
+        { field: "response", description: "智能回复内容" },
+        { field: "reasoning", description: "思维链内容" },
     ],
     rag: [
-        { field: "documents", description: "文件中找到的相关内容" },
-        { field: "citations", description: "引用信息" },
+        { field: "documents", description: "检索到的知识片段" },
+        { field: "citations", description: "知识来源引用" },
     ],
     tool: [], // 动态根据工具类型生成
     branch: [
-        { field: "conditionResult", description: "条件判断结果 (true/false)" },
+        { field: "conditionResult", description: "逻辑判断结果" },
     ],
     output: [
-        { field: "text", description: "最终输出的文本内容" },
+        { field: "text", description: "最终回复内容" },
     ],
     imagegen: [
-        { field: "imageUrl", description: "生成的图片" },
+        { field: "imageUrl", description: "生成的图片地址" },
     ],
 };
 
@@ -91,12 +92,12 @@ export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: 
 export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     web_search: {
         inputs: [
-            { field: "query", description: "搜索内容", required: true },
-            { field: "maxResults", description: "最多找多少个网页（1-10）", required: true },
+            { field: "query", description: "搜索关键词", required: true },
+            { field: "maxResults", description: "最大搜索结果数 (1-10)", required: true },
         ],
         outputs: [
-            { field: "results", description: "搜索的结果" },
-            { field: "count", description: "找了多少个网页" },
+            { field: "results", description: "搜索结果列表" },
+            { field: "count", description: "结果数量" },
         ],
     },
     calculator: {

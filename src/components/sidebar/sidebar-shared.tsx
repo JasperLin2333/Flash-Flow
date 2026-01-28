@@ -77,7 +77,7 @@ export function AccountManager() {
     const logout = useAuthStore((s) => s.logout);
     const isLoading = useAuthStore((s) => s.isLoading);
 
-    // Load profile on mount
+    // Load profile on mount and clear on logout
     React.useEffect(() => {
         if (user?.id) {
             userProfileAPI.getProfile(user.id)
@@ -95,6 +95,11 @@ export function AccountManager() {
                     // 静默处理错误，使用默认状态
                     console.warn("[AccountManager] Failed to load profile:", err?.message || err);
                 });
+        } else {
+            // Explicitly clear profile state when user logs out
+            setProfile(null);
+            setEditName("");
+            setIsEditingName(false);
         }
     }, [user?.id]);
 
@@ -169,8 +174,8 @@ export function AccountManager() {
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-sm rounded-2xl border border-gray-200 shadow-xl">
                     <DialogHeader>
-                        <DialogTitle className="font-bold text-base">账号</DialogTitle>
-                        <DialogDescription className="text-xs text-gray-500">管理个人资料</DialogDescription>
+                        <DialogTitle className="font-bold text-base">个人中心</DialogTitle>
+                        <DialogDescription className="text-xs text-gray-500">设置你的专属档案</DialogDescription>
                     </DialogHeader>
 
                     {/* Profile Section - Editable */}
@@ -235,14 +240,14 @@ export function AccountManager() {
                                     onClick={() => setChangePasswordOpen(true)}
                                     disabled={isLoading}
                                 >
-                                    修改密码
+                                    账号安全设置
                                 </button>
                                 <button
-                                    className="w-full h-9 rounded-lg bg-red-600 text-white hover:bg-red-700 active:bg-red-800 text-sm font-semibold transition-all duration-150"
+                                    className="w-full h-9 rounded-lg text-red-600 hover:bg-red-50 text-sm font-medium transition-all duration-150"
                                     onClick={handleLogout}
                                     disabled={isLoading}
                                 >
-                                    {isLoading ? "退出中..." : "退出登录"}
+                                    {isLoading ? "退出中..." : "退出当前账号"}
                                 </button>
                             </>
                         ) : (

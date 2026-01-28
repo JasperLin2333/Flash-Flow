@@ -46,6 +46,7 @@ export interface ImageGenModel {
     is_active: boolean;
     display_order: number;
     capabilities?: ImageGenModelCapabilities;
+    points_cost?: number;
 }
 
 // ============ Default Fallback Models ============
@@ -110,6 +111,7 @@ const getDefaultModels = (): ImageGenModel[] => {
             is_active: true,
             display_order: 1,
             capabilities: MODEL_CAPABILITIES["Kwai-Kolors/Kolors"],
+            points_cost: 12,
         },
         {
             id: "qwen-image",
@@ -119,6 +121,7 @@ const getDefaultModels = (): ImageGenModel[] => {
             is_active: true,
             display_order: 2,
             capabilities: MODEL_CAPABILITIES["Qwen/Qwen-Image"],
+            points_cost: 14,
         },
         {
             id: "qwen-image-edit",
@@ -128,6 +131,7 @@ const getDefaultModels = (): ImageGenModel[] => {
             is_active: true,
             display_order: 3,
             capabilities: MODEL_CAPABILITIES["Qwen/Qwen-Image-Edit-2509"],
+            points_cost: 16,
         },
     ];
 };

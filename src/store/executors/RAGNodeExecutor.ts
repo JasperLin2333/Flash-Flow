@@ -281,16 +281,17 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
                 };
             }
 
-            const quotaCheck = await quotaService.checkQuota(user.id, "llm_executions");
-            if (!quotaCheck.allowed) {
+            const requiredPoints = quotaService.getPointsCost("rag_search");
+            const pointsCheck = await quotaService.checkPoints(user.id, requiredPoints);
+            if (!pointsCheck.allowed) {
                 return {
-                    output: { error: `LLM 执行次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。` },
+                    output: { error: `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分。` },
                     executionTime: 0,
                 };
             }
         } catch (e) {
             return {
-                output: { error: "配额检查失败，请稍后重试或联系支持" },
+                output: { error: "积分检查失败，请稍后重试或联系支持" },
                 executionTime: 0,
             };
         }

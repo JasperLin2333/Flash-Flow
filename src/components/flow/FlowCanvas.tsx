@@ -2,7 +2,12 @@
 import { useCallback, useMemo, memo, useEffect } from "react";
 import { ReactFlow, Background, BackgroundVariant, useReactFlow, SelectionMode, PanOnScrollMode } from "@xyflow/react";
 import { useFlowStore } from "@/store/flowStore";
-import { trackNodeSelect, trackKeyboardShortcut, track } from "@/lib/trackingService";
+import { 
+  trackNodeSelect, 
+  trackKeyboardShortcut, 
+  trackCanvasMove, 
+  trackSelectionChange
+} from "@/lib/trackingService";
 import CustomNode from "./CustomNode";
 // NOTE: ToolNode is deprecated, all node types now use unified CustomNode
 import LLMDebugDialog from "./LLMDebugDialog";
@@ -138,6 +143,16 @@ function FlowCanvasComponent() {
           trackNodeSelect(node.id, node.type || 'unknown');
         }}
         onPaneClick={() => setSelectedNode(null)}
+        onMoveEnd={(_, viewport) => {
+          // 埋点：画布移动/缩放（trackingService 内部有 5% 采样逻辑）
+          trackCanvasMove(viewport.x, viewport.y, viewport.zoom);
+        }}
+        onSelectionChange={({ nodes, edges }) => {
+          // 埋点：选中内容变更（仅在有多选时记录，避免与 onNodeClick 重复）
+          if (nodes.length > 1 || edges.length > 0) {
+            trackSelectionChange(nodes.length, edges.length);
+          }
+        }}
         fitView
         panOnScroll={interactionMode === "pan"}
         panOnDrag={interactionMode === "pan"}

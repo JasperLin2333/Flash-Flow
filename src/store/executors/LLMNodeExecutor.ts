@@ -4,6 +4,7 @@ import { replaceVariables } from "@/lib/promptParser";
 import { quotaService } from "@/services/quotaService";
 import { authService } from "@/services/authService";
 import { llmMemoryService, type ConversationMessage } from "@/services/llmMemoryService";
+import { llmModelsAPI } from "@/services/llmModelsAPI";
 
 import { LLM_EXECUTOR_CONFIG } from "../constants/executorConfig";
 import { useFlowStore } from "@/store/flowStore";
@@ -96,8 +97,8 @@ function getStreamingConfig(
       return { shouldStream: false, streamMode: 'single', outputNodeId: outputNode.id };
 
     case 'merge':
-      // merge 模式：禁用流式，等待所有 LLM 完成后一次性合并输出（避免内容错乱）
-      return { shouldStream: false, streamMode: 'single', outputNodeId: outputNode.id };
+      // merge 模式：使用分段流式传输
+      return { shouldStream: true, streamMode: 'segmented', outputNodeId: outputNode.id };
 
     case 'select':
       // select 模式：首字锁定流式（需要是配置的 source 之一）
@@ -142,7 +143,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       const effectiveMockData = mockData || (context.mock as Record<string, unknown>);
 
       // Quota check - always check, including debug mode
-      const quotaError = await this.checkQuota();
+      const quotaError = await this.checkQuota((node.data as LLMNodeData).model);
       if (quotaError) {
         return quotaError;
       }
@@ -226,94 +227,145 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
             }
           }
 
-          if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+          const maxRetries = LLM_EXECUTOR_CONFIG.DEFAULT_MAX_RETRIES ?? 0;
+          const timeoutMs = LLM_EXECUTOR_CONFIG.DEFAULT_TIMEOUT_MS ?? 180000;
 
-          const resp = await fetch("/api/run-node-stream", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: llmData.model || LLM_EXECUTOR_CONFIG.DEFAULT_MODEL,
-              systemPrompt,
-              temperature: llmData.temperature ?? LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE,
-              input: inputContent,
-              conversationHistory: memoryEnabled ? conversationHistory : undefined,
-              // Pass new parameters
-              responseFormat: llmData.responseFormat,
-            }),
-            signal: controller.signal, // Binding Signal
-          });
-
-          if (!resp.ok) {
-            throw new Error(`API request failed: ${resp.status}`);
-          }
-
-          const reader = resp.body?.getReader();
-          if (!reader) throw new Error("No response body");
-
-          const decoder = new TextDecoder();
           let fullResponse = "";
           let fullReasoning = "";
           let finalUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null = null;
 
-          while (true) {
-            if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+          for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            // Reset buffers for this attempt
+            fullResponse = "";
+            fullReasoning = "";
+            finalUsage = null;
 
-            const { done, value } = await reader.read();
-            if (done) break;
+            if (shouldStream && streamMode === 'single' && attempt > 0) {
+               // On retry, clear previous partial streaming output
+               storeState.clearStreaming();
+            }
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split("\n");
+            // Create a controller for this specific attempt (combines user abort + timeout)
+            const attemptController = new AbortController();
+            const timeoutId = setTimeout(() => attemptController.abort(), timeoutMs);
+            
+            // Link user cancellation to this attempt
+            const onUserAbort = () => attemptController.abort();
+            if (controller.signal.aborted) {
+                clearTimeout(timeoutId);
+                throw new DOMException('Aborted', 'AbortError');
+            }
+            controller.signal.addEventListener('abort', onUserAbort);
 
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const data = line.slice(6);
-                if (data === "[DONE]") continue;
+            try {
+                const resp = await fetch("/api/run-node-stream", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                    model: llmData.model || LLM_EXECUTOR_CONFIG.DEFAULT_MODEL,
+                    systemPrompt,
+                    temperature: llmData.temperature ?? LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE,
+                    input: inputContent,
+                    conversationHistory: memoryEnabled ? conversationHistory : undefined,
+                    responseFormat: llmData.responseFormat,
+                    }),
+                    signal: attemptController.signal,
+                });
 
-                try {
-                  const parsed = JSON.parse(data);
-
-                  // Handle usage
-                  if (parsed.usage) {
-                    finalUsage = parsed.usage;
-                  }
-
-                  // Handle reasoning
-                  if (parsed.reasoning) {
-                    const reasoningStr = String(parsed.reasoning);
-                    fullReasoning += reasoningStr;
-                    // Stream reasoning to UI in real-time
-                    if (shouldStream) {
-                      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-                      storeState.appendStreamingReasoning(reasoningStr);
-                    }
-                  }
-
-                  if (parsed.content) {
-                    const contentStr = String(parsed.content);
-                    fullResponse += contentStr;
-
-                    if (shouldStream) {
-                      // 极致打字机效果：将内容拆分为字符逐个显示
-                      const chars = Array.from(contentStr);
-                      for (const char of chars) {
-                        // Check abort before partial update
-                        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-
-                        this.flushBuffer(char, streamMode, node.id, storeState);
-                        // 这里的速度可以根据积压程度动态调整，避免 UI 大幅落后于 API
-                        // 如果积压较多，缩短延迟甚至不延迟
-                        const delay = chars.length > 50 ? 2 : 5;
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                      }
-                    }
-                  }
-                  if (parsed.error) throw new Error(parsed.error);
-                } catch (e: any) {
-                  if (e.name === 'AbortError' || e.message === 'Aborted') throw e;
-                  if (e instanceof SyntaxError) continue;
-                  throw e;
+                if (!resp.ok) {
+                    throw new Error(`API request failed: ${resp.status}`);
                 }
-              }
+
+                const reader = resp.body?.getReader();
+                if (!reader) throw new Error("No response body");
+
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+                    let readResult: ReadableStreamReadResult<Uint8Array>;
+                    try {
+                        readResult = await reader.read();
+                    } catch (e: any) {
+                        const errorMessage = e instanceof Error ? e.message : String(e);
+                        if (e?.name === 'AbortError' || errorMessage.includes('Aborted')) throw e;
+                        throw new Error(`Stream read failed: ${errorMessage}`);
+                    }
+
+                    const { done, value } = readResult;
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split("\n");
+
+                    for (const line of lines) {
+                        if (line.startsWith("data: ")) {
+                            const data = line.slice(6);
+                            if (data === "[DONE]") continue;
+
+                            try {
+                                const parsed = JSON.parse(data);
+
+                                if (parsed.usage) finalUsage = parsed.usage;
+
+                                if (parsed.reasoning) {
+                                    const reasoningStr = String(parsed.reasoning);
+                                    fullReasoning += reasoningStr;
+                                    if (shouldStream) {
+                                        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                                        storeState.appendStreamingReasoning(reasoningStr, node.id);
+                                    }
+                                }
+
+                                if (parsed.content) {
+                                    const contentStr = String(parsed.content);
+                                    fullResponse += contentStr;
+
+                                    if (shouldStream) {
+                                        const chars = Array.from(contentStr);
+                                        for (const char of chars) {
+                                            if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                                            this.flushBuffer(char, streamMode, node.id, storeState);
+                                            // Dynamic delay based on backlog
+                                            const delay = chars.length > 50 ? 2 : 5;
+                                            await new Promise(resolve => setTimeout(resolve, delay));
+                                        }
+                                    }
+                                }
+                                if (parsed.error) throw new Error(parsed.error);
+                            } catch (e: any) {
+                                if (e.name === 'AbortError' || e.message === 'Aborted') throw e;
+                                if (e instanceof SyntaxError) continue;
+                                throw e;
+                            }
+                        }
+                    }
+                }
+                
+                // If we get here, success!
+                break;
+
+            } catch (error: any) {
+                // If it's a user abort, rethrow immediately
+                if (controller.signal.aborted || error.name === 'AbortError') {
+                    // Check if it was actually a timeout (attempt aborted but user didn't)
+                    if (!controller.signal.aborted && attemptController.signal.aborted) {
+                        throw new Error(`Execution timed out after ${timeoutMs}ms`);
+                    }
+                    throw error;
+                }
+
+                // If last attempt, throw
+                if (attempt === maxRetries) throw error;
+
+                // Log and wait before retry
+                console.warn(`LLM execution failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying...`, error);
+                await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt))); // Exponential backoff
+
+            } finally {
+                clearTimeout(timeoutId);
+                controller.signal.removeEventListener('abort', onUserAbort);
             }
           }
 
@@ -364,7 +416,18 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
           }
 
           if (shouldStream) {
-            storeState.clearStreaming();
+            if (streamMode === 'segmented') {
+              storeState.failSegment(node.id, errorMessage);
+            } else if (streamMode === 'select') {
+              // 只在当前节点持有锁时才中断流
+              // 避免非竞争获胜的节点失败导致整体流中断
+              const lockedId = storeState.lockedSourceId;
+              if (lockedId === node.id) {
+                storeState.abortStreaming();
+              }
+            } else {
+              storeState.clearStreaming();
+            }
           }
           return { error: errorMessage };
         }
@@ -396,7 +459,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
   /**
    * 检查配额（始终检查，包括调试模式）
    */
-  private async checkQuota(): Promise<ExecutionResult | null> {
+  private async checkQuota(modelId?: string): Promise<ExecutionResult | null> {
     try {
       const user = await authService.getCurrentUser();
       if (!user) {
@@ -406,20 +469,34 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
         };
       }
 
-      const quotaCheck = await quotaService.checkQuota(user.id, "llm_executions");
-      if (!quotaCheck.allowed) {
+      const requiredPoints = await this.getRequiredPoints(modelId);
+      const pointsCheck = await quotaService.checkPoints(user.id, requiredPoints);
+      if (!pointsCheck.allowed) {
         return {
-          output: { error: `LLM 执行次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。` },
+          output: { error: `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分。` },
           executionTime: 0,
         };
       }
     } catch (e) {
       return {
-        output: { error: "配额检查失败，请稍后重试或联系支持" },
+        output: { error: "积分检查失败，请稍后重试或联系支持" },
         executionTime: 0,
       };
     }
     return null;
+  }
+
+  private async getRequiredPoints(modelId?: string): Promise<number> {
+    if (!modelId) {
+      return quotaService.getLLMPointsCost(modelId);
+    }
+
+    const model = await llmModelsAPI.getModelByModelId(modelId);
+    if (model && typeof model.points_cost === "number") {
+      return model.points_cost;
+    }
+
+    return quotaService.getLLMPointsCost(modelId);
   }
 
   /**
@@ -558,6 +635,10 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
         if (tryLockSource(nodeId)) {
           appendStreamingText(buffer);
         }
+        break;
+
+      case "segmented":
+        appendToSegment(nodeId, buffer);
         break;
 
       case "single":

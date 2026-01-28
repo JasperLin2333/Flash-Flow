@@ -3,7 +3,7 @@ export const runtime = 'edge';
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
-import { checkQuotaOnServer, incrementQuotaOnServer, quotaExceededResponse } from "@/lib/quotaEdge";
+import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
 
 /**
  * Streaming LLM API Endpoint
@@ -20,12 +20,6 @@ export async function POST(req: Request) {
             return unauthorizedResponse();
         }
 
-        // Server-side quota check
-        const quotaCheck = await checkQuotaOnServer(req, user.id, "llm_executions");
-        if (!quotaCheck.allowed) {
-            return quotaExceededResponse(quotaCheck.used, quotaCheck.limit, "LLM 执行次数");
-        }
-
         const body = await reqClone.json();
         const { model, systemPrompt, input, temperature, conversationHistory, responseFormat } = body;
 
@@ -34,6 +28,11 @@ export async function POST(req: Request) {
                 JSON.stringify({ error: "Model is required" }),
                 { status: 400, headers: { "Content-Type": "application/json" } }
             );
+        }
+
+        const pointsCheck = await checkPointsOnServer(req, user.id, "llm", model);
+        if (!pointsCheck.allowed) {
+            return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
         }
 
         // Construct messages with proper typing
@@ -94,25 +93,21 @@ export async function POST(req: Request) {
                         stream: true,
                         // Add new parameters
                         response_format: responseFormat === 'json_object' ? { type: 'json_object' } : undefined,
-                        // @ts-ignore - OpenAI lib might not have stream_options yet in some versions
                         stream_options: { include_usage: true }
                     });
 
                     for await (const chunk of completion) {
                         const delta = chunk.choices?.[0]?.delta;
                         const content = delta?.content || "";
-                        // @ts-ignore - reasoning_content is specific to some models like DeepSeek
-                        const reasoning = delta?.reasoning_content || "";
-                        // @ts-ignore - usage is included in the last chunk when stream_options.include_usage is true
-                        const usage = chunk.usage || null;
+                        const reasoning = (delta as any)?.reasoning_content || "";
+                        const usage = (chunk as any).usage || null;
 
                         if (content || reasoning || usage) {
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content, reasoning, usage })}\n\n`));
                         }
                     }
 
-                    // Increment quota after successful completion
-                    await incrementQuotaOnServer(req, user.id, "llm_executions");
+                    await deductPointsOnServer(req, user.id, "llm", model, "LLM 使用");
 
                     // Signal stream end
                     controller.enqueue(encoder.encode("data: [DONE]\n\n"));

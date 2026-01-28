@@ -14,7 +14,7 @@ export function ToolMetadata({ tool }: { tool: import("@/types/flow").ToolNodeDa
 
     return (
         <div className="flex items-center gap-2">
-            <span className={METADATA_LABEL_STYLE}>工具</span>
+            <span className={METADATA_LABEL_STYLE}>执行能力</span>
             <span className={METADATA_VALUE_STYLE}>{toolName}</span>
         </div>
     );

@@ -70,7 +70,12 @@ export const createEdgeActions = (set: SetState, get: GetState) => ({
             // 埋点：节点拖拽结束
             changes.forEach(change => {
                 if (change.type === 'position' && change.dragging === false && change.position) {
-                    track('node_drag_end', { node_id: change.id, position: change.position });
+                    const node = get().nodes.find((n: AppNode) => n.id === change.id);
+                    track('node_drag_end', { 
+                        node_id: change.id, 
+                        node_type: node?.type || 'unknown',
+                        position: change.position 
+                    });
                 }
             });
             get().scheduleSave();

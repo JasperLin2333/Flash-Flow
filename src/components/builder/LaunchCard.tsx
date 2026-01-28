@@ -24,29 +24,27 @@ export default function LaunchCard() {
                     transition={{ duration: 0.5, ease: "easeOut" }}
                     className="fixed bottom-8 right-8 z-10"
                 >
-                    <div className="bg-white rounded-2xl shadow-xl border border-gray-150 w-64">
-                        <div className="border border-gray-100 rounded-2xl px-6 py-5 flex flex-col gap-4 bg-white">
-                            <div>
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">
-                                    应用已就绪
-                                </div>
-                                <div className="font-semibold text-sm text-gray-900 truncate">
-                                    {flowTitle}
-                                </div>
+                    <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200/50 w-64 px-6 py-5 flex flex-col gap-4 transition-all hover:bg-white/90">
+                        <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">
+                                应用已就绪
                             </div>
-                            <Button
-                                className="w-full bg-black hover:bg-black/85 active:bg-black/95 text-white rounded-lg h-9 text-xs font-semibold gap-2 transition-colors duration-150"
-                                onClick={() => {
-                                    if (currentFlowId) {
-                                        router.push(`/app?flowId=${currentFlowId}`);
-                                    } else {
-                                        console.error("Cannot open app: missing flowId");
-                                    }
-                                }}
-                            >
-                                打开应用 <Rocket className="w-3 h-3" />
-                            </Button>
+                            <div className="font-semibold text-sm text-gray-900 truncate">
+                                {flowTitle}
+                            </div>
                         </div>
+                        <Button
+                            className="w-full bg-black hover:bg-black/85 active:bg-black/95 text-white rounded-full h-9 text-xs font-semibold gap-2 transition-all duration-150 shadow-sm hover:shadow-md hover:scale-[1.02]"
+                            onClick={() => {
+                                if (currentFlowId) {
+                                    router.push(`/app?flowId=${currentFlowId}`);
+                                } else {
+                                    console.error("Cannot open app: missing flowId");
+                                }
+                            }}
+                        >
+                            启动智能体应用 <Rocket className="w-3 h-3" />
+                        </Button>
                     </div>
                 </motion.div>
             )}

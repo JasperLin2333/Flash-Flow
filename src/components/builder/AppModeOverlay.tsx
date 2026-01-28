@@ -21,7 +21,7 @@ const ANIMATION = {
 } as const;
 
 const DEFAULT_ASSISTANT_MSG = "Flow completed without output.";
-const ERROR_MSG = "执行过程中发生错误，请检查流程配置。";
+const ERROR_MSG = "智能体运行异常，请检查配置。";
 
 // ============ Types ============
 interface AppMessage {
@@ -150,11 +150,12 @@ export default function AppModeOverlay() {
                 return;
             }
 
-            const quotaCheck = await quotaService.checkQuota(currentUser.id, "app_usages");
-            if (!quotaCheck.allowed) {
+            const requiredPoints = quotaService.getPointsCost("app_usage");
+            const pointsCheck = await quotaService.checkPoints(currentUser.id, requiredPoints);
+            if (!pointsCheck.allowed) {
                 setMessages(prev => [...prev, {
                     role: "assistant",
-                    content: `您的 APP 使用次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。`,
+                    content: `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分。`,
                     timestamp: new Date()
                 }]);
                 return;
@@ -251,7 +252,6 @@ export default function AppModeOverlay() {
                 return [...messages, {
                     role: "assistant" as const,
                     content: combinedContent,
-                    reasoning: streamingReasoning || undefined,
                     timestamp: new Date()
                 }];
             }
@@ -337,8 +337,8 @@ export default function AppModeOverlay() {
                         isLoading={showLoading}
                         isStreaming={isStreaming}
                         streamingText={streamingText}
-                        streamingReasoning={streamingReasoning}
-                        isStreamingReasoning={isStreamingReasoning}
+                        streamingReasoning={streamingMode === 'segmented' ? undefined : streamingReasoning}
+                        isStreamingReasoning={streamingMode === 'segmented' ? false : isStreamingReasoning}
                         input={input}
                         onInputChange={setInput}
                         onSend={handleSend}
@@ -350,4 +350,3 @@ export default function AppModeOverlay() {
         </AnimatePresence>
     );
 }
-

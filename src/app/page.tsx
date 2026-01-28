@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Logo from "./Logo.png";
@@ -67,7 +67,7 @@ export default function Home() {
 
 
   // Handle toggling clarification with persistence
-  const handleToggleClarification = useCallback((enabled: boolean) => {
+  const handleToggleClarification = (enabled: boolean) => {
     setEnableClarification(enabled);
     localStorage.setItem("enableClarification", String(enabled));
 
@@ -77,11 +77,11 @@ export default function Home() {
         console.warn("[Home] Failed to save preferences:", err);
       });
     }
-  }, [isAuthenticated, user?.id]);
+  };
 
   // ✅ FIX: When switching mode, persist and auto-disable clarification if quick mode
   // ✅ FIX: When switching mode, persist and auto-disable clarification if quick mode
-  const handleModeChange = useCallback((mode: "quick" | "agent") => {
+  const handleModeChange = (mode: "quick" | "agent") => {
     setGenerationMode(mode);
     localStorage.setItem("generationMode", mode);
 
@@ -99,7 +99,7 @@ export default function Home() {
         console.warn("[Home] Failed to save preferences:", err);
       });
     }
-  }, [isAuthenticated, user?.id, enableClarification]);
+  };
 
   const setSuggestion = (v: string) => {
     setPrompt(v);
@@ -131,20 +131,22 @@ export default function Home() {
       </div>
 
       {/* Persistent Sidebar */}
-      <HomeSidebar isOpen={sidebarOpen} onToggle={setSidebarOpen} />
+      <Suspense fallback={<div />}>
+        <HomeSidebar isOpen={sidebarOpen} onToggle={setSidebarOpen} />
+      </Suspense>
 
       {/* Main Content - Shifts right when sidebar is open */}
       <div
-        className="flex-1 flex flex-col items-center justify-center min-h-screen transition-all duration-300 ease-out py-10"
+        className="flex-1 flex flex-col items-center justify-center min-h-screen transition-all duration-300 ease-out py-10 animate-in fade-in slide-in-from-bottom-8 duration-1000 fill-mode-both"
         style={{
           marginLeft: sidebarOpen ? SIDEBAR_WIDTH : 0,
         }}
       >
         <div className="w-full max-w-3xl px-6 flex flex-col items-center">
-          <div className="flex items-center justify-center gap-3 mb-6 -translate-x-7">
-            <Image src={Logo} alt="Flash Flow Logo" width={60} height={60} className="w-20 h-20" />
+          <div className="flex items-center justify-center gap-4 mb-8 -translate-x-4">
+            <Image src={Logo} alt="Flash Flow Logo" width={72} height={72} className="w-[72px] h-[72px] drop-shadow-sm" priority />
             <h1
-              className="text-5xl font-semibold tracking-tight bg-clip-text text-transparent"
+              className="text-6xl font-bold tracking-tight bg-clip-text text-transparent pb-2"
               style={{
                 fontFamily: "Inter, SF Pro Display, system-ui, -apple-system, sans-serif",
                 backgroundImage: "var(--brand-gradient)",
@@ -153,14 +155,14 @@ export default function Home() {
               Flash Flow
             </h1>
           </div>
-          <p className="text-gray-700 text-lg text-center tracking-wide font-light">想要什么，就做什么</p>
+          <p className="text-gray-500 text-lg text-center tracking-wide font-normal mb-10">一句话，构建你的专属 AI 智能体</p>
 
-          <div className="mt-10 w-full">
+          <div className="w-full transform transition-all duration-500 hover:scale-[1.01]">
             <PromptBubble
               value={prompt}
               onChange={setPrompt}
               onSubmit={handleGenerateFlow}
-              placeholder="有想法，尽管说~"
+              placeholder="输入你的想法，AI 自动生成工作流..."
               enableClarification={enableClarification}
               onToggleClarification={generationMode === "agent" ? handleToggleClarification : undefined}
               generationMode={generationMode}
@@ -170,24 +172,24 @@ export default function Home() {
 
 
 
-          <div className="mt-8 flex flex-wrap gap-3 justify-center">
+          <div className="mt-12 flex flex-wrap gap-3 justify-center max-w-2xl">
             <button
-              className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
+              className="group px-5 py-3 rounded-2xl bg-white/80 backdrop-blur-sm text-gray-600 text-xs font-medium tracking-wide border border-gray-200/60 shadow-sm hover:shadow-lg hover:border-[#60B4FF]/50 hover:-translate-y-0.5 hover:text-[#4A9FE8] transition-all duration-300"
               onClick={() => setSuggestion("请帮我做一个智能旅游助手：支持用户输入目的地和天数（例如‘重庆 3天’）。第一步，联网搜索当地的必吃美食和热门景点；第二步，智能规划一条不走回头路的特种兵行程路线；第三步，输出详细的每日时间表和交通建议。")}
             >
-              ✈️ 搭建特种兵旅游规划助手
+              <span className="mr-1.5 grayscale group-hover:grayscale-0 transition-all duration-300">✈️</span> 生成特种兵旅游助手
             </button>
             <button
-              className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
+              className="group px-5 py-3 rounded-2xl bg-white/80 backdrop-blur-sm text-gray-600 text-xs font-medium tracking-wide border border-gray-200/60 shadow-sm hover:shadow-lg hover:border-[#60B4FF]/50 hover:-translate-y-0.5 hover:text-[#4A9FE8] transition-all duration-300"
               onClick={() => setSuggestion("我想做一个小红书图文生产线：输入任意主题。1. 让 AI 扮演资深博主，撰写 5 个 emoji 风格的爆款标题和正文；2. 并行调用绘图模型，生成 2 张高颜值的封面图；3. 最后将文案和图片组合输出，方便我直接复制发布。")}
             >
-              🎨 制作小红书爆款图文生成器
+              <span className="mr-1.5 grayscale group-hover:grayscale-0 transition-all duration-300">🎨</span> 打造小红书爆款神器
             </button>
             <button
-              className="px-4 py-2 rounded-full bg-white text-gray-600 text-xs tracking-wide border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 hover:bg-gray-50 transition-all duration-150"
+              className="group px-5 py-3 rounded-2xl bg-white/80 backdrop-blur-sm text-gray-600 text-xs font-medium tracking-wide border border-gray-200/60 shadow-sm hover:shadow-lg hover:border-[#60B4FF]/50 hover:-translate-y-0.5 hover:text-[#4A9FE8] transition-all duration-300"
               onClick={() => setSuggestion("设计一个“梦境画师”工作流：接收用户描述的梦境内容。1. 使用心理学知识分析梦境背后的潜意识含义；2. 调用绘画 AI 将梦境画面具象化，生成超现实主义风格的画作；3. 最终生成一张包含心理分析和画面的精美卡片。")}
             >
-              🔮 创建一个梦境可视化分析师
+              <span className="mr-1.5 grayscale group-hover:grayscale-0 transition-all duration-300">🔮</span> 创建梦境分析师
             </button>
           </div>
         </div>

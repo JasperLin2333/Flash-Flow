@@ -7,6 +7,7 @@ import { getDescendants } from "../utils/parallelExecutionUtils";
 import { resolveSourceNodeIdFromSource } from "../utils/sourceResolver";
 import { showWarning } from "@/utils/errorNotify";
 import { checkInputNodeMissing } from "../utils/inputValidation";
+import { trackWorkflowRun, trackWorkflowRunSuccess, trackWorkflowRunFail } from "@/lib/trackingService";
 
 
 export const createExecutionActions = (
@@ -51,7 +52,7 @@ export const createExecutionActions = (
                         console.warn(`[Execution] Warning: Upstream node ${edge.source} returned undefined output for node ${nodeId}`);
                     }
 
-                    if (upstreamOutput) {
+                    if (upstreamOutput !== undefined) {
                         upstreamContext[edge.source] = upstreamOutput;
                     }
                 });
@@ -171,6 +172,10 @@ export const createExecutionActions = (
             resetExecution();
             set({ executionStatus: "running", executionError: null });
 
+            // TRACKING: Start
+            const startTime = Date.now();
+            trackWorkflowRun(nodes.length, edges.length);
+
             // 4. 初始化流式模式（基于 Output 节点配置）
             const outputNode = nodes.find((n: AppNode) => n.type === 'output');
             if (outputNode) {
@@ -198,6 +203,9 @@ export const createExecutionActions = (
                     }
                 }
             }
+
+            // 跟踪节点状态（为了在 catch 中访问）
+            const executionErrors: { nodeId: string; error: Error }[] = [];
 
             try {
                 const effectiveSessionId = sessionId || nanoid(10);
@@ -242,7 +250,7 @@ export const createExecutionActions = (
                 const completedNodes = new Set<string>();
                 const blockedNodes = new Set<string>();
                 const runningNodes = new Set<string>();
-                const executionErrors: { nodeId: string; error: Error }[] = [];
+                // executionErrors defined outside try block
 
                 // 为每个节点创建一个 Promise resolver，用于通知下游节点
                 const nodeResolvers = new Map<string, () => void>();
@@ -317,16 +325,43 @@ export const createExecutionActions = (
                             const notTakenHandle = conditionResult ? 'false' : 'true';
                             const takenHandle = conditionResult ? 'true' : 'false';
 
-                            const notTakenDescendants = getDescendants(nodeId, edges, notTakenHandle);
+                            const branchNodeId = nodeId;
+                            const notTakenDescendants = getDescendants(branchNodeId, edges, notTakenHandle);
                             const takenDescendants = getDescendants(nodeId, edges, takenHandle);
 
-                            notTakenDescendants.forEach(id => {
-                                if (!takenDescendants.has(id)) {
-                                    blockedNodes.add(id);
-                                    // 被阻塞的节点也需要 resolve，以免下游节点无限等待
-                                    nodeResolvers.get(id)?.();
+                            for (const id of notTakenDescendants) {
+                                if (takenDescendants.has(id)) {
+                                    continue;
                                 }
-                            });
+                                const incomingEdges = edges.filter((e: AppEdge) => e.target === id);
+                                const hasExternalUpstream = incomingEdges.some(edge =>
+                                    edge.source !== branchNodeId && !notTakenDescendants.has(edge.source)
+                                );
+                                if (hasExternalUpstream || completedNodes.has(id) || runningNodes.has(id)) {
+                                    continue;
+                                }
+                                blockedNodes.add(id);
+                                
+                                // Explicitly mark as skipped in context so downstream knows it was skipped
+                                const skippedOutput = { _skipped: true, _reason: 'branch_not_taken' };
+                                context[id] = skippedOutput;
+                                set((state) => ({
+                                    flowContext: {
+                                        ...state.flowContext,
+                                        [id]: skippedOutput
+                                    }
+                                }));
+
+                                nodeResolvers.get(id)?.();
+
+                                const downstream = getDirectDownstream(id);
+                                const executableDownstream = downstream.filter(downstreamId => canExecute(downstreamId));
+                                if (executableDownstream.length > 0) {
+                                    await Promise.allSettled(
+                                        executableDownstream.map(downstreamId => executeNodeAndTriggerDownstream(downstreamId))
+                                    );
+                                }
+                            }
                         }
 
                         // 通知当前节点已完成
@@ -372,7 +407,17 @@ export const createExecutionActions = (
                 }
 
                 set({ executionStatus: "completed" });
+                
+                // TRACKING: Success
+                trackWorkflowRunSuccess(Date.now() - startTime);
+
             } catch (error) {
+                // TRACKING: Fail
+                const errorMsg = error instanceof Error ? error.message : "Unknown error occurred";
+                // Try to find the first failed node ID if available
+                const firstFailedNodeId = executionErrors.length > 0 ? executionErrors[0].nodeId : undefined;
+                trackWorkflowRunFail(errorMsg, firstFailedNodeId);
+
                 set({
                     executionStatus: "error" as ExecutionStatus,
                     executionError: error instanceof Error ? error.message : "Unknown error occurred"

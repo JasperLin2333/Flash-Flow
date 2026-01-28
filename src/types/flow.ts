@@ -377,7 +377,9 @@ export type FlowState = {
   lockedSourceId: string | null;
   selectSourceIds: string[];
 
-  // Internal execution lock
+  // Internal execution state
+  _streamingAborted?: boolean;
+  _streamingError?: string;
   _executionLock?: boolean;
 
   // Node-level execution control (for single-node testing)
@@ -500,7 +502,7 @@ export type FlowState = {
   // Streaming Actions
   setStreamingText: (text: string) => void;
   appendStreamingText: (chunk: string) => void;
-  appendStreamingReasoning: (chunk: string) => void;
+  appendStreamingReasoning: (chunk: string, sourceId?: string) => void;
   clearStreaming: () => void;
   abortStreaming: () => void;
   resetStreamingAbort: () => void;

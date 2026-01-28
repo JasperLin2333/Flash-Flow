@@ -27,11 +27,11 @@ export function RAGMetadata({ rag }: { rag: RAGNodeData }) {
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-                <span className={METADATA_LABEL_STYLE}>知识库:</span>
+                <span className={METADATA_LABEL_STYLE}>知识来源</span>
                 <span className={METADATA_VALUE_STYLE}>{getFileInfo()}</span>
             </div>
             <div className="flex items-center gap-2">
-                <span className={METADATA_LABEL_STYLE}>块大小:</span>
+                <span className={METADATA_LABEL_STYLE}>分块大小</span>
                 <span className={METADATA_VALUE_STYLE}>{maxTokens} tokens</span>
             </div>
         </div>

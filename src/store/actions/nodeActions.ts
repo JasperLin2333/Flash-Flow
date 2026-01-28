@@ -3,7 +3,7 @@ import type { AppNode, AppNodeData, NodeKind, FlowState, LLMNodeData, BranchNode
 import { getDefaultNodeData } from "../utils/nodeDefaults";
 import { toast } from "@/hooks/use-toast";
 import { NODE_LAYOUT } from "../constants/layout";
-import { trackNodeAdd } from "@/lib/trackingService";
+import { trackNodeAdd, trackNodeDataUpdate } from "@/lib/trackingService";
 
 // Zustand store action creator types
 type SetState = (partial: ((state: FlowState) => Partial<FlowState>) | Partial<FlowState>) => void;
@@ -294,6 +294,13 @@ export const createNodeActions = (set: SetState, get: GetState) => ({
         // 如果 Label 变更，更新所有引用该节点的变量
         if (isLabelChanged) {
             updatedNodes = updateVariableReferences(updatedNodes, oldLabel, newLabel);
+        }
+
+        // 埋点：数据更新
+        // 记录更新的主要字段名
+        const updatedFields = Object.keys(data);
+        if (updatedFields.length > 0) {
+            trackNodeDataUpdate(id, node.type || 'unknown', updatedFields[0]);
         }
 
         set({

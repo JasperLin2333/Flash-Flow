@@ -46,6 +46,23 @@ import { track } from "@/lib/trackingService";
 // ========== Shared UI Components ==========
 
 /**
+ * ThinkingIndicator - 新版优雅的加载状态
+ */
+function ThinkingIndicator() {
+    return (
+        <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
+            </span>
+            <span className="text-sm font-semibold bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 bg-clip-text text-transparent bg-[length:200%_auto] animate-gradient">
+                AI 架构师正在构思方案...
+            </span>
+        </div>
+    );
+}
+
+/**
  * UnifiedStep: The base layout for all agent actions to ensure visual consistency
  */
 interface UnifiedStepProps {
@@ -74,10 +91,6 @@ function UnifiedStep({
     previewText
 }: UnifiedStepProps) {
     // Determine collapsed state
-    // Streaming active -> Always expanded
-    // Pending -> Expanded for visibility
-    // Completed -> Default collapsed (can be toggled)
-    // Error -> Expanded
     const isStreaming = status === 'streaming';
     const isPending = status === 'pending';
     const isCompleted = status === 'completed';
@@ -85,14 +98,12 @@ function UnifiedStep({
 
     const [isOpen, setIsOpen] = useState(!defaultCollapsed);
     const contentRef = useRef<HTMLDivElement>(null);
-    // Track if user has manually scrolled away inside this step's content
     const userScrolledInsideRef = useRef(false);
 
     // Auto-state management
     useEffect(() => {
         if (isStreaming || isPending || isError) {
             setIsOpen(true);
-            // Reset scroll intent when step becomes active
             userScrolledInsideRef.current = false;
         } else if (isCompleted) {
             setIsOpen(false);
@@ -104,19 +115,25 @@ function UnifiedStep({
         if (!contentRef.current) return;
         const el = contentRef.current;
         const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
-        // If user scrolled away from bottom, mark it
         if (!isAtBottom) {
             userScrolledInsideRef.current = true;
         } else {
-            // User scrolled back to bottom, resume auto-scroll
             userScrolledInsideRef.current = false;
         }
     };
 
-    // Auto-scroll internal content when streaming (only if user hasn't scrolled away)
+    // Auto-scroll internal content when streaming
     useEffect(() => {
         if (isStreaming && contentRef.current && !userScrolledInsideRef.current) {
-            contentRef.current.scrollTop = contentRef.current.scrollHeight;
+            // Use requestAnimationFrame for smoother scrolling
+            requestAnimationFrame(() => {
+                if (contentRef.current) {
+                    contentRef.current.scrollTo({
+                        top: contentRef.current.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }
+            });
         }
     }, [children, isStreaming]);
 
@@ -124,7 +141,6 @@ function UnifiedStep({
         if (collapsible) {
             const newState = !isOpen;
             setIsOpen(newState);
-            // 埋点：步骤展开/收起
             track(newState ? 'step_expand' : 'step_collapse', { step_type: label });
         }
     };
@@ -137,25 +153,30 @@ function UnifiedStep({
         >
             {/* Timeline Line */}
             {!isLast && (
-                <div className="absolute left-[15px] top-8 bottom-[-30px] w-px bg-slate-100 -z-10" />
+                <div className="absolute left-[15px] top-10 bottom-[-24px] w-[2px] bg-gradient-to-b from-slate-200/80 to-slate-100/20 -z-10 rounded-full" />
             )}
 
             {/* Icon */}
             <div className={cn(
-                "w-8 h-8 rounded-full flex items-center justify-center border shadow-sm shrink-0 z-10 transition-all duration-500",
+                "w-8 h-8 rounded-xl flex items-center justify-center border shrink-0 z-10 transition-all duration-500 relative overflow-hidden",
                 isCompleted
-                    ? "bg-white border-slate-200 text-slate-400"
+                    ? "bg-white border-slate-200 text-slate-400 shadow-sm"
                     : isPending
-                        ? "bg-white border-slate-200 text-slate-300"
-                        : `${bg} ${color} ring-2 ring-white`
+                        ? "bg-white border-slate-200 text-slate-300 shadow-sm"
+                        : `${bg} ${color} border-transparent shadow-md ring-2 ring-white/50`
             )}>
+                {/* Active Pulse Effect */}
+                {isStreaming && (
+                    <div className="absolute inset-0 bg-current opacity-10 animate-pulse" />
+                )}
+                
                 {isCompleted ? (
                     <Check className="w-4 h-4" />
                 ) : isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin opacity-50" />
                 ) : (
                     <Icon className={cn(
-                        "w-4 h-4",
+                        "w-4 h-4 relative z-10",
                         isStreaming && (label === "自动修复优化" ? "animate-spin" : "animate-pulse")
                     )} />
                 )}
@@ -167,35 +188,33 @@ function UnifiedStep({
                 <div
                     onClick={toggle}
                     className={cn(
-                        "flex items-center gap-2 mb-2 transition-colors -ml-2 px-2 py-1.5 rounded-lg border border-transparent",
-                        collapsible ? "cursor-pointer hover:bg-slate-100 hover:border-slate-200/60" : ""
+                        "flex items-center gap-2 mb-2 transition-all -ml-2 px-2 py-1.5 rounded-lg border border-transparent select-none",
+                        collapsible ? "cursor-pointer hover:bg-slate-100/50 hover:border-slate-200/40" : ""
                     )}
                 >
                     <span className={cn(
-                        "text-sm font-semibold select-none",
-                        isPending ? "text-slate-400" : color
+                        "text-sm font-semibold tracking-tight",
+                        isPending ? "text-slate-400" : "text-slate-700"
                     )}>
                         {label}
                     </span>
 
-                    {/* Status Indicators */}
+                    {/* Status Indicators - Only show when actually streaming */}
                     {isStreaming && (
-                        <div className="flex gap-0.5 items-end h-3 mb-0.5 ml-2">
-                            <span className="w-1 h-1 bg-current rounded-full animate-bounce [animation-delay:0ms]" />
-                            <span className="w-1 h-1 bg-current rounded-full animate-bounce [animation-delay:150ms]" />
-                            <span className="w-1 h-1 bg-current rounded-full animate-bounce [animation-delay:300ms]" />
+                        <div className="flex gap-1 items-center h-3 mb-0.5 ml-2">
+                             <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse" />
+                             <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse delay-75" />
+                             <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse delay-150" />
                         </div>
                     )}
 
-
-
-                    {/* Toggle Indicator - Always Visible for Affordance */}
+                    {/* Toggle Indicator */}
                     {collapsible && !isStreaming && !isPending && (
-                        <div className="ml-auto flex items-center gap-1.5 transition-opacity text-slate-400 hover:text-slate-600">
-                            <span className="text-[10px] font-medium">
+                        <div className="ml-auto flex items-center gap-1.5 transition-opacity text-slate-400 group-hover:text-slate-500">
+                            <span className="text-[10px] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                                 {isOpen ? "收起" : "展开"}
                             </span>
-                            {isOpen ? <ChevronDown className="w-3 h-3" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+                            {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <Play className="w-2.5 h-2.5 fill-current" />}
                         </div>
                     )}
                 </div>
@@ -204,18 +223,20 @@ function UnifiedStep({
                 <AnimatePresence initial={false}>
                     {isOpen && children && (
                         <motion.div
-                            initial={{ height: 0 }}
-                            animate={{ height: "auto" }}
-                            exit={{ height: 0 }}
-                            transition={{ duration: 0.15, ease: "easeOut" }}
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
                             className="overflow-hidden"
                         >
                             <div
                                 ref={contentRef}
                                 onScroll={handleInternalScroll}
                                 className={cn(
-                                    "rounded-2xl border p-4 shadow-sm transition-all duration-500 mb-2 max-h-44 overflow-y-auto custom-scrollbar",
-                                    isStreaming ? "bg-white border-blue-200/60 shadow-blue-100/50" : "bg-white/50 border-slate-200/60"
+                                    "rounded-xl border p-4 shadow-sm transition-all duration-300 mb-2 max-h-60 overflow-y-auto custom-scrollbar",
+                                    isStreaming 
+                                        ? "bg-white/90 border-blue-200/60 shadow-blue-500/5 ring-1 ring-blue-500/10" 
+                                        : "bg-slate-50/50 border-slate-200/60"
                                 )}>
                                 {children}
                             </div>
@@ -225,12 +246,14 @@ function UnifiedStep({
 
                 {/* Collapsed Preview */}
                 {!isOpen && !isPending && previewText && (
-                    <div
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
                         onClick={toggle}
-                        className="text-xs text-slate-400 cursor-pointer hover:text-slate-600 transition-colors mt-1 truncate max-w-[90%] font-medium opacity-80"
+                        className="text-xs text-slate-500/80 cursor-pointer hover:text-slate-700 transition-colors mt-1 truncate max-w-[90%] font-medium pl-1"
                     >
                         {previewText.slice(0, 60)}{previewText.length > 60 ? "..." : ""}
-                    </div>
+                    </motion.div>
                 )}
             </div>
         </motion.div>
@@ -241,20 +264,20 @@ function UnifiedStep({
 
 function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) {
     const stepConfig: Record<string, any> = {
-        analysis: { icon: Target, label: "深度理解需求", color: "text-blue-600", bg: "bg-blue-50 border-blue-100" },
-        strategy: { icon: BrainCircuit, label: "规划工作流方案", color: "text-purple-600", bg: "bg-purple-50 border-purple-100" },
-        reflection: { icon: Lightbulb, label: "深度逻辑审查", color: "text-amber-600", bg: "bg-amber-50 border-amber-100" },
-        modified_plan: { icon: Wrench, label: "执行优化修正", color: "text-pink-600", bg: "bg-pink-50 border-pink-100" },
-        drafting: { icon: FileJson, label: "生成工作流结构", color: "text-indigo-600", bg: "bg-indigo-50 border-indigo-100" },
-        validation: { icon: CheckCircle2, label: "最终逻辑校验", color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100" },
-        retry: { icon: RefreshCw, label: "自动修复优化", color: "text-blue-600", bg: "bg-blue-50 border-blue-100" }
+        analysis: { icon: Target, label: "深度理解需求", color: "text-indigo-600", bg: "bg-indigo-50/50 border-indigo-100/50" },
+        strategy: { icon: BrainCircuit, label: "规划智能体架构", color: "text-violet-600", bg: "bg-violet-50/50 border-violet-100/50" },
+        reflection: { icon: Lightbulb, label: "优化逻辑细节", color: "text-amber-600", bg: "bg-amber-50/50 border-amber-100/50" },
+        modified_plan: { icon: Wrench, label: "修正执行方案", color: "text-rose-600", bg: "bg-rose-50/50 border-rose-100/50" },
+        drafting: { icon: FileJson, label: "构建工作流节点", color: "text-slate-600", bg: "bg-slate-50/50 border-slate-100/50" },
+        validation: { icon: CheckCircle2, label: "验证运行逻辑", color: "text-teal-600", bg: "bg-teal-50/50 border-teal-100/50" },
+        retry: { icon: RefreshCw, label: "智能故障自愈", color: "text-blue-600", bg: "bg-blue-50/50 border-blue-100/50" }
     };
 
     let config = stepConfig[item.stepType] || {
         icon: Sparkles,
         label: item.stepType,
         color: "text-slate-600",
-        bg: "bg-slate-50 border-slate-100"
+        bg: "bg-slate-50/50 border-slate-100/50"
     };
 
     // Override for Validation Error
@@ -263,7 +286,7 @@ function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) 
             icon: AlertCircle,
             label: "校验未通过",
             color: "text-red-600",
-            bg: "bg-red-50 border-red-100"
+            bg: "bg-red-50/50 border-red-100/50"
         };
     }
 
@@ -281,8 +304,13 @@ function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) 
                 <MarkdownRenderer
                     content={item.content}
                     isStreaming={item.status === 'streaming'}
-                    className="text-xs leading-relaxed text-slate-600 prose-p:my-1 prose-pre:my-2 prose-li:my-0.5 [&>p]:leading-relaxed [&>ul]:my-1"
+                    className="text-xs leading-relaxed text-slate-600/90 prose-p:my-1 prose-pre:my-2 prose-li:my-0.5 [&>p]:leading-relaxed [&>ul]:my-1"
                 />
+            ) : item.status === 'streaming' ? (
+                <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>正在思考中...</span>
+                </div>
             ) : null}
         </UnifiedStep>
     );
@@ -298,12 +326,12 @@ function ToolCallBlockRender({ item, isLast }: { item: ToolCallItem, isLast: boo
             icon={Terminal}
             label={`执行工具: ${item.tool}`}
             color="text-indigo-600"
-            bg="bg-indigo-50 border-indigo-100"
+            bg="bg-indigo-50/50 border-indigo-100/50"
             status={item.status === 'calling' ? 'streaming' : item.status === 'error' ? 'error' : 'completed'}
             isLast={isLast}
             previewText={typeof item.result === 'string' ? item.result : "JSON Result..."}
         >
-            <div className="text-xs leading-relaxed font-mono text-slate-600 whitespace-pre-wrap break-all max-h-60 overflow-y-auto custom-scrollbar">
+            <div className="text-xs leading-relaxed font-mono text-slate-600/90 whitespace-pre-wrap break-all max-h-60 overflow-y-auto custom-scrollbar">
                 {typeof item.result === 'string' ? item.result : JSON.stringify(item.result, null, 2)}
             </div>
         </UnifiedStep>
@@ -316,13 +344,13 @@ function SuggestionBlockRender({ item, isLast }: { item: SuggestionItem, isLast:
             icon={Zap}
             label={item.scenario ? `最佳实践: ${item.scenario}` : "AI 建议"}
             color="text-amber-600"
-            bg="bg-amber-50 border-amber-100"
+            bg="bg-amber-50/50 border-amber-100/50"
             status="completed"
             isLast={isLast}
             defaultCollapsed={false} // Suggestions should usually be visible? Or maybe collapsed if long. Let's keep visible.
             previewText={item.content}
         >
-            <div className="text-xs leading-relaxed text-slate-600 font-medium">
+            <div className="text-xs leading-relaxed text-slate-600/90 font-medium">
                 {item.content}
             </div>
         </UnifiedStep>
@@ -356,19 +384,19 @@ function InlineClarificationCard({ item }: { item: ClarificationItem }) {
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-5 shadow-lg"
+            className="bg-amber-50/80 backdrop-blur-sm border border-amber-200/60 rounded-2xl p-5 shadow-lg ring-1 ring-amber-900/5"
         >
             {/* Header */}
             <div className="flex items-center gap-2 mb-3">
                 <HelpCircle className="w-5 h-5 text-amber-600" />
-                <span className="text-amber-700 font-bold text-base">需要更多信息</span>
+                <span className="text-amber-700 font-bold text-base">我需要一点协助...</span>
             </div>
-            <p className="text-sm text-slate-600 mb-4">为了生成更精准的工作流，请回答以下问题：</p>
+            <p className="text-sm text-slate-600 mb-4">为了让智能体更符合你的预期，请告诉我：</p>
 
             {/* Questions */}
             <div className="space-y-3 mb-4">
                 {item.questions.map((q, idx) => (
-                    <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div key={idx} className="bg-white/60 p-4 rounded-xl border border-slate-200/60 shadow-sm">
                         <div className="flex gap-2 mb-2 items-start">
                             <span className="text-amber-500 font-bold shrink-0">Q{idx + 1}:</span>
                             <span className="text-sm font-medium text-slate-700">{q}</span>
@@ -382,7 +410,7 @@ function InlineClarificationCard({ item }: { item: ClarificationItem }) {
                             }}
                             disabled={isSubmitting}
                             placeholder="请输入您的回答..."
-                            className="bg-slate-50 border-slate-200 focus:bg-white transition-colors"
+                            className="bg-slate-50/50 border-slate-200 focus:bg-white transition-colors"
                         />
                     </div>
                 ))}
@@ -466,7 +494,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-5 shadow-lg"
+            className="bg-blue-50/80 backdrop-blur-sm border border-blue-200/60 rounded-2xl p-5 shadow-lg ring-1 ring-blue-900/5"
         >
             {/* Header */}
             <div className="flex items-center gap-2 mb-4">
@@ -477,7 +505,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
             {hasNewFormat ? (
                 <div className="space-y-6 mb-6">
                     {/* 1. Intent - Clean, No Label */}
-                    <div className="text-sm text-slate-800 font-medium leading-relaxed bg-white/60 p-3 rounded-xl border border-blue-100">
+                    <div className="text-sm text-slate-800 font-medium leading-relaxed bg-white/60 p-3 rounded-xl border border-blue-100/50">
                         <span className="text-blue-600 font-bold">猜你想要：</span>
                         {refinedIntent || item.userPrompt}
                     </div>
@@ -495,7 +523,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                                     return (
                                         <div key={i} className="flex items-center group relative">
                                             {/* Node Card */}
-                                            <div className="flex flex-col gap-1.5 bg-white p-3 rounded-xl border border-slate-200 shadow-sm w-[140px] h-[90px] hover:border-blue-300 hover:shadow-md transition-all">
+                                            <div className="flex flex-col gap-1.5 bg-white/80 p-3 rounded-xl border border-slate-200/60 shadow-sm w-[140px] h-[90px] hover:border-blue-300 hover:shadow-md transition-all">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <div className="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
                                                         <NodeIcon className="w-3.5 h-3.5" />
@@ -525,7 +553,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* 3. Use Cases */}
                         {useCases && useCases.length > 0 && (
-                            <div className="bg-blue-50/50 rounded-xl p-3 border border-blue-100">
+                            <div className="bg-blue-50/40 rounded-xl p-3 border border-blue-100/50">
                                 <div className="text-xs font-bold text-blue-600 mb-2 flex items-center gap-1">
                                     <Target className="w-3 h-3" /> 适用场景
                                 </div>
@@ -544,7 +572,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
 
                         {/* 4. How To Use */}
                         {howToUse && howToUse.length > 0 && (
-                            <div className="bg-emerald-50/50 rounded-xl p-3 border border-emerald-100">
+                            <div className="bg-emerald-50/40 rounded-xl p-3 border border-emerald-100/50">
                                 <div className="text-xs font-bold text-emerald-600 mb-2 flex items-center gap-1">
                                     <BookOpen className="w-3 h-3" /> 使用方法
                                 </div>
@@ -569,7 +597,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                         <span className="text-xs text-slate-500">• 用户问题: </span>
                         <span className="text-sm text-slate-700 font-medium">{item.userPrompt}</span>
                     </div>
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4 space-y-2">
+                    <div className="bg-white/80 rounded-xl border border-slate-200/60 p-4 mb-4 space-y-2">
                         {item.steps.map((step, idx) => (
                             <div key={idx} className="text-sm text-slate-600 leading-relaxed">
                                 <span className="font-mono text-blue-600 mr-2">{idx + 1}.</span>
@@ -592,7 +620,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                         onChange={e => setFeedback(e.target.value)}
                         placeholder="请输入修改意见"
                         disabled={isSubmitting}
-                        className="w-full min-h-[100px] p-3 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:bg-white transition-all resize-none"
+                        className="w-full min-h-[100px] p-3 rounded-xl border border-slate-200 bg-slate-50/50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:bg-white transition-all resize-none"
                     />
                 </motion.div>
             )}
@@ -834,26 +862,24 @@ export default function AgentCopilotOverlay() {
         }
     }, [feed.length, feed]);
 
-    // Only render if active AND in Agent mode
-    if (copilotStatus === "idle" || copilotMode !== "agent") return null;
-
+    const isActive = copilotStatus !== "idle" && copilotMode === "agent";
     const isCompleted = copilotStatus === "completed";
     const isAwaitingInput = copilotStatus === "awaiting_input";
     const isAwaitingPlanConfirm = copilotStatus === "awaiting_plan_confirm";
 
-    // Extract clarification items and filter Feed
     const lastClarification = useMemo(() => {
         const clarifications = feed.filter(f => f.type === 'clarification') as ClarificationItem[];
         return clarifications.length > 0 ? clarifications[clarifications.length - 1] : null;
     }, [feed]);
 
-    // Filter out clarification from Feed when awaiting input (shown separately)
     const filteredFeed = useMemo(() => {
         if (isAwaitingInput) {
             return feed.filter(f => f.type !== 'clarification');
         }
         return feed;
     }, [feed, isAwaitingInput]);
+
+    if (!isActive) return null;
 
     const lastFeedItem = filteredFeed.length > 0 ? filteredFeed[filteredFeed.length - 1] : undefined;
 
@@ -867,21 +893,30 @@ export default function AgentCopilotOverlay() {
             >
                 {/* Main Container */}
                 <motion.div
-                    layoutId="agent-container"
-                    className="w-full max-w-3xl bg-white/95 backdrop-blur-xl border border-white/20 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.02)] overflow-hidden flex flex-col min-h-[600px] max-h-[85vh] relative"
+                    className="w-full max-w-3xl bg-white/80 backdrop-blur-2xl border border-white/40 rounded-2xl shadow-[0_20px_50px_rgb(0,0,0,0.1),0_0_0_1px_rgba(255,255,255,0.5)] overflow-hidden flex flex-col min-h-[600px] max-h-[85vh] relative ring-1 ring-slate-900/5"
                 >
                     {/* Header */}
-                    <div className="h-16 border-b border-slate-100/80 bg-white/50 flex items-center justify-between px-6 shrink-0 z-20">
-                        <div className="flex items-center gap-3">
+                    <div className="h-16 border-b border-slate-100/50 bg-white/40 flex items-center justify-between px-6 shrink-0 z-20 relative overflow-hidden">
+                        {/* Shimmer Effect for Header */}
+                        {!isCompleted && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
+                        )}
+                        
+                        <div className="flex items-center gap-3 relative z-10">
                             <div className={cn(
-                                "p-2 rounded-xl transition-colors shadow-sm",
-                                isCompleted ? "bg-emerald-50 text-emerald-600" : "bg-indigo-50 text-indigo-600"
+                                "p-2 rounded-xl transition-all shadow-sm ring-1 ring-inset",
+                                isCompleted 
+                                    ? "bg-emerald-50/80 text-emerald-600 ring-emerald-500/10" 
+                                    : "bg-indigo-50/80 text-indigo-600 ring-indigo-500/10"
                             )}>
                                 {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
                             </div>
                             <div className="flex flex-col justify-center">
-                                <span className="text-sm font-semibold text-slate-800 tracking-tight">
-                                    {isCompleted ? "工作流与方案已就绪" : "AI 正在深入思考"}
+                                <span className={cn(
+                                    "text-sm font-semibold tracking-tight transition-colors",
+                                    isCompleted ? "text-emerald-900" : "text-slate-800"
+                                )}>
+                                    {isCompleted ? "工作流与方案已就绪" : <ThinkingIndicator />}
                                 </span>
                             </div>
                         </div>
@@ -894,7 +929,7 @@ export default function AgentCopilotOverlay() {
                     <div
                         ref={scrollContainerRef}
                         onScroll={handleMainScroll}
-                        className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent bg-slate-50/30 overscroll-contain"
+                        className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200/50 scrollbar-track-transparent bg-slate-50/30"
                     >
                         {/* FIX: Add key based on first item ID to force full remount on new session */}
                         {/* This prevents "flash" of old items animating out when feed is reset */}

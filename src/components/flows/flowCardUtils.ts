@@ -23,6 +23,48 @@ export function formatUpdateTime(iso: string): string {
 }
 
 /**
+ * 格式化为相对时间（如：刚刚、2分钟前、1小时前、3天前）
+ * @param isoDateString - ISO 格式的日期字符串
+ * @returns 相对时间字符串
+ */
+export function formatRelativeTime(isoDateString: string): string {
+  const date = new Date(isoDateString);
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diffInSeconds < 60) {
+    return '刚刚';
+  }
+
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  if (diffInMinutes < 60) {
+    return `${diffInMinutes}分钟前`;
+  }
+
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  if (diffInHours < 24) {
+    return `${diffInHours}小时前`;
+  }
+
+  const diffInDays = Math.floor(diffInHours / 24);
+  if (diffInDays < 7) {
+    return `${diffInDays}天前`;
+  }
+
+  const diffInWeeks = Math.floor(diffInDays / 7);
+  if (diffInWeeks < 4) {
+    return `${diffInWeeks}周前`;
+  }
+
+  const diffInMonths = Math.floor(diffInDays / 30);
+  if (diffInMonths < 12) {
+    return `${diffInMonths}个月前`;
+  }
+
+  return `${Math.floor(diffInMonths / 12)}年前`;
+}
+
+/**
  * 获取流程节点数量
  * @param flow - 流程记录
  * @returns 节点数量

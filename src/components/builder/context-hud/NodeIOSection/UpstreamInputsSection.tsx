@@ -14,6 +14,7 @@ interface UpstreamInputsSectionProps {
     upstreamInputs: UpstreamInputState[];
     onUpdateToolInputs?: (inputs: Record<string, unknown>) => void;
     onUpdateInputMappings?: (mappings: Record<string, string>) => void;
+    hiddenFields?: string[];
 }
 
 /**
@@ -26,6 +27,7 @@ export function UpstreamInputsSection({
     upstreamInputs,
     onUpdateToolInputs,
     onUpdateInputMappings,
+    hiddenFields = [],
 }: UpstreamInputsSectionProps) {
     // 获取当前工具类型的完整定义（用于判断条件显示）
     const toolType = nodeType === 'tool' ? (nodeData?.toolType as string | undefined) : undefined;
@@ -128,7 +130,7 @@ export function UpstreamInputsSection({
                     const fieldDef = getFieldDef(input.field);
 
                     // 根据条件判断是否显示
-                    if (!shouldShowField(fieldDef)) {
+                    if (!shouldShowField(fieldDef) || hiddenFields.includes(input.field)) {
                         return null;
                     }
 

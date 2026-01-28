@@ -84,25 +84,41 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Check quota if userId provided - use server-side client
-        if (userId && SUPABASE_URL && SUPABASE_SERVICE_KEY) {
-            const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+        const modelId = model || IMAGEGEN_CONFIG.DEFAULT_MODEL;
+        let requiredPoints = 12;
+        const supabaseAdmin = userId && SUPABASE_URL && SUPABASE_SERVICE_KEY
+            ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            : null;
+
+        if (supabaseAdmin) {
+            const { data: modelData } = await supabaseAdmin
+                .from("image_gen_models")
+                .select("points_cost")
+                .eq("model_id", modelId)
+                .single();
+
+            const modelPoints = (modelData as { points_cost?: number | null } | null)?.points_cost;
+            if (typeof modelPoints === "number") {
+                requiredPoints = modelPoints;
+            }
+        }
+
+        // Check points if userId provided - use server-side client
+        if (supabaseAdmin) {
             const { data: quotaData, error: quotaError } = await supabaseAdmin
                 .from("users_quota")
-                .select("image_gen_executions_used, image_gen_executions_limit")
+                .select("points_balance")
                 .eq("user_id", userId)
                 .single();
 
             if (quotaError) {
-                console.error("[generate-image] Quota check error:", quotaError);
+                console.error("[generate-image] Points check error:", quotaError);
                 // Allow if quota check fails (graceful degradation)
             } else if (quotaData) {
-                const used = (quotaData as Record<string, number>).image_gen_executions_used ?? 0;
-                const limit = (quotaData as Record<string, number>).image_gen_executions_limit ?? 20;
-
-                if (used >= limit) {
+                const balance = (quotaData as Record<string, number>).points_balance ?? 0;
+                if (balance < requiredPoints) {
                     return NextResponse.json(
-                        { error: `图片生成次数已用完 (${used}/${limit})` },
+                        { error: `积分不足，当前余额 ${balance}，需要 ${requiredPoints}` },
                         { status: 429 }
                     );
                 }
@@ -120,7 +136,6 @@ export async function POST(req: NextRequest) {
 
         // Get model capabilities
         // Priority: frontend-passed capabilities > hardcoded lookup > default
-        const modelId = model || IMAGEGEN_CONFIG.DEFAULT_MODEL;
         const capabilities = frontendCapabilities || MODEL_CAPABILITIES[modelId] || DEFAULT_IMAGEGEN_CAPABILITIES;
 
         // Build request body dynamically based on model capabilities
@@ -250,21 +265,55 @@ export async function POST(req: NextRequest) {
             console.warn("[generate-image] Storage error, using original URL:", storageError);
         }
 
-        // Increment quota usage - use server-side client
-        if (userId && SUPABASE_URL && SUPABASE_SERVICE_KEY) {
-            const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-            const { data: currentQuota } = await supabaseAdmin
+        // Deduct points - use server-side client
+        if (supabaseAdmin) {
+            const maxRetries = 3;
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                const { data: currentQuota, error } = await supabaseAdmin
                 .from("users_quota")
-                .select("image_gen_executions_used")
+                .select("points_balance,points_used,updated_at")
                 .eq("user_id", userId)
                 .single();
 
-            const currentUsed = (currentQuota as Record<string, number> | null)?.image_gen_executions_used ?? 0;
+                if (error || !currentQuota) {
+                    break;
+                }
 
-            await supabaseAdmin
-                .from("users_quota")
-                .update({ image_gen_executions_used: currentUsed + 1 })
-                .eq("user_id", userId);
+                const currentBalance = (currentQuota as Record<string, number> | null)?.points_balance ?? 0;
+                const currentUsed = (currentQuota as Record<string, number> | null)?.points_used ?? 0;
+                const updatedAt = (currentQuota as Record<string, string | null> | null)?.updated_at || null;
+
+                if (!updatedAt || currentBalance < requiredPoints) {
+                    break;
+                }
+
+                const newBalance = currentBalance - requiredPoints;
+                const newUsed = currentUsed + requiredPoints;
+
+                const { error: updateError } = await supabaseAdmin
+                    .from("users_quota")
+                    .update({
+                        points_balance: newBalance,
+                        points_used: newUsed,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq("user_id", userId)
+                    .eq("updated_at", updatedAt);
+
+                if (!updateError) {
+                    await (supabaseAdmin as any)
+                        .from("points_ledger")
+                        .insert({
+                            user_id: userId,
+                            action_type: "image_generation",
+                            item_key: modelId || null,
+                            title: "图片生成",
+                            points: requiredPoints,
+                            balance_after: newBalance
+                        });
+                    break;
+                }
+            }
         }
 
         return NextResponse.json({

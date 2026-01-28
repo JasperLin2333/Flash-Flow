@@ -39,11 +39,11 @@ export const ANIMATION = {
 } as const;
 
 export const UI_TEXT = {
-    emptyState: "我是您的智能助手，请告诉我您的需求。",
-    appTitle: "智能助手",
-    inputPlaceholder: "搜索、提问或者说明你的需求...",
-    homeButton: "首页",
-    closeButton: "关闭",
+    emptyState: "你好，我是你的 AI 架构师，想打造什么样的工作流？",
+    appTitle: "Flash Flow 智能体",
+    inputPlaceholder: "描述您的需求，我来帮您实现...",
+    homeButton: "返回首页",
+    closeButton: "退出预览",
 } as const;
 
 // ============ Types ============

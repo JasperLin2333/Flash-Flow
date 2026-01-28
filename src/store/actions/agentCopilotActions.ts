@@ -86,9 +86,10 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
                 throw new Error("请先登录以生成 Flow");
             }
 
-            const quotaCheck = await quotaService.checkQuota(user.id, "flow_generations");
-            if (!quotaCheck.allowed) {
-                const errorMsg = `Flow 生成次数已用完 (${quotaCheck.used}/${quotaCheck.limit})。请联系管理员增加配额。`;
+            const requiredPoints = quotaService.getPointsCost("flow_generation");
+            const pointsCheck = await quotaService.checkPoints(user.id, requiredPoints);
+            if (!pointsCheck.allowed) {
+                const errorMsg = `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分。`;
                 set({
                     copilotStatus: "idle",
                     error: errorMsg
@@ -338,9 +339,22 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
             // 埋点：Agent 完成
             trackAgentComplete(get().copilotFeed.length, 0);
         } catch (error) {
-            // Bug #4 fix: 同时清理 copilotFeed 避免残留数据
-            set({ copilotStatus: "idle", copilotFeed: [] });
+            // Bug Fix #4 (Enhanced): Do NOT clear copilotFeed to prevent "Blank Canvas" crash.
+            // Instead, mark status as completed (to keep overlay open) and add error step.
+            
+            const errorMessage = error instanceof Error ? error.message : String(error);
             console.error("Agent Copilot Error:", error);
+
+            // Add error step to feed so user sees what happened
+            set((state: { copilotFeed: FeedItem[] }) => ({
+                copilotStatus: "completed", // Keep overlay open so user can see error
+                copilotFeed: handleStep(
+                    state.copilotFeed,
+                    "error",
+                    "error",
+                    `❌ 生成过程中发生错误:\n${errorMessage}\n\n请尝试重试或修改提示词。`
+                )
+            }));
         } finally {
             if (typeof window !== 'undefined') {
                 sessionStorage.removeItem('flash-flow:copilot-operation');

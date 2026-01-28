@@ -176,13 +176,34 @@ export function handleSuggestion(feed: FeedItem[], content: string, scenario?: s
  * 更新已存在的 StepItem 或创建新的
  */
 export function handleStep(feed: FeedItem[], stepType: string, status: 'streaming' | 'completed' | 'error', content: string, forceUpdate = false): FeedItem[] {
+    // 1. Auto-complete any PREVIOUS streaming steps if this is a NEW step type
+    // This ensures that when we move from "Analysis" -> "Strategy", the "Analysis" loading stops.
+    let updatedFeed = feed;
+    
+    // Only perform this check if we are NOT updating an existing step of the same type
+    const isUpdatingSameType = feed.some(item => 
+        item.type === 'step' && 
+        (item as StepItem).stepType === stepType && 
+        (item as StepItem).status !== 'completed' && 
+        (item as StepItem).status !== 'error'
+    );
+
+    if (!isUpdatingSameType && !forceUpdate) {
+        updatedFeed = feed.map(item => {
+            if (item.type === 'step' && (item as StepItem).status === 'streaming') {
+                return { ...item, status: 'completed' } as StepItem;
+            }
+            return item;
+        });
+    }
+
     // Generic reverse search for existing step
     // FIX for Infinite Loading: We must strictly match type AND ensure we don't accidentally update a completed historic step
     // unless forceUpdate is explicit.
     // For adjustments, we want to find the 'streaming' placeholder created by agentCopilotActions
     let targetIndex = -1;
-    for (let i = feed.length - 1; i >= 0; i--) {
-        const item = feed[i];
+    for (let i = updatedFeed.length - 1; i >= 0; i--) {
+        const item = updatedFeed[i];
         if (item.type === 'step' && (item as StepItem).stepType === stepType) {
             // Found a match. Is it the active one?
             if (forceUpdate || (item as StepItem).status !== 'completed' && (item as StepItem).status !== 'error') {
@@ -195,7 +216,7 @@ export function handleStep(feed: FeedItem[], stepType: string, status: 'streamin
     }
 
     if (targetIndex !== -1) {
-        return feed.map((item, index) =>
+        return updatedFeed.map((item, index) =>
             index === targetIndex
                 ? { ...item, status, content } as StepItem
                 : item
@@ -212,7 +233,7 @@ export function handleStep(feed: FeedItem[], stepType: string, status: 'streamin
         timestamp: Date.now()
     };
 
-    return [...feed, newItem];
+    return [...updatedFeed, newItem];
 }
 
 /**

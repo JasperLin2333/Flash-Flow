@@ -75,13 +75,13 @@ export const FLOW_EXAMPLES = `
 ], "edges": [
   {"source": "in", "target": "llm"}, 
   {"source": "llm", "target": "br_refund"}, 
-  {"source": "br_refund", "target": "op_refund", "handle": "true"}, 
-  {"source": "br_refund", "target": "op_tech", "handle": "false"},
+  {"source": "br_refund", "target": "op_refund", "sourceHandle": "true"}, 
+  {"source": "br_refund", "target": "op_tech", "sourceHandle": "false"},
   {"source": "op_refund", "target": "out"}, 
   {"source": "op_tech", "target": "out"}
 ]}
 \`\`\`
-`;
+\`;`;
 
 export const FULL_EXAMPLES = FLOW_EXAMPLES + NEGATIVE_EXAMPLES;
 

@@ -32,8 +32,8 @@ const CONFIG = {
         generate: {
             label: "全量生成",
             icon: Sparkles,
-            placeholder: "有想法，尽管说~",
-            loadingText: "正在生成流程…",
+            placeholder: "告诉 AI 你的想法，为你自动构建工作流...",
+            loadingText: "正在构思工作流...",
         },
     },
     nodeTypes: [
@@ -63,10 +63,10 @@ function NodeLibraryDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[520px] rounded-2xl border border-gray-200 shadow-xl">
                 <DialogHeader>
-                    <DialogTitle className="text-base font-bold">节点库</DialogTitle>
-                    <DialogDescription className="text-xs text-gray-500">
-                        选择一个节点添加到画布
-                    </DialogDescription>
+                    <DialogTitle className="text-base font-bold">智能体能力库</DialogTitle>
+              <DialogDescription className="text-xs text-gray-500">
+                选择能力模块，组装你的专属智能体
+              </DialogDescription>
                 </DialogHeader>
                 <div className="grid grid-cols-2 gap-3 pt-2">
                     {CONFIG.nodeTypes.map(({ label, type }) => (
@@ -90,8 +90,10 @@ function ConfirmDialog({ open, onOpenChange, onConfirm }: { open: boolean; onOpe
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[480px] rounded-2xl border border-gray-200 shadow-xl">
                 <DialogHeader>
-                    <DialogTitle className="text-base font-bold">确认重新生成？</DialogTitle>
-                    <DialogDescription className="text-xs text-gray-500">即将用新的 flow 覆盖旧 flow，旧 flow 不可找回。</DialogDescription>
+                    <DialogTitle className="text-base font-bold">确定要重新构思吗？</DialogTitle>
+                    <DialogDescription className="text-xs text-gray-500">
+                        新的设计方案将替换当前的工作流，旧方案将无法找回。
+                    </DialogDescription>
                 </DialogHeader>
                 <div className="flex justify-end gap-3">
                     <Button variant="outline" onClick={() => onOpenChange(false)} className="border-gray-300 text-gray-700 hover:bg-gray-50">
@@ -291,8 +293,6 @@ export default function BrainBar() {
             className="fixed bottom-8 left-1/2 -translate-x-1/2 z-10"
         >
             <div className="relative">
-                {/* <ModeToggle mode={mode} setMode={setMode} /> */}
-
                 <div style={{ width: CONFIG.ui.containerWidth }}>
                     <PromptBubble
                         value={prompt}
@@ -314,10 +314,10 @@ export default function BrainBar() {
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className={`absolute ${CONFIG.ui.buttonPosition} top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-gray-100`}
+                                className={`absolute ${CONFIG.ui.buttonPosition} top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 backdrop-blur-md border border-gray-200/50 shadow-lg hover:bg-white hover:shadow-xl hover:scale-105 transition-all duration-200 text-gray-600 hover:text-black`}
                                 onClick={() => setLibraryOpen(true)}
                             >
-                                <Plus className="w-4 h-4 text-black" />
+                                <Plus className="w-5 h-5" />
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent side="top">添加节点</TooltipContent>
