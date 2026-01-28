@@ -37,6 +37,10 @@ yarn-error.log*
 *.env
 .env*
 
+# AI Agent & IDE Configs
+.agent/
+.trae/
+
 # Vercel
 .vercel
 
