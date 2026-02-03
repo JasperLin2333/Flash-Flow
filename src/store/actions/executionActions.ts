@@ -8,6 +8,7 @@ import { resolveSourceNodeIdFromSource } from "../utils/sourceResolver";
 import { showWarning } from "@/utils/errorNotify";
 import { checkInputNodeMissing } from "../utils/inputValidation";
 import { trackWorkflowRun, trackWorkflowRunSuccess, trackWorkflowRunFail } from "@/lib/trackingService";
+import { ensureBranchHandlesForNode } from "@/lib/branchHandleUtils";
 
 
 export const createExecutionActions = (
@@ -38,7 +39,21 @@ export const createExecutionActions = (
             let upstreamContext: FlowContext = {};
 
             if (isDebugRunner && mockInputData) {
-                upstreamContext = { mock: mockInputData };
+                const meta =
+                    context._meta ??
+                    (() => {
+                        const nodeLabels: Record<string, string> = {};
+                        nodes.forEach((n: AppNode) => {
+                            const label = (n.data?.label as string) || n.type || n.id;
+                            nodeLabels[n.id] = label;
+                        });
+                        return {
+                            flowId: get().currentFlowId,
+                            sessionId: nanoid(10),
+                            nodeLabels,
+                        };
+                    })();
+                upstreamContext = { _meta: meta, mock: mockInputData };
             } else {
                 upstreamContext = {
                     _meta: context._meta,
@@ -68,7 +83,7 @@ export const createExecutionActions = (
 
             // Execute with race condition against timeout
             const resultRaw = await Promise.race([
-                executor.execute(node, upstreamContext),
+                executor.execute(node, upstreamContext, mockInputData),
                 timeoutPromise
             ]) as { output: Record<string, unknown>; executionTime: number };
 
@@ -78,14 +93,17 @@ export const createExecutionActions = (
                 throw new Error("Node deleted during execution");
             }
 
-            const outputObj = output as Record<string, unknown>;
+            const outputError = (output as Record<string, unknown> | undefined)?.error;
+            const hasOutputError =
+                (typeof outputError === "string" && outputError.trim().length > 0) ||
+                (outputError instanceof Error);
 
             set((state: FlowState) => ({
                 nodes: state.nodes.map((n: AppNode) => n.id === nodeId ? {
                     ...n,
                     data: {
                         ...n.data,
-                        status: "completed",
+                        status: hasOutputError ? "error" : "completed",
                         executionTime: executionTime,
                         output: output,
                         // NOTE: Output node text is now only stored in flowContext
@@ -99,8 +117,16 @@ export const createExecutionActions = (
         } catch (error) {
             // console.error(`Node ${nodeId} execution failed:`, error);
             if (get().nodes.find((n: AppNode) => n.id === nodeId)) {
+                const errorMessage =
+                    error instanceof Error
+                        ? error.message
+                        : typeof error === "string"
+                            ? error
+                            : "节点执行失败";
                 set((state: FlowState) => ({
-                    nodes: updateNodeStatus(state.nodes, nodeId, "error")
+                    nodes: updateNodeStatus(state.nodes, nodeId, "error", {
+                        output: { error: errorMessage }
+                    })
                 }));
             }
             throw error;
@@ -326,8 +352,15 @@ export const createExecutionActions = (
                             const takenHandle = conditionResult ? 'true' : 'false';
 
                             const branchNodeId = nodeId;
-                            const notTakenDescendants = getDescendants(branchNodeId, edges, notTakenHandle);
-                            const takenDescendants = getDescendants(nodeId, edges, takenHandle);
+                            const ensured = ensureBranchHandlesForNode(nodes as AppNode[], edges as AppEdge[], branchNodeId);
+                            const edgesForBranch = ensured.edges as AppEdge[];
+                            const notTakenDescendants = getDescendants(branchNodeId, edgesForBranch, notTakenHandle);
+                            const takenDescendants = getDescendants(nodeId, edgesForBranch, takenHandle);
+
+                            const outgoing = edgesForBranch.filter(e => e.source === branchNodeId);
+                            if (outgoing.length > 0 && (notTakenDescendants.size === 0 || takenDescendants.size === 0)) {
+                                showWarning("分支连线缺少 TRUE/FALSE 标记，可能导致路径选择异常");
+                            }
 
                             for (const id of notTakenDescendants) {
                                 if (takenDescendants.has(id)) {

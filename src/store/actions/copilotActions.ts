@@ -72,10 +72,12 @@ export const createCopilotActions = (set: any, get: any) => ({
 
         try {
             const ownerId = user.id;
+            const enableValidateWorkflow = process.env.NEXT_PUBLIC_FLOW_VALIDATE_WORKFLOW_ENABLED === "true";
+            const skipAutomatedValidation = !enableValidateWorkflow;
             const resp = await fetch("/api/plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt, ownerId }),
+                body: JSON.stringify({ prompt, ownerId, skipAutomatedValidation }),
             });
 
             // Handle streaming response
@@ -153,7 +155,7 @@ export const createCopilotActions = (set: any, get: any) => ({
                     const { refreshQuota } = useQuotaStore.getState();
                     await refreshQuota(user.id);
                 }
-            } catch (e) {
+            } catch {
                 // Quota UI refresh failed - non-critical
             }
 

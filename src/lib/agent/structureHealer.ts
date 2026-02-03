@@ -34,14 +34,11 @@ export function healStructure(nodes: any[], edges: any[]): StructureHealerResult
     const fixes: string[] = [];
     const errors: string[] = [];
 
-    // 深拷贝避免副作用
-    let healedNodes = JSON.parse(JSON.stringify(nodes));
-    let healedEdges: EdgeInfo[] = JSON.parse(JSON.stringify(edges || []));
+    const healedNodes = JSON.parse(JSON.stringify(nodes));
+    const healedEdges: EdgeInfo[] = JSON.parse(JSON.stringify(edges || []));
 
-    // 1. 建立节点索引
     const nodeMap = new Map<string, NodeInfo>();
     const nodeIds = new Set<string>();
-
     healedNodes.forEach((node: any) => {
         const info: NodeInfo = {
             id: node.id,
@@ -52,56 +49,77 @@ export function healStructure(nodes: any[], edges: any[]): StructureHealerResult
         nodeIds.add(node.id);
     });
 
-    // 2. 清理无效边（source 或 target 不存在）
-    const invalidEdges = healedEdges.filter(e => !nodeIds.has(e.source) || !nodeIds.has(e.target));
+    const invalidEdges = healedEdges.filter(e => !e?.source || !e?.target || !nodeIds.has(e.source) || !nodeIds.has(e.target));
     if (invalidEdges.length > 0) {
-        healedEdges = healedEdges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
-        invalidEdges.forEach(e => {
-            fixes.push(`删除无效边: ${e.source} → ${e.target}（节点不存在）`);
-        });
+        fixes.push(`检测到无效边 ${invalidEdges.length} 条（仅报告，不自动修复）`);
     }
 
-    // 3. 去除重复边
     const edgeSet = new Set<string>();
-    const uniqueEdges: EdgeInfo[] = [];
-    healedEdges.forEach(e => {
-        const key = `${e.source}::${e.target}`;
-        if (!edgeSet.has(key)) {
-            edgeSet.add(key);
-            uniqueEdges.push(e);
-        } else {
-            fixes.push(`删除重复边: ${e.source} → ${e.target}`);
+    let duplicateCount = 0;
+    for (const e of healedEdges) {
+        const key = `${e?.source || ""}::${e?.target || ""}`;
+        if (edgeSet.has(key)) duplicateCount++;
+        else edgeSet.add(key);
+    }
+    if (duplicateCount > 0) {
+        fixes.push(`检测到重复边 ${duplicateCount} 条（仅报告，不自动修复）`);
+    }
+
+    const hasCycle = (() => {
+        const adj = new Map<string, string[]>();
+        const visited = new Set<string>();
+        const stack = new Set<string>();
+        for (const id of nodeIds) adj.set(id, []);
+        for (const e of healedEdges) {
+            if (!e?.source || !e?.target) continue;
+            if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) continue;
+            adj.get(e.source)?.push(e.target);
         }
-    });
-    healedEdges = uniqueEdges;
-
-    // 4. 检测并修复循环依赖
-    const cycleResult = detectAndFixCycles(healedNodes, healedEdges, nodeMap);
-    healedEdges = cycleResult.edges;
-    fixes.push(...cycleResult.fixes);
-
-    // 5. 检测并修复孤岛节点
-    const islandResult = detectAndFixIslands(healedNodes, healedEdges, nodeMap);
-    healedEdges = islandResult.edges;
-    fixes.push(...islandResult.fixes);
-
-    // 6. 为边补充 id（如果缺失）
-    healedEdges = healedEdges.map((e, i) => ({
-        ...e,
-        id: e.id || `edge_${e.source}_${e.target}_${i}`
-    }));
-
-    // 7. 再次去重 (防止孤岛修复引入重复边)
-    const finalEdgeSet = new Set<string>();
-    const finalUniqueEdges: EdgeInfo[] = [];
-    healedEdges.forEach(e => {
-        const key = `${e.source}::${e.target}`;
-        if (!finalEdgeSet.has(key)) {
-            finalEdgeSet.add(key);
-            finalUniqueEdges.push(e);
+        const dfs = (id: string): boolean => {
+            visited.add(id);
+            stack.add(id);
+            for (const next of adj.get(id) || []) {
+                if (!visited.has(next)) {
+                    if (dfs(next)) return true;
+                } else if (stack.has(next)) {
+                    return true;
+                }
+            }
+            stack.delete(id);
+            return false;
+        };
+        for (const id of nodeIds) {
+            if (!visited.has(id) && dfs(id)) return true;
         }
+        return false;
+    })();
+    if (hasCycle) {
+        fixes.push("检测到循环依赖（仅报告，不自动修复）");
+    }
+
+    const inDegree = new Map<string, number>();
+    const outDegree = new Map<string, number>();
+    for (const id of nodeIds) {
+        inDegree.set(id, 0);
+        outDegree.set(id, 0);
+    }
+    for (const e of healedEdges) {
+        if (!e?.source || !e?.target) continue;
+        if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) continue;
+        inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+        outDegree.set(e.source, (outDegree.get(e.source) || 0) + 1);
+    }
+    const isolated = healedNodes.filter((n: any) => {
+        const id = n?.id;
+        if (typeof id !== "string" || !id) return false;
+        const inD = inDegree.get(id) || 0;
+        const outD = outDegree.get(id) || 0;
+        if (inD !== 0 || outD !== 0) return false;
+        return true;
     });
-    healedEdges = finalUniqueEdges;
+    if (isolated.length > 0) {
+        fixes.push(`检测到孤岛节点 ${isolated.length} 个（仅报告，不自动修复）`);
+    }
 
     return {
         fixedNodes: healedNodes,
@@ -115,7 +133,7 @@ export function healStructure(nodes: any[], edges: any[]): StructureHealerResult
  * 检测并修复循环依赖
  * 策略：使用 DFS 找到环，删除环中最后添加的边（即形成环的那条边）
  */
-function detectAndFixCycles(
+function _detectAndFixCycles(
     nodes: any[],
     edges: EdgeInfo[],
     nodeMap: Map<string, NodeInfo>
@@ -123,19 +141,8 @@ function detectAndFixCycles(
     const fixes: string[] = [];
     let currentEdges = [...edges];
 
-    // 构建邻接表
-    const buildAdjacency = (edgeList: EdgeInfo[]) => {
-        const adj = new Map<string, string[]>();
-        nodes.forEach(n => adj.set(n.id, []));
-        edgeList.forEach(e => {
-            adj.get(e.source)?.push(e.target);
-        });
-        return adj;
-    };
-
     // DFS 检测环，返回环中的边（如果存在）
     const findCycleEdge = (edgeList: EdgeInfo[]): EdgeInfo | null => {
-        const adj = buildAdjacency(edgeList);
         const visited = new Set<string>();
         const recursionStack = new Set<string>();
 
@@ -207,7 +214,7 @@ function detectAndFixCycles(
  * 1. 找出所有没有入边也没有出边的节点（排除合法的起点 input 和终点 output）
  * 2. 根据节点类型，自动连接到最合理的前驱/后继
  */
-function detectAndFixIslands(
+function _detectAndFixIslands(
     nodes: any[],
     edges: EdgeInfo[],
     nodeMap: Map<string, NodeInfo>

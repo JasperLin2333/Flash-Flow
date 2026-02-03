@@ -106,7 +106,7 @@ export default function Home() {
   };
 
   // 🧹 REFACTOR: Extract flow generation logic with auth guard
-  const handleGenerateFlow = () => {
+  const handleGenerateFlow = async () => {
     // DEFENSIVE: Guard clause for empty prompt
     if (!prompt.trim()) return;
 
@@ -116,11 +116,17 @@ export default function Home() {
       return;
     }
 
-    // Proceed with navigation if authenticated
-    // ✅ NEW: Append mode=agent if agent mode is selected
+    // 🔥 终极修复：先导航到干净URL，避免参数累积
     const modeParam = generationMode === "agent" ? "&mode=agent" : "";
     const clarificationParam = enableClarification ? "&enableClarification=true" : "";
-    router.push(`/builder?initialPrompt=${encodeURIComponent(prompt)}${modeParam}${clarificationParam}`);
+    
+    // 先导航到基础builder页面（无参数）
+    router.push('/builder');
+    
+    // 等待路由完成后再传递参数
+    setTimeout(() => {
+      router.push(`/builder?initialPrompt=${encodeURIComponent(prompt)}${modeParam}${clarificationParam}`);
+    }, 100);
   };
 
   return (

@@ -65,6 +65,9 @@ export interface RAGNodeData extends BaseNodeData {
   // 执行结果
   query?: string;                // 最后一次搜索的查询
   documents?: string[];          // 找到的文档块
+  citations?: Array<{ source: string; chunk: string }>;
+  documentCount?: number;
+  mode?: 'multimodal' | 'fileSearch' | string;
 }
 
 // ============ Input Node Form Field Types ============
@@ -114,8 +117,10 @@ export interface InputNodeData extends BaseNodeData {
 
   // Capability toggles (Builder side configuration)
   enableTextInput?: boolean;      // Default: true
+  textRequired?: boolean;         // Default: false (only effective when enableTextInput !== false)
   enableFileInput?: boolean;      // Default: false
   enableStructuredForm?: boolean; // Default: false
+  fileRequired?: boolean;         // Default: false (only effective when enableFileInput === true)
 
   // Configurations (Builder side)
   fileConfig?: FileInputConfig;

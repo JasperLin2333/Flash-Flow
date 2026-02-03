@@ -91,7 +91,7 @@ export function calculateOptimalLayout(nodes: AppNode[], edges: AppEdge[]): AppN
     });
 
     // 后处理：单链路直线对齐
-    updatedNodes = alignStraightLines(updatedNodes, edges, branchNodeIds);
+    updatedNodes = alignStraightLines(updatedNodes, edges);
 
     return updatedNodes;
 }
@@ -105,8 +105,7 @@ export function calculateOptimalLayout(nodes: AppNode[], edges: AppEdge[]): AppN
  */
 function alignStraightLines(
     nodes: AppNode[],
-    edges: AppEdge[],
-    branchNodeIds: Set<string>
+    edges: AppEdge[]
 ): AppNode[] {
     // 默认节点高度配置（作为兜底）
     const DEFAULT_HEIGHT = 120;

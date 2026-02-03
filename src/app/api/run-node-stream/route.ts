@@ -88,7 +88,7 @@ export async function POST(req: Request) {
 
                     const completion = await client.chat.completions.create({
                         model: model,
-                        temperature: temperature || 0.7,
+                        temperature: typeof temperature === "number" ? temperature : 0.7,
                         messages,
                         stream: true,
                         // Add new parameters

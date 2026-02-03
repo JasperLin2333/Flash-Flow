@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useWatch } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -163,16 +163,55 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
   const [showExtraFiles, setShowExtraFiles] = useState<number>(0);
   const [showExtraStaticSlots, setShowExtraStaticSlots] = useState<number>(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const watchedFiles = useWatch({ control: form.control, name: "inputMappings.files" });
   const watchedFiles2 = useWatch({ control: form.control, name: "inputMappings.files2" });
   const watchedFiles3 = useWatch({ control: form.control, name: "inputMappings.files3" });
+  const initialQuery = String(ragData.inputMappings?.query || "");
+  const [draftQuery, setDraftQuery] = useState<string>(initialQuery);
+  const queryDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushQueryToForm = useCallback((nextQuery: string, shouldDirty: boolean) => {
+    if (queryDebounceTimerRef.current) {
+      clearTimeout(queryDebounceTimerRef.current);
+      queryDebounceTimerRef.current = null;
+    }
+    const current = String(form.getValues("inputMappings.query") || "");
+    if (current !== nextQuery) {
+      form.setValue("inputMappings.query", nextQuery, { shouldDirty });
+    }
+  }, [form]);
+
+  useEffect(() => {
+    setDraftQuery(initialQuery);
+    if (queryDebounceTimerRef.current) {
+      clearTimeout(queryDebounceTimerRef.current);
+      queryDebounceTimerRef.current = null;
+    }
+  }, [selectedNodeId, initialQuery]);
+
+  useEffect(() => {
+    return () => {
+      if (queryDebounceTimerRef.current) {
+        clearTimeout(queryDebounceTimerRef.current);
+        queryDebounceTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const inputMappings = ragData.inputMappings || {};
-    form.setValue("inputMappings.files", inputMappings.files || "", { shouldDirty: false });
-    form.setValue("inputMappings.files2", inputMappings.files2 || "", { shouldDirty: false });
-    form.setValue("inputMappings.files3", inputMappings.files3 || "", { shouldDirty: false });
-  }, [selectedNodeId, form]);
+    const nextFiles = inputMappings.files || "";
+    const nextFiles2 = inputMappings.files2 || "";
+    const nextFiles3 = inputMappings.files3 || "";
+    if (form.getValues("inputMappings.files") !== nextFiles) {
+      form.setValue("inputMappings.files", nextFiles, { shouldDirty: false });
+    }
+    if (form.getValues("inputMappings.files2") !== nextFiles2) {
+      form.setValue("inputMappings.files2", nextFiles2, { shouldDirty: false });
+    }
+    if (form.getValues("inputMappings.files3") !== nextFiles3) {
+      form.setValue("inputMappings.files3", nextFiles3, { shouldDirty: false });
+    }
+  }, [selectedNodeId, form, ragData.inputMappings]);
 
   // Auto-create File Search Store if not exists
   useEffect(() => {
@@ -203,7 +242,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
 
     const ragData = selectedNode.data as RAGNodeData;
     if (!ragData.fileSearchStoreName) {
-      showWarning("知识库未初始化", "请稍等，File Search Store 正在创建中...");
+      showWarning("知识库未就绪", "正在准备知识库，请稍后再试…");
       return;
     }
 
@@ -319,7 +358,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                 <div className={`${STYLES.EDITOR_HEADER} bg-blue-50/50`}>
                     <div className={`${STYLES.EDITOR_LABEL} text-blue-600`}>
                         <MessageSquare className="w-3.5 h-3.5" />
-                        检索语句 (Search Query)
+                        检索问题
                     </div>
                     <TooltipProvider>
                         <Tooltip>
@@ -341,15 +380,22 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                 <FormControl>
                     <textarea
                       {...field}
-                      value={field.value || ""}
+                      value={draftQuery}
                       onChange={(e) => {
-                          const val = e.target.value;
-                          field.onChange(val);
-                          if (selectedNodeId) {
-                              updateNodeData(selectedNodeId, { inputMappings: { ...ragData.inputMappings, query: val } });
-                          }
+                        const val = e.target.value;
+                        setDraftQuery(val);
+                        if (queryDebounceTimerRef.current) {
+                          clearTimeout(queryDebounceTimerRef.current);
+                        }
+                        queryDebounceTimerRef.current = setTimeout(() => {
+                          flushQueryToForm(val, true);
+                        }, 400);
                       }}
-                      placeholder="针对文件的提问，支持 {{变量}} 引用..."
+                      onBlur={() => {
+                        field.onBlur();
+                        flushQueryToForm(draftQuery, true);
+                      }}
+                      placeholder="写下你要从文档里找的内容，支持 {{变量}} 引用…"
                       className={STYLES.EDITOR_AREA + " min-h-[80px] text-xs py-2"}
                       spellCheck={false}
                     />
@@ -369,8 +415,8 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
           <CapabilityItem
             icon={<Database className="w-4 h-4" />}
             iconColorClass="bg-blue-50 text-blue-600"
-            title="参考文档管理"
-            description={hasStore ? "上传或引用需要检索的文档" : "正在初始化存储..."}
+            title="参考文档"
+            description={hasStore ? "上传或引用要检索的文档" : "正在准备知识库…"}
             isExpanded={true} // Always expanded as it's the core function
             rightElement={
                 <div className="flex items-center gap-2">
@@ -400,7 +446,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                             }`}
                         >
                           <Braces className="w-3.5 h-3.5" />
-                          <span>变量引用</span>
+                          <span>引用变量</span>
                         </button>
                         <button
                           type="button"
@@ -415,7 +461,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                             }`}
                         >
                           <FolderOpen className="w-3.5 h-3.5" />
-                          <span>静态上传</span>
+                          <span>上传文件</span>
                         </button>
                       </div>
 
@@ -440,11 +486,8 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                                     onChange={(e) => {
                                                         const value = e.target.value;
                                                         field.onChange(value);
-                                                        if (selectedNodeId) {
-                                                            updateNodeData(selectedNodeId, { inputMappings: { ...ragData.inputMappings, files: value } });
-                                                        }
                                                     }}
-                                                    placeholder="{{节点.files_url}}"
+                                                    placeholder="{{节点名.files}}"
                                                     className={STYLES.VARIABLE_INPUT + " pl-9"}
                                                 />
                                                 {field.value && (
@@ -452,9 +495,6 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                                         type="button"
                                                         onClick={() => {
                                                             form.setValue("inputMappings.files", "", { shouldDirty: true });
-                                                            if (selectedNodeId) {
-                                                                updateNodeData(selectedNodeId, { inputMappings: { ...ragData.inputMappings, files: "" } });
-                                                            }
                                                         }}
                                                         className={`absolute right-2 top-1/2 -translate-y-1/2 ${STYLES.REMOVE_BUTTON}`}
                                                     >
@@ -483,11 +523,8 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                                         onChange={(e) => {
                                                             const value = e.target.value;
                                                             field.onChange(value);
-                                                            if (selectedNodeId) {
-                                                                updateNodeData(selectedNodeId, { inputMappings: { ...ragData.inputMappings, files2: value } });
-                                                            }
                                                         }}
-                                                        placeholder="{{节点.files_url}}"
+                                                        placeholder="{{节点.files}}"
                                                         className={STYLES.VARIABLE_INPUT + " pl-9"}
                                                     />
                                                     <button
@@ -495,9 +532,6 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                                         onClick={() => {
                                                             form.setValue("inputMappings.files2", "");
                                                             setShowExtraFiles(prev => Math.max(0, prev - 1));
-                                                            if (selectedNodeId) {
-                                                                updateNodeData(selectedNodeId, { inputMappings: { ...ragData.inputMappings, files2: "" } });
-                                                            }
                                                         }}
                                                         className={`absolute right-2 top-1/2 -translate-y-1/2 ${STYLES.REMOVE_BUTTON}`}
                                                     >
@@ -526,11 +560,8 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                                         onChange={(e) => {
                                                             const value = e.target.value;
                                                             field.onChange(value);
-                                                            if (selectedNodeId) {
-                                                                updateNodeData(selectedNodeId, { inputMappings: { ...ragData.inputMappings, files3: value } });
-                                                            }
                                                         }}
-                                                        placeholder="{{节点.files_url}}"
+                                                        placeholder="{{节点.files}}"
                                                         className={STYLES.VARIABLE_INPUT + " pl-9"}
                                                     />
                                                     <button
@@ -538,9 +569,6 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                                         onClick={() => {
                                                             form.setValue("inputMappings.files3", "");
                                                             setShowExtraFiles(prev => Math.max(0, prev - 1));
-                                                            if (selectedNodeId) {
-                                                                updateNodeData(selectedNodeId, { inputMappings: { ...ragData.inputMappings, files3: "" } });
-                                                            }
                                                         }}
                                                         className={`absolute right-2 top-1/2 -translate-y-1/2 ${STYLES.REMOVE_BUTTON}`}
                                                     >
@@ -565,7 +593,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                             className={STYLES.ADD_BUTTON}
                                         >
                                             <span>+</span>
-                                            添加文件变量
+                                            添加变量引用
                                         </button>
                                     ) : null;
                                 })()}
@@ -623,10 +651,10 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                             </div>
                                             <div className="space-y-1">
                                                 <div className="text-xs text-gray-700 font-semibold">
-                                                    {isUploading ? `上传中... ${uploadProgress}%` : '点击或拖拽上传'}
+                                                    {isUploading ? `上传中… ${uploadProgress}%` : '点击或拖拽上传'}
                                                 </div>
                                                 <div className="text-[10px] text-gray-400">
-                                                    支持 PDF, MD, TXT, DOCX 等
+                                                    支持 PDF、Word、Markdown、TXT 等
                                                 </div>
                                             </div>
                                         </label>
@@ -667,7 +695,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                                                 disabled={isUploading}
                                             />
                                             <label htmlFor="rag-file-input-2" className="cursor-pointer block">
-                                                <div className="text-xs text-gray-500 hover:text-indigo-600 transition-colors">点击上传补充文件</div>
+                                                <div className="text-xs text-gray-500 hover:text-indigo-600 transition-colors">点击上传补充文档</div>
                                             </label>
                                         </div>
                                     )}
@@ -819,7 +847,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
                 <div className="pt-2 pb-1 pr-4 space-y-6">
                      <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                            <span className={STYLES.SLIDER_LABEL}>分块大小 (Chunk Size)</span>
+                            <span className={STYLES.SLIDER_LABEL}>分块大小</span>
                             <span className={STYLES.SLIDER_VALUE}>{ragData.maxTokensPerChunk || 200}</span>
                         </div>
                         <Slider
@@ -838,7 +866,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
 
                      <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                            <span className={STYLES.SLIDER_LABEL}>重叠大小 (Overlap)</span>
+                            <span className={STYLES.SLIDER_LABEL}>重叠大小</span>
                             <span className={STYLES.SLIDER_VALUE}>{ragData.maxOverlapTokens || 20}</span>
                         </div>
                         <Slider

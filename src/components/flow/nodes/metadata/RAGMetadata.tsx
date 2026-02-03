@@ -8,7 +8,9 @@ export function RAGMetadata({ rag }: { rag: RAGNodeData }) {
 
     // 根据模式显示不同信息
     const getFileInfo = () => {
-        if (rag?.fileMode === 'variable') {
+        const hasVariableInput = !!rag?.inputMappings?.files || !!rag?.inputMappings?.files2 || !!rag?.inputMappings?.files3;
+        const effectiveFileMode = rag?.fileMode || (hasVariableInput ? 'variable' : 'static');
+        if (effectiveFileMode === 'variable') {
             // 变量模式：显示配置的变量引用数量
             const variableCount = [
                 rag.inputMappings?.files,

@@ -2,17 +2,14 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Send, Paperclip, BookOpen, X, Play } from "lucide-react";
+import { Send, Paperclip, BookOpen, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { NodeForm } from "./NodeForm";
-import type { InputNodeData, FormFieldConfig, SelectFieldConfig, TextFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
+import type { InputNodeData } from "@/types/flow";
 import { showWarning } from "@/utils/errorNotify";
 import { DEFAULT_FILE_CONFIG } from "@/components/builder/node-forms/InputNodeForm/constants";
+import { isFieldEmpty } from "@/store/utils/inputValidation";
 
 interface InputBarProps {
     inputNode: InputNodeData;
@@ -43,30 +40,45 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
 
     // Determine which capabilities are enabled
 
-    const enableTextInput = inputNode.enableTextInput !== false; // Default true
     const enableFileInput = inputNode.enableFileInput === true;
+    const enableTextInput = inputNode.enableTextInput !== false;
+    const textRequired = enableTextInput && inputNode.textRequired === true;
     const enableStructuredForm = inputNode.enableStructuredForm === true;
+    const fileRequired = enableFileInput && inputNode.fileRequired === true;
     const formFields = inputNode.formFields || [];
     const fileConfig = inputNode.fileConfig || DEFAULT_FILE_CONFIG;
 
     // Check if form has any filled values (for visual feedback)
-    const isFormFilled = enableStructuredForm && formFields.length > 0 && Object.keys(formData).some(key => formData[key]);
+    const isFormFilled =
+        enableStructuredForm &&
+        formFields.length > 0 &&
+        Object.keys(formData).some((key) => !isFieldEmpty(formData[key]));
 
     // 必填字段验证逻辑
     const hasRequiredFields = enableStructuredForm && formFields.some(f => f.required);
-    const allRequiredFilled = enableStructuredForm ? formFields
-        .filter(f => f.required)
-        .every(f => {
-            const val = formData[f.name];
-            if (Array.isArray(val)) return val.length > 0;
-            return val !== undefined && val !== null && String(val).trim() !== '';
-        }) : true;
+    const allRequiredFilled = enableStructuredForm
+        ? formFields
+              .filter((f) => f.required)
+              .every((f) => !isFieldEmpty(formData[f.name]))
+        : true;
+
+    const allRequiredFilesSelected = !fileRequired || selectedFiles.length > 0;
+    const allRequiredTextFilled = !textRequired || value.trim().length > 0;
+
+    const hasText = value.trim().length > 0;
+    const hasValidContent = textRequired
+        ? hasText
+        : (
+            (enableTextInput && hasText) ||
+            (enableFileInput && selectedFiles.length > 0) ||
+            (enableStructuredForm && Object.keys(formData).length > 0)
+        );
 
     // Validate required form fields
     const validateForm = (): boolean => {
         const errors: Record<string, string> = {};
         formFields.forEach((field) => {
-            if (field.required && !formData[field.name]) {
+            if (field.required && isFieldEmpty(formData[field.name])) {
                 errors[field.name] = "此字段为必填项";
             }
         });
@@ -147,15 +159,25 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
             return;
         }
 
+        if (textRequired && value.trim().length === 0) {
+            showWarning("缺少必填文本", "请输入文本内容后再发送");
+            return;
+        }
+
+        if (fileRequired && selectedFiles.length === 0) {
+            showWarning("缺少必填文件", "请至少上传 1 个文件后再发送");
+            fileInputRef.current?.click();
+            return;
+        }
+
         // Bug 4 Fix: 统一发送条件，至少有一个启用的模式有内容
         // 移除了之前强制要求文本的矛盾逻辑
-        const hasValidContent =
-            (enableTextInput && value.trim().length > 0) ||
-            (enableFileInput && selectedFiles.length > 0) ||
-            (enableStructuredForm && Object.keys(formData).length > 0);
-
         if (disabled || !hasValidContent) {
-            showWarning("请输入内容", "请至少输入文本、上传文件或填写表单");
+            if (textRequired) {
+                showWarning("缺少必填文本", "请输入文本内容后再发送");
+            } else {
+                showWarning("请输入内容", "请至少输入文本、上传文件或填写表单");
+            }
             return;
         }
 
@@ -349,8 +371,10 @@ export function InputBar({ inputNode, value, onChange, onSend, onFormDataChange,
                 disabled={
                     disabled ||
                     (hasRequiredFields && !allRequiredFilled) ||
+                    !allRequiredFilesSelected ||
+                    !allRequiredTextFilled ||
                     (!enableTextInput && !enableFileInput && !enableStructuredForm) ||
-                    (!value.trim() && !enableFileInput && !enableStructuredForm)
+                    !hasValidContent
                 }
                 className="h-10 w-10 rounded-xl bg-black hover:bg-black/90 disabled:opacity-50"
             >

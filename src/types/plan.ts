@@ -12,8 +12,10 @@ export type PlanNodeData = Partial<AppNodeData> & {
     url?: string;
     // Input node configs
     enableTextInput?: boolean;
+    textRequired?: boolean;
     enableFileInput?: boolean;
     enableStructuredForm?: boolean;
+    fileRequired?: boolean;
     fileConfig?: {
         allowedTypes?: string[];
         maxSizeMB?: number;
@@ -49,8 +51,10 @@ export type PlanNode = {
     url?: string;
     // Direct properties for input node
     enableTextInput?: boolean;
+    textRequired?: boolean;
     enableFileInput?: boolean;
     enableStructuredForm?: boolean;
+    fileRequired?: boolean;
     fileConfig?: PlanNodeData['fileConfig'];
     formFields?: PlanNodeData['formFields'];
     // Direct properties for LLM node

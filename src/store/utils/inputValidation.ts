@@ -7,18 +7,34 @@ import type { InputNodeData, FormFieldConfig } from "@/types/flow";
  * @returns 是否有必填字段缺失
  */
 export function checkInputNodeMissing(data: InputNodeData): boolean {
+    const enableTextInput = data.enableTextInput !== false;
+    const isTextMissing =
+        enableTextInput &&
+        data.textRequired === true &&
+        isFieldEmpty(data.text);
+
+    // 检查文件上传必填
+    const isFileMissing =
+        data.enableFileInput === true &&
+        data.fileRequired === true &&
+        (!Array.isArray(data.files) || data.files.length === 0);
+
     // 检查结构化表单必填项
     const isFormEnabled = data.enableStructuredForm === true && Array.isArray(data.formFields);
 
-    if (isFormEnabled && data.formFields) {
-        return data.formFields.some((field: FormFieldConfig) => {
+    const isFormMissing =
+        isFormEnabled && data.formFields
+            ? data.formFields.some((field: FormFieldConfig) => {
             if (!field.required) return false;
             const value = data.formData?.[field.name];
-            return isFieldEmpty(value);
-        });
-    }
+            if (!isFieldEmpty(value)) return false;
+            const defaultValue = (field as any).defaultValue as unknown;
+            if (defaultValue !== undefined && !isFieldEmpty(defaultValue)) return false;
+            return true;
+        })
+            : false;
 
-    return false;
+    return isTextMissing || isFileMissing || isFormMissing;
 }
 
 

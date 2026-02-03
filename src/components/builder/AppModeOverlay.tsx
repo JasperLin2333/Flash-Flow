@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 import FlowAppInterface from "@/components/apps/FlowAppInterface";
 import { extractOutputFromContext } from "@/store/executors/contextUtils";
 import { fileUploadService } from "@/services/fileUploadService";
-import type { FlowContext, AppNode } from "@/types/flow";
+import type { AppNode } from "@/types/flow";
 import type { ChatAttachment } from "@/types/chat";
 import { showError, showWarning } from "@/utils/errorNotify";
 import { quotaService } from "@/services/quotaService";
@@ -20,7 +20,6 @@ const ANIMATION = {
     exit: { opacity: 0, scale: 0.95 },
 } as const;
 
-const DEFAULT_ASSISTANT_MSG = "Flow completed without output.";
 const ERROR_MSG = "智能体运行异常，请检查配置。";
 
 // ============ Types ============
@@ -113,13 +112,14 @@ export default function AppModeOverlay() {
                 useFlowStore.getState().clearStreaming();
             }, 0);
         }
-    }, [executionStatus, flowContext, nodes, isLoading]);
+    }, [executionStatus, flowContext, nodes, isLoading, streamingReasoning]);
 
     const handleSend = async (files?: File[]) => {
         // 获取 Input 节点配置
         const inputNode = nodes.find((n) => n.type === "input");
         const inputNodeData = inputNode?.data as import("@/types/flow").InputNodeData | undefined;
         const enableTextInput = inputNodeData?.enableTextInput !== false;
+        const textRequired = enableTextInput && inputNodeData?.textRequired === true;
         const enableFileInput = inputNodeData?.enableFileInput === true;
         const enableStructuredForm = inputNodeData?.enableStructuredForm === true;
         const currentFlowId = useFlowStore.getState().currentFlowId;
@@ -128,6 +128,8 @@ export default function AppModeOverlay() {
         const hasText = input.trim().length > 0;
         const hasFiles = files && files.length > 0;
         const hasFormData = enableStructuredForm && inputNodeData?.formFields?.length && inputNodeData?.formData;
+
+        if (textRequired && !hasText) return;
 
         // 统一验证：根据启用的模式判断是否可发送
         const hasValidContent =
@@ -240,8 +242,6 @@ export default function AppModeOverlay() {
         // Handle segmented streaming (merge mode)
         if (streamingMode === 'segmented' && streamingSegments.length > 0) {
             // Check if any segment is still streaming or waiting
-            const hasActiveSegment = streamingSegments.some(s => s.status === 'streaming' || s.status === 'waiting');
-
             // Concatenate all segment contents that have data
             const combinedContent = streamingSegments
                 .filter(s => s.content)
@@ -271,7 +271,7 @@ export default function AppModeOverlay() {
         }
 
         return messages;
-    }, [messages, isStreaming, streamingText, isLoading, streamingMode, streamingSegments, streamingReasoning]);
+    }, [messages, isStreaming, streamingText, isLoading, streamingMode, streamingSegments, isStreamingReasoning, streamingReasoning]);
 
     // Determine if we should show loading indicator
     // For merge mode: show loading when waiting for segments

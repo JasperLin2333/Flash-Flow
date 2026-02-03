@@ -3,15 +3,11 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Sparkles,
-    Search,
     GitGraph,
-    Settings,
     Loader2,
     Terminal,
     Zap,
     CheckCircle2,
-    AlertCircle,
-    Command,
     ArrowRight,
     ChevronDown,
     Play,
@@ -20,8 +16,6 @@ import {
     Target,
     Check,
     FileJson,
-    Cpu,
-    RefreshCw,
     HelpCircle,
     Box,
     BookOpen,
@@ -32,16 +26,44 @@ import {
     Layers,
     Database,
     Wrench,
-    Image as ImageIcon
-
+    Image as ImageIcon,
+    X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useFlowStore } from "@/store/flowStore";
-import type { FeedItem, ThoughtItem, ToolCallItem, SuggestionItem, StepItem, ClarificationItem, PlanItem } from "@/types/flow";
+import type { FeedItem, ToolCallItem, SuggestionItem, StepItem, ClarificationItem, PlanItem } from "@/types/flow";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/trackingService";
+
+function stripJsonCodeFences(markdown: string): string {
+    if (!markdown) return "";
+    return markdown
+        .replace(/```(?:json|application\/json)\b[\s\S]*?```/gi, "")
+        .replace(/```(?:JSON|APPLICATION\/JSON)\b[\s\S]*?```/g, "");
+}
+
+function isEntireJson(text: string): boolean {
+    const t = (text || "").trim();
+    if (!t) return false;
+    if (!(t.startsWith("{") || t.startsWith("["))) return false;
+    if (!(t.endsWith("}") || t.endsWith("]"))) return false;
+    try {
+        JSON.parse(t);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function sanitizeNoJson(text: string): string {
+    const withoutJsonFences = stripJsonCodeFences(text || "");
+    const trimmed = withoutJsonFences.trim();
+    if (!trimmed) return "";
+    if (isEntireJson(trimmed)) return "";
+    return withoutJsonFences;
+}
 
 // ========== Shared UI Components ==========
 
@@ -56,10 +78,24 @@ function ThinkingIndicator() {
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
             </span>
             <span className="text-sm font-semibold bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 bg-clip-text text-transparent bg-[length:200%_auto] animate-gradient">
-                AI 架构师正在构思方案...
+                AI 正在整理方案…
             </span>
         </div>
     );
+}
+
+function formatToolLabel(tool: string) {
+    const labels: Record<string, string> = {
+        web_search: "联网搜索",
+        url_reader: "读取网页内容",
+        calculator: "计算",
+        datetime: "获取时间",
+        code_interpreter: "代码执行",
+        validate_flow: "工作流校验",
+        rag_search: "知识库检索",
+    };
+    const base = labels[tool] || tool.replace(/_/g, " ");
+    return `${base}（${tool}）`;
 }
 
 /**
@@ -94,7 +130,6 @@ function UnifiedStep({
     const isStreaming = status === 'streaming';
     const isPending = status === 'pending';
     const isCompleted = status === 'completed';
-    const isError = status === 'error';
 
     const [isOpen, setIsOpen] = useState(!defaultCollapsed);
     const contentRef = useRef<HTMLDivElement>(null);
@@ -102,10 +137,10 @@ function UnifiedStep({
 
     // Auto-state management
     useEffect(() => {
-        if (isStreaming || isPending || isError) {
+        if (status === 'streaming' || status === 'pending' || status === 'error') {
             setIsOpen(true);
             userScrolledInsideRef.current = false;
-        } else if (isCompleted) {
+        } else if (status === 'completed') {
             setIsOpen(false);
         }
     }, [status]);
@@ -263,14 +298,37 @@ function UnifiedStep({
 // ========== Specific Item Renderers ==========
 
 function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) {
+    const showValidationSteps = process.env.NEXT_PUBLIC_FLOW_VALIDATION_REPORT_UI === "true";
+    if ((item.stepType === "validation" || item.stepType === "validation_fix") && !showValidationSteps) {
+        return null;
+    }
+    if (item.stepType === "retry") {
+        return null;
+    }
+
+    const visibleContent = sanitizeNoJson(item.content || "");
+    const isTitleOnly = item.stepType === "plan_confirm" || item.stepType === "plan_adjust" || item.stepType === "result_prep";
+    const titleOnlyDescriptions: Record<string, string> = {
+        plan_confirm: "确认这份方案后，我会按这个流程开始生成工作流。",
+        plan_adjust: "正在按你的反馈调整方案。完成后，我会请你再确认一次。",
+        result_prep: "正在把方案转换成节点和连线，并自动排版后保存。"
+    };
+    const titleOnlyDescription = titleOnlyDescriptions[item.stepType] || "";
+
     const stepConfig: Record<string, any> = {
-        analysis: { icon: Target, label: "深度理解需求", color: "text-indigo-600", bg: "bg-indigo-50/50 border-indigo-100/50" },
-        strategy: { icon: BrainCircuit, label: "规划智能体架构", color: "text-violet-600", bg: "bg-violet-50/50 border-violet-100/50" },
-        reflection: { icon: Lightbulb, label: "优化逻辑细节", color: "text-amber-600", bg: "bg-amber-50/50 border-amber-100/50" },
-        modified_plan: { icon: Wrench, label: "修正执行方案", color: "text-rose-600", bg: "bg-rose-50/50 border-rose-100/50" },
-        drafting: { icon: FileJson, label: "构建工作流节点", color: "text-slate-600", bg: "bg-slate-50/50 border-slate-100/50" },
-        validation: { icon: CheckCircle2, label: "验证运行逻辑", color: "text-teal-600", bg: "bg-teal-50/50 border-teal-100/50" },
-        retry: { icon: RefreshCw, label: "智能故障自愈", color: "text-blue-600", bg: "bg-blue-50/50 border-blue-100/50" }
+        analysis: { icon: Target, label: "梳理需求", color: "text-indigo-600", bg: "bg-indigo-50/50 border-indigo-100/50" },
+        plan_confirm: { icon: CheckCircle2, label: "确认方案", color: "text-blue-700", bg: "bg-blue-50/60 border-blue-100/60" },
+        plan_adjust: { icon: Wrench, label: "调整方案", color: "text-amber-700", bg: "bg-amber-50/60 border-amber-100/60" },
+        mapping: { icon: Layers, label: "拆成节点", color: "text-blue-600", bg: "bg-blue-50/50 border-blue-100/50" },
+        data_flow: { icon: GitGraph, label: "对齐输入输出", color: "text-violet-600", bg: "bg-violet-50/50 border-violet-100/50" },
+        strategy: { icon: BrainCircuit, label: "安排分工", color: "text-violet-600", bg: "bg-violet-50/50 border-violet-100/50" },
+        reflection: { icon: Lightbulb, label: "检查并优化", color: "text-amber-600", bg: "bg-amber-50/50 border-amber-100/50" },
+        modified_plan: { icon: Wrench, label: "应用优化", color: "text-rose-600", bg: "bg-rose-50/50 border-rose-100/50" },
+        drafting: { icon: FileJson, label: "补齐配置", color: "text-slate-600", bg: "bg-slate-50/50 border-slate-100/50" },
+        verification: { icon: Check, label: "安全检查", color: "text-emerald-600", bg: "bg-emerald-50/50 border-emerald-100/50" },
+        result_prep: { icon: FileJson, label: "生成并保存", color: "text-slate-600", bg: "bg-slate-50/50 border-slate-100/50" },
+        validation: { icon: Check, label: "结构检查", color: "text-amber-700", bg: "bg-amber-50/60 border-amber-100/60" },
+        validation_fix: { icon: Wrench, label: "自动修复", color: "text-amber-700", bg: "bg-amber-50/60 border-amber-100/60" }
     };
 
     let config = stepConfig[item.stepType] || {
@@ -280,16 +338,6 @@ function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) 
         bg: "bg-slate-50/50 border-slate-100/50"
     };
 
-    // Override for Validation Error
-    if (item.stepType === 'validation' && item.status === 'error') {
-        config = {
-            icon: AlertCircle,
-            label: "校验未通过",
-            color: "text-red-600",
-            bg: "bg-red-50/50 border-red-100/50"
-        };
-    }
-
     return (
         <UnifiedStep
             icon={config.icon}
@@ -298,20 +346,26 @@ function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) 
             bg={config.bg}
             status={item.status}
             isLast={isLast}
-            previewText={item.content.replace(/[#*`]/g, '')} // Simple cleanup for preview
+            previewText={sanitizeNoJson(item.content || "").replace(/[#*`]/g, '')}
         >
-            {item.content ? (
-                <MarkdownRenderer
-                    content={item.content}
-                    isStreaming={item.status === 'streaming'}
-                    className="text-xs leading-relaxed text-slate-600/90 prose-p:my-1 prose-pre:my-2 prose-li:my-0.5 [&>p]:leading-relaxed [&>ul]:my-1"
-                />
-            ) : item.status === 'streaming' ? (
-                <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>正在思考中...</span>
-                </div>
-            ) : null}
+            {isTitleOnly
+                ? (titleOnlyDescription ? (
+                    <div className="text-xs leading-relaxed text-slate-500/80 py-2">
+                        {titleOnlyDescription}
+                    </div>
+                ) : null)
+                : (visibleContent ? (
+                    <MarkdownRenderer
+                        content={visibleContent}
+                        isStreaming={item.status === 'streaming'}
+                        className="text-xs leading-relaxed text-slate-600/90 prose-p:my-1 prose-pre:my-2 prose-li:my-0.5 [&>p]:leading-relaxed [&>ul]:my-1"
+                    />
+                ) : item.status === 'streaming' ? (
+                    <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>正在生成中…</span>
+                    </div>
+                ) : null)}
         </UnifiedStep>
     );
 }
@@ -321,19 +375,27 @@ function ToolCallBlockRender({ item, isLast }: { item: ToolCallItem, isLast: boo
     // But keep others
     if (item.tool === 'validate_flow') return null;
 
+    const rawResultText = typeof item.result === "string" ? item.result : "";
+    const visibleResultText = isEntireJson(rawResultText) ? "" : sanitizeNoJson(rawResultText);
+    const shouldHideResult = typeof item.result !== "string" || !visibleResultText;
+
     return (
         <UnifiedStep
             icon={Terminal}
-            label={`执行工具: ${item.tool}`}
+            label={`调用工具：${formatToolLabel(item.tool)}`}
             color="text-indigo-600"
             bg="bg-indigo-50/50 border-indigo-100/50"
             status={item.status === 'calling' ? 'streaming' : item.status === 'error' ? 'error' : 'completed'}
             isLast={isLast}
-            previewText={typeof item.result === 'string' ? item.result : "JSON Result..."}
+            previewText={shouldHideResult ? "已隐藏结果（结构数据）" : visibleResultText}
         >
-            <div className="text-xs leading-relaxed font-mono text-slate-600/90 whitespace-pre-wrap break-all max-h-60 overflow-y-auto custom-scrollbar">
-                {typeof item.result === 'string' ? item.result : JSON.stringify(item.result, null, 2)}
-            </div>
+            {shouldHideResult ? (
+                <div className="text-xs leading-relaxed text-slate-500/80 py-2">已隐藏结果（包含结构数据）</div>
+            ) : (
+                <div className="text-xs leading-relaxed font-mono text-slate-600/90 whitespace-pre-wrap break-all max-h-60 overflow-y-auto custom-scrollbar">
+                    {visibleResultText}
+                </div>
+            )}
         </UnifiedStep>
     );
 }
@@ -342,7 +404,7 @@ function SuggestionBlockRender({ item, isLast }: { item: SuggestionItem, isLast:
     return (
         <UnifiedStep
             icon={Zap}
-            label={item.scenario ? `最佳实践: ${item.scenario}` : "AI 建议"}
+            label={item.scenario ? `实用建议：${item.scenario}` : "实用建议"}
             color="text-amber-600"
             bg="bg-amber-50/50 border-amber-100/50"
             status="completed"
@@ -389,9 +451,9 @@ function InlineClarificationCard({ item }: { item: ClarificationItem }) {
             {/* Header */}
             <div className="flex items-center gap-2 mb-3">
                 <HelpCircle className="w-5 h-5 text-amber-600" />
-                <span className="text-amber-700 font-bold text-base">我需要一点协助...</span>
+                <span className="text-amber-700 font-bold text-base">再确认两件事</span>
             </div>
-            <p className="text-sm text-slate-600 mb-4">为了让智能体更符合你的预期，请告诉我：</p>
+            <p className="text-sm text-slate-600 mb-4">回答下面问题，我就能更贴合你的想法生成工作流：</p>
 
             {/* Questions */}
             <div className="space-y-3 mb-4">
@@ -409,7 +471,7 @@ function InlineClarificationCard({ item }: { item: ClarificationItem }) {
                                 setAnswers(newAnswers);
                             }}
                             disabled={isSubmitting}
-                            placeholder="请输入您的回答..."
+                            placeholder="写下你的回答…"
                             className="bg-slate-50/50 border-slate-200 focus:bg-white transition-colors"
                         />
                     </div>
@@ -426,11 +488,11 @@ function InlineClarificationCard({ item }: { item: ClarificationItem }) {
                     {isSubmitting ? (
                         <>
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            提交中...
+                            提交中…
                         </>
                     ) : (
                         <>
-                            确认并继续生成
+                            提交并继续生成
                             <ArrowRight className="w-4 h-4 ml-2" />
                         </>
                     )}
@@ -499,14 +561,14 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
             {/* Header */}
             <div className="flex items-center gap-2 mb-4">
                 <CheckCircle2 className="w-5 h-5 text-blue-600" />
-                <span className="text-blue-700 font-bold text-base">任务规划</span>
+                <span className="text-blue-700 font-bold text-base">方案预览</span>
             </div>
 
             {hasNewFormat ? (
                 <div className="space-y-6 mb-6">
                     {/* 1. Intent - Clean, No Label */}
                     <div className="text-sm text-slate-800 font-medium leading-relaxed bg-white/60 p-3 rounded-xl border border-blue-100/50">
-                        <span className="text-blue-600 font-bold">猜你想要：</span>
+                        <span className="text-blue-600 font-bold">目标：</span>
                         {refinedIntent || item.userPrompt}
                     </div>
 
@@ -514,7 +576,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                     {workflowNodes && workflowNodes.length > 0 && (
                         <div className="relative">
                             <div className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wide flex items-center gap-1 pl-1">
-                                <Box className="w-3 h-3" /> 核心流程
+                                <Box className="w-3 h-3" /> 主要步骤
                             </div>
 
                             <div className="flex flex-col md:flex-row flex-wrap items-start gap-3">
@@ -562,7 +624,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                                         <li key={i} className="text-xs text-slate-600 flex items-start gap-1.5 leading-snug">
                                             <span className="mt-1.5 w-1 h-1 rounded-full bg-blue-400 flex-shrink-0" />
                                             <div className="flex-1 min-w-0">
-                                                <MarkdownRenderer content={useCase} className="text-xs text-slate-600 [&>p]:leading-snug [&>p]:my-0" />
+                                                <MarkdownRenderer content={sanitizeNoJson(useCase)} className="text-xs text-slate-600 [&>p]:leading-snug [&>p]:my-0" />
                                             </div>
                                         </li>
                                     ))}
@@ -581,7 +643,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                                         <li key={i} className="text-xs text-slate-600 flex items-start gap-1.5 leading-snug">
                                             <span className="font-mono text-emerald-500 font-bold text-[10px] mt-0.5">{i + 1}.</span>
                                             <div className="flex-1 min-w-0">
-                                                <MarkdownRenderer content={step} className="text-xs text-slate-600 [&>p]:leading-snug [&>p]:my-0" />
+                                                <MarkdownRenderer content={sanitizeNoJson(step)} className="text-xs text-slate-600 [&>p]:leading-snug [&>p]:my-0" />
                                             </div>
                                         </li>
                                     ))}
@@ -594,7 +656,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                 /* Legacy View */
                 <>
                     <div className="mb-3">
-                        <span className="text-xs text-slate-500">• 用户问题: </span>
+                        <span className="text-xs text-slate-500">• 你的需求： </span>
                         <span className="text-sm text-slate-700 font-medium">{item.userPrompt}</span>
                     </div>
                     <div className="bg-white/80 rounded-xl border border-slate-200/60 p-4 mb-4 space-y-2">
@@ -618,7 +680,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                     <textarea
                         value={feedback}
                         onChange={e => setFeedback(e.target.value)}
-                        placeholder="请输入修改意见"
+                        placeholder="告诉我你想怎么改（例如：增加一个审核步骤、换一种输出形式）"
                         disabled={isSubmitting}
                         className="w-full min-h-[100px] p-3 rounded-xl border border-slate-200 bg-slate-50/50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:bg-white transition-all resize-none"
                     />
@@ -635,7 +697,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                             disabled={isSubmitting}
                             className="rounded-xl"
                         >
-                            调整规划
+                            修改方案
                         </Button>
                         <Button
                             onClick={handleConfirm}
@@ -645,11 +707,11 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                             {isSubmitting ? (
                                 <>
                                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    处理中...
+                                    处理中…
                                 </>
                             ) : (
                                 <>
-                                    开始任务
+                                    确认并生成
                                     <ArrowRight className="w-4 h-4 ml-2" />
                                 </>
                             )}
@@ -673,10 +735,10 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                             {isSubmitting ? (
                                 <>
                                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    处理中...
+                                    处理中…
                                 </>
                             ) : (
-                                "确认并执行"
+                                "提交修改"
                             )}
                         </Button>
                     </>
@@ -692,13 +754,13 @@ function ClarificationBlockRender({ item, isLast }: { item: ClarificationItem, i
     return (
         <UnifiedStep
             icon={HelpCircle}
-            label="需要澄清意图"
+            label="补充信息"
             color="text-amber-600"
             bg="bg-amber-50 border-amber-100"
             status="completed"
             isLast={isLast}
             defaultCollapsed={true}
-            previewText={item.questions[0] || "澄清问题"}
+            previewText={item.questions[0] || "补充问题"}
         >
             <div className="text-xs text-slate-500">
                 {item.questions.map((q, i) => (
@@ -716,7 +778,7 @@ function HistoryPlanBlockRender({ item, isLast }: { item: PlanItem, isLast: bool
     return (
         <UnifiedStep
             icon={GitGraph}
-            label="已调整规划 (历史版本)"
+            label="方案（历史版本）"
             color="text-slate-400"
             bg="bg-slate-50 border-slate-100"
             status="completed"
@@ -725,11 +787,11 @@ function HistoryPlanBlockRender({ item, isLast }: { item: PlanItem, isLast: bool
             previewText={refinedIntent || item.userPrompt}
         >
             <div className="opacity-75 grayscale-[0.5]">
-                <div className="text-xs font-bold text-slate-500 mb-2">版本快照</div>
+                <div className="text-xs font-bold text-slate-500 mb-2">历史快照</div>
                 {hasNewFormat ? (
                     <div className="space-y-3">
                         <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-100">
-                            <span className="font-bold">意图:</span> {refinedIntent || item.userPrompt}
+                            <span className="font-bold">目标：</span> {refinedIntent || item.userPrompt}
                         </div>
                         {workflowNodes && (
                             <div className="flex flex-wrap gap-2">
@@ -763,46 +825,48 @@ function NextStepPreview({ lastItem, isCompleted }: { lastItem: FeedItem | undef
     let nextStepConfig = null;
 
     if (!lastItem) {
-        nextStepConfig = { icon: Target, label: "准备开始..." };
+        nextStepConfig = { icon: Target, label: "正在准备…" };
     } else if (lastItem.type === 'step') {
         const step = lastItem as StepItem;
         if (step.status === 'completed') {
             switch (step.stepType) {
                 case 'analysis':
-                    nextStepConfig = { icon: BrainCircuit, label: "规划工作流方案" };
+                    nextStepConfig = { icon: CheckCircle2, label: "确认方案" };
+                    break;
+                case 'plan_confirm':
+                    nextStepConfig = { icon: Layers, label: "拆成节点" };
+                    break;
+                case 'plan_adjust':
+                    nextStepConfig = { icon: CheckCircle2, label: "等待你确认方案" };
+                    break;
+                case 'mapping':
+                    nextStepConfig = { icon: GitGraph, label: "对齐输入输出" };
+                    break;
+                case 'data_flow':
+                    nextStepConfig = { icon: FileJson, label: "补齐配置" };
                     break;
                 case 'strategy':
-                    nextStepConfig = { icon: Lightbulb, label: "深度逻辑审查" };
+                    nextStepConfig = { icon: Lightbulb, label: "检查并优化" };
                     break;
                 case 'reflection':
                     // After reflection comes modified_plan (optimization)
-                    nextStepConfig = { icon: Wrench, label: "执行优化修正" };
+                    nextStepConfig = { icon: Wrench, label: "应用优化" };
                     break;
                 case 'modified_plan':
                     // After modified_plan comes drafting
-                    nextStepConfig = { icon: FileJson, label: "生成工作流结构" };
+                    nextStepConfig = { icon: FileJson, label: "补齐配置" };
                     break;
                 case 'drafting':
-                    // After drafting comes validation
-                    nextStepConfig = { icon: CheckCircle2, label: "最终逻辑校验" };
                     break;
-                case 'validation':
-                    // If validation IS completed, that usually means success (no error status)
-                    // If warnings exist, it's still 'completed'. 
-                    // However, if we wanted to show next steps after validation?
-                    // Usually validation is the last step unless suggestions follow.
-                    break;
-                case 'retry':
-                    // After retry, we go back to validation
-                    nextStepConfig = { icon: CheckCircle2, label: "最终逻辑校验" };
+                case 'verification':
                     break;
             }
-        } else if (step.status === 'error' && step.stepType === 'validation') {
-            nextStepConfig = { icon: RefreshCw, label: "自动修复优化" };
         }
+    } else if (lastItem.type === 'plan') {
+        nextStepConfig = { icon: Layers, label: "拆成节点" };
     } else if (lastItem.type === 'tool-call') {
         // If a tool call just finished, maybe Suggestion next?
-        nextStepConfig = { icon: Zap, label: "生成建议" };
+        nextStepConfig = { icon: Zap, label: "整理建议" };
     }
 
     if (!nextStepConfig) return null;
@@ -867,17 +931,19 @@ export default function AgentCopilotOverlay() {
     const isAwaitingInput = copilotStatus === "awaiting_input";
     const isAwaitingPlanConfirm = copilotStatus === "awaiting_plan_confirm";
 
-    const lastClarification = useMemo(() => {
-        const clarifications = feed.filter(f => f.type === 'clarification') as ClarificationItem[];
-        return clarifications.length > 0 ? clarifications[clarifications.length - 1] : null;
-    }, [feed]);
-
     const filteredFeed = useMemo(() => {
         if (isAwaitingInput) {
             return feed.filter(f => f.type !== 'clarification');
         }
         return feed;
     }, [feed, isAwaitingInput]);
+
+    const lastPlanIndex = useMemo(() => {
+        for (let i = filteredFeed.length - 1; i >= 0; i--) {
+            if (filteredFeed[i].type === 'plan') return i;
+        }
+        return -1;
+    }, [filteredFeed]);
 
     if (!isActive) return null;
 
@@ -916,13 +982,22 @@ export default function AgentCopilotOverlay() {
                                     "text-sm font-semibold tracking-tight transition-colors",
                                     isCompleted ? "text-emerald-900" : "text-slate-800"
                                 )}>
-                                    {isCompleted ? "工作流与方案已就绪" : <ThinkingIndicator />}
+                                    {isCompleted ? "工作流已生成，可以开始使用" : <ThinkingIndicator />}
                                 </span>
                             </div>
                         </div>
 
                         {/* Right Actions: Removed ESC */}
-                        <div />
+                        <div className="relative z-10">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => useFlowStore.setState({ copilotStatus: 'idle' })}
+                                className="rounded-full hover:bg-slate-100 text-slate-400"
+                            >
+                                <X className="w-4 h-4" />
+                            </Button>
+                        </div>
                     </div>
 
                     {/* Feed Content - Overscroll Contain for "Natural Scrolling" */}
@@ -960,7 +1035,7 @@ export default function AgentCopilotOverlay() {
 
                                     case 'plan':
                                         // Render PlanPreviewCard inline in the feed
-                                        if (isAwaitingPlanConfirm && isLastItem) {
+                                        if (isAwaitingPlanConfirm && index === lastPlanIndex) {
                                             return <PlanPreviewCard key={item.id} item={item as PlanItem} />;
                                         }
                                         // Historical plan - show as read-only block
@@ -993,7 +1068,7 @@ export default function AgentCopilotOverlay() {
                                 onClick={() => useFlowStore.setState({ copilotStatus: 'idle' })}
                                 className="group relative flex items-center gap-3 px-8 py-3.5 bg-slate-900 text-white text-sm font-bold rounded-full hover:bg-slate-800 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 shadow-xl shadow-slate-900/20"
                             >
-                                <span>进入工作流</span>
+                                <span>打开工作流</span>
                                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                             </button>
                         </motion.div>

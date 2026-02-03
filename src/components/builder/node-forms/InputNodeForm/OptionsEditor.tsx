@@ -23,7 +23,7 @@ interface OptionsEditorProps {
 export function OptionsEditor({
     options,
     onChange,
-    placeholder = "添加选项...",
+    placeholder = "添加选项…",
     className,
 }: OptionsEditorProps) {
     const [inputValue, setInputValue] = useState("");
@@ -214,7 +214,7 @@ export function OptionsEditor({
                 />
                 {inputValue && (
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 pointer-events-none">
-                        回车添加
+                        回车添加…
                     </span>
                 )}
             </div>

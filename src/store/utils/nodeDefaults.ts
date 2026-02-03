@@ -1,5 +1,6 @@
 import type { NodeKind, AppNodeData } from "@/types/flow";
 import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
+import { DEFAULT_TOOL_TYPE } from "@/lib/tools/registry";
 
 /**
  * 获取指定节点类型的默认数据
@@ -7,7 +8,17 @@ import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
 export function getDefaultNodeData(type: NodeKind): Partial<AppNodeData> {
     const defaults: Record<NodeKind, Partial<AppNodeData>> = {
         input: { label: "输入", text: "", status: "idle" },
-        llm: { label: "LLM", model: LLM_EXECUTOR_CONFIG.DEFAULT_MODEL, temperature: LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE, systemPrompt: "", status: "idle" },
+        llm: {
+            label: "LLM",
+            model: LLM_EXECUTOR_CONFIG.DEFAULT_MODEL,
+            temperature: LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE,
+            systemPrompt: "",
+            enableMemory: false,
+            memoryMaxTurns: LLM_EXECUTOR_CONFIG.DEFAULT_MEMORY_MAX_TURNS,
+            responseFormat: "text",
+            inputMappings: { user_input: "{{user_input}}" },
+            status: "idle"
+        },
         rag: {
             label: "RAG",
             files: [],
@@ -16,9 +27,16 @@ export function getDefaultNodeData(type: NodeKind): Partial<AppNodeData> {
             maxOverlapTokens: 20,
             status: "idle"
         },
-        output: { label: "输出", text: "", status: "idle" },
-        branch: { label: "分支", status: "idle" },
-        tool: { label: "Tool", toolType: "web_search", inputs: {}, status: "idle" },
+        output: {
+            label: "输出",
+            status: "idle",
+            inputMappings: {
+                mode: "select",
+                sources: [{ type: "variable", value: "{{response}}" }],
+            },
+        },
+        branch: { label: "分支", condition: "true", status: "idle" },
+        tool: { label: "Tool", toolType: DEFAULT_TOOL_TYPE, inputs: {}, status: "idle" },
         imagegen: {
             label: "图片生成",
             model: "Kwai-Kolors/Kolors",

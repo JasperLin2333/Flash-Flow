@@ -22,7 +22,7 @@ export function FileInputSection({
             fileConfig.allowedTypes.includes(opt.value)
         );
         if (selected.length === 0 || fileConfig.allowedTypes.includes("*/*")) {
-            return "选择类型";
+            return "选择允许上传的类型";
         }
         if (selected.length === 1) {
             return selected[0].label;
@@ -101,7 +101,7 @@ export function FileInputSection({
                 <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight px-0.5 flex items-center gap-1.5">
                         <HardDrive className="w-3 h-3" />
-                        单文件大小上限 (MB)
+                        单个文件大小上限（MB）
                     </label>
                     <div className="relative group">
                         <Input
@@ -125,7 +125,7 @@ export function FileInputSection({
                 <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight px-0.5 flex items-center gap-1.5">
                         <span className="w-3 h-3 flex items-center justify-center font-mono text-[9px] border border-current rounded bg-transparent opacity-70">N</span>
-                        文件数量上限
+                        最多上传文件数
                     </label>
                     <div className="relative group">
                         <Input

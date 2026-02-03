@@ -23,6 +23,9 @@ export default function BranchDebugDialog() {
     const currentNode = nodes.find(n => n.id === nodeId);
 
     const validationResult = useMemo(() => {
+        if (!conditionValue || !conditionValue.trim()) {
+            return { valid: false, error: "请输入判断条件" };
+        }
         return validateCondition(conditionValue);
     }, [conditionValue]);
 
@@ -44,6 +47,7 @@ export default function BranchDebugDialog() {
 
     const handleConfirm = async () => {
         if (!nodeId) return;
+        if (!conditionValue.trim() || !validationResult.valid) return;
 
         setIsRunning(true);
         try {
@@ -75,7 +79,7 @@ export default function BranchDebugDialog() {
                             <span className="text-gray-400 ml-2 text-xs font-normal">(必填)</span>
                         </Label>
                         <Textarea
-                            placeholder='例如：Input.text.includes("error") || LLM.answer.startsWith("Yes")'
+                            placeholder='例如：Input.user_input.includes("error") || LLM.response.startsWith("Yes")'
                             value={conditionValue}
                             onChange={(e) => setConditionValue(e.target.value)}
                             className={`min-h-[120px] text-sm font-mono resize-none focus-visible:ring-1 focus-visible:ring-black border-gray-200 rounded-lg p-3 ${!validationResult.valid ? 'border-amber-400 focus-visible:ring-amber-400' : ''}`}
@@ -106,7 +110,7 @@ export default function BranchDebugDialog() {
                     </Button>
                     <Button
                         onClick={handleConfirm}
-                        disabled={isRunning}
+                        disabled={isRunning || !conditionValue.trim() || !validationResult.valid}
                         className="bg-black text-white hover:bg-black/90 px-6 rounded-lg font-medium shadow-sm transition-all gap-2"
                     >
                         {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Play className="w-4 h-4" /> 运行</>}
@@ -116,4 +120,3 @@ export default function BranchDebugDialog() {
         </Dialog>
     );
 }
-

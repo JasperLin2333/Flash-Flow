@@ -1,12 +1,31 @@
-import type { AppNode, FlowContext, BranchNodeData } from "@/types/flow";
+import type { AppNode, AppEdge, FlowContext, BranchNodeData } from "@/types/flow";
 import { BaseNodeExecutor, type ExecutionResult } from "./BaseNodeExecutor";
 import { getUpstreamData } from "./contextUtils";
 import { useFlowStore } from "@/store/flowStore";
 import { buildGlobalNodeLookupMap } from "./utils/variableUtils";
 import {
     safeEvaluateCondition,
+    validateCondition,
 } from "@/lib/branchConditionParser";
 
+function collectAncestorNodeIds(nodeId: string, edges: AppEdge[]): Set<string> {
+    const ancestors = new Set<string>();
+    const queue: string[] = [nodeId];
+
+    while (queue.length > 0) {
+        const current = queue.shift()!;
+        const incoming = edges.filter(e => e.target === current);
+        for (const edge of incoming) {
+            const upstream = edge.source;
+            if (!ancestors.has(upstream)) {
+                ancestors.add(upstream);
+                queue.push(upstream);
+            }
+        }
+    }
+
+    return ancestors;
+}
 
 
 
@@ -22,8 +41,7 @@ import {
 export class BranchNodeExecutor extends BaseNodeExecutor {
     async execute(
         node: AppNode,
-        context: FlowContext,
-        _mockData?: Record<string, unknown>
+        context: FlowContext
     ): Promise<ExecutionResult> {
         const { result, time } = await this.measureTime(async () => {
             // 使用共享工具函数获取上游数据
@@ -41,9 +59,16 @@ export class BranchNodeExecutor extends BaseNodeExecutor {
                 };
             }
 
+            const validation = validateCondition(condition);
+            if (!validation.valid) {
+                throw new Error(validation.error || "分支条件不合法");
+            }
+
             // 使用公共函数构建全局节点查找 Map（支持引用任意已执行节点）
-            const { nodes: allNodes, flowContext: globalFlowContext } = useFlowStore.getState();
-            const lookupMap = buildGlobalNodeLookupMap(context, globalFlowContext, allNodes);
+            const { nodes: allNodes, edges: allEdges, flowContext: globalFlowContext } = useFlowStore.getState();
+            const ancestors = collectAncestorNodeIds(node.id, allEdges as AppEdge[]);
+            const allowedNodeIds = ancestors.size > 0 ? ancestors : undefined;
+            const lookupMap = buildGlobalNodeLookupMap(context, globalFlowContext, allNodes, allowedNodeIds);
 
             // 使用安全表达式求值器
             const conditionResult = safeEvaluateCondition(condition, context, lookupMap);

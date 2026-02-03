@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { createPortal } from "react-dom";
-import { Eye, Download, X, Terminal, Sparkles, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
+import { Eye, Download, X, Terminal, Sparkles, AlertCircle } from "lucide-react";
 import { CapabilityItem } from "../node-forms/shared";
 
 interface ExecutionOutputProps {
@@ -35,7 +35,7 @@ export function ExecutionOutput({ executionOutput }: ExecutionOutputProps) {
             a.click();
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
-        } catch (error) {
+        } catch {
             window.open(imageUrl, "_blank");
         }
     };

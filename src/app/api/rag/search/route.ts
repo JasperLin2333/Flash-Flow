@@ -11,7 +11,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 // ============ Constants ============
-const RAG_MODEL = 'gemini-3-pro-preview';
+const RAG_MODEL = 'gemini-2.5-flash';
 
 // ============ Types ============
 interface SearchRequest {
@@ -276,6 +276,11 @@ export async function POST(req: Request) {
             const text = response.text || '';
 
             await deductPointsOnServer(req, user.id, "rag_search", null, "RAG 检索");
+            return NextResponse.json({
+                text,
+                documents: text ? [text] : [],
+                citations: undefined
+            });
 
         } else {
             return NextResponse.json(

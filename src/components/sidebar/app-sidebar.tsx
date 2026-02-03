@@ -17,7 +17,6 @@ interface AppSidebarProps {
     onToggle: (open: boolean) => void;
     currentFlowId?: string;
     onRefreshTrigger?: number;
-    onNewConversation?: () => void;
     onLoadChat?: (chatId: string) => void;
 }
 
@@ -39,7 +38,6 @@ export default function AppSidebar({
     onToggle,
     currentFlowId,
     onRefreshTrigger,
-    onNewConversation,
     onLoadChat
 }: AppSidebarProps) {
     const [searchQuery, setSearchQuery] = useState("");
@@ -143,7 +141,7 @@ export default function AppSidebar({
                                 </div>
                                 <div className="space-y-1">
                                     {loading ? (
-                                        <div className="text-center py-8 text-sm text-gray-400">加载中...</div>
+                                        <div className="text-center py-8 text-sm text-gray-400">加载中…</div>
                                     ) : filteredChats.length === 0 ? (
                                         <div className="text-center py-8 text-sm text-gray-400">
                                             {searchQuery ? "未找到相关记录" : "还没有历史对话"}

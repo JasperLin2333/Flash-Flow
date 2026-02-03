@@ -200,9 +200,10 @@ export class OutputNodeExecutor extends BaseNodeExecutor {
             if (lockedNode) {
               const lockedLabel = (lockedNode.data?.label as string) || lockedSourceId;
               // 尝试从锁定节点获取 response（支持 label 和 ID 两种前缀）
+              const allowUnprefixedResponse = !variables['__ambiguous.response'];
               const lockedResponse = stringVariables[`${lockedLabel}.response`]
                 || stringVariables[`${lockedSourceId}.response`]
-                || stringVariables['response'];  // 回退到无前缀
+                || (allowUnprefixedResponse ? stringVariables['response'] : undefined);
               if (lockedResponse && lockedResponse.trim() && !lockedResponse.includes('{{')) {
                 text = lockedResponse;
                 break;

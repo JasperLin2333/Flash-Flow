@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useWatch } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -18,22 +19,23 @@ const WebSearchForm = ({ form }: { form: any }) => (
     <div className="space-y-4 pt-2">
         <FormField
             control={form.control}
-            name="query"
+            name="inputs.query"
             render={({ field }) => (
                 <FormItem>
-                    <FormLabel className={STYLES.LABEL}>搜索关键词 (Query)</FormLabel>
+                    <FormLabel className={STYLES.LABEL}>搜索关键词</FormLabel>
                     <FormControl>
                         <div className={STYLES.EDITOR_WRAPPER}>
                             <div className={STYLES.EDITOR_HEADER}>
                                 <div className={STYLES.EDITOR_LABEL}>
                                     <Search className="w-3 h-3" />
-                                    Search Query
+                                    搜索
                                 </div>
                             </div>
                             <Textarea 
                                 {...field} 
+                                value={field.value || ""}
                                 className={STYLES.EDITOR_AREA} 
-                                placeholder="输入你想搜索的内容..."
+                                placeholder="输入要搜索的内容…"
                                 rows={3}
                             />
                         </div>
@@ -45,11 +47,11 @@ const WebSearchForm = ({ form }: { form: any }) => (
         
         <FormField
             control={form.control}
-            name="maxResults"
+            name="inputs.maxResults"
             render={({ field }) => (
                 <FormItem>
                     <div className="flex justify-between items-center mb-2">
-                        <FormLabel className={`${STYLES.LABEL} mb-0`}>最大结果数</FormLabel>
+                        <FormLabel className={`${STYLES.LABEL} mb-0`}>最多返回条数</FormLabel>
                         <span className={STYLES.SLIDER_VALUE}>{field.value || 5}</span>
                     </div>
                     <FormControl>
@@ -77,7 +79,7 @@ const CalculatorForm = ({ form }: { form: any }) => (
     <div className="space-y-4 pt-2">
         <FormField
             control={form.control}
-            name="expression"
+            name="inputs.expression"
             render={({ field }) => (
                 <FormItem>
                     <FormLabel className={STYLES.LABEL}>数学表达式</FormLabel>
@@ -86,13 +88,14 @@ const CalculatorForm = ({ form }: { form: any }) => (
                             <div className={STYLES.EDITOR_HEADER}>
                                 <div className={STYLES.EDITOR_LABEL}>
                                     <Calculator className="w-3 h-3" />
-                                    Expression
+                                    计算
                                 </div>
                             </div>
                             <Textarea 
                                 {...field} 
+                                value={field.value || ""}
                                 className={`${STYLES.EDITOR_AREA} font-mono`}
-                                placeholder="e.g. (12 + 5) * 3 / 2"
+                                placeholder="例如：(12 + 5) * 3 / 2"
                                 rows={3}
                             />
                         </div>
@@ -105,13 +108,13 @@ const CalculatorForm = ({ form }: { form: any }) => (
 );
 
 const DatetimeForm = ({ form }: { form: any }) => {
-    const operation = useWatch({ control: form.control, name: "operation" }) || "now";
+    const operation = useWatch({ control: form.control, name: "inputs.operation" }) || "now";
     
     return (
         <div className="space-y-4 pt-2">
             <FormField
                 control={form.control}
-                name="operation"
+                name="inputs.operation"
                 render={({ field }) => (
                     <FormItem>
                         <FormLabel className={STYLES.LABEL}>操作类型</FormLabel>
@@ -138,12 +141,12 @@ const DatetimeForm = ({ form }: { form: any }) => {
             {(operation === "format" || operation === "diff" || operation === "add") && (
                 <FormField
                     control={form.control}
-                    name="date"
+                    name="inputs.date"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel className={STYLES.LABEL}>基础日期 (Date)</FormLabel>
+                            <FormLabel className={STYLES.LABEL}>基础日期</FormLabel>
                             <FormControl>
-                                <Input {...field} className={STYLES.INPUT} placeholder="YYYY-MM-DD..." />
+                                <Input {...field} value={field.value || ""} className={STYLES.INPUT} placeholder="YYYY-MM-DD…" />
                             </FormControl>
                             <FormMessage />
                         </FormItem>
@@ -154,12 +157,12 @@ const DatetimeForm = ({ form }: { form: any }) => {
             {operation === "diff" && (
                 <FormField
                     control={form.control}
-                    name="targetDate"
+                    name="inputs.targetDate"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel className={STYLES.LABEL}>目标日期 (Target Date)</FormLabel>
+                            <FormLabel className={STYLES.LABEL}>目标日期</FormLabel>
                             <FormControl>
-                                <Input {...field} className={STYLES.INPUT} placeholder="YYYY-MM-DD..." />
+                                <Input {...field} value={field.value || ""} className={STYLES.INPUT} placeholder="YYYY-MM-DD…" />
                             </FormControl>
                             <FormMessage />
                         </FormItem>
@@ -171,12 +174,12 @@ const DatetimeForm = ({ form }: { form: any }) => {
                 <div className="grid grid-cols-2 gap-3">
                     <FormField
                         control={form.control}
-                        name="amount"
+                        name="inputs.amount"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className={STYLES.LABEL}>数量 (Amount)</FormLabel>
+                                <FormLabel className={STYLES.LABEL}>数量</FormLabel>
                                 <FormControl>
-                                    <Input type="number" {...field} className={STYLES.INPUT} placeholder="0" />
+                                    <Input type="number" {...field} value={field.value || ""} className={STYLES.INPUT} placeholder="例如：0" />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -184,10 +187,10 @@ const DatetimeForm = ({ form }: { form: any }) => {
                     />
                     <FormField
                         control={form.control}
-                        name="unit"
+                        name="inputs.unit"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className={STYLES.LABEL}>单位 (Unit)</FormLabel>
+                                <FormLabel className={STYLES.LABEL}>单位</FormLabel>
                                 <Select onValueChange={field.onChange} value={field.value || "day"}>
                                     <FormControl>
                                         <SelectTrigger className={STYLES.INPUT}>
@@ -210,12 +213,12 @@ const DatetimeForm = ({ form }: { form: any }) => {
             {(operation === "now" || operation === "format" || operation === "add") && (
                 <FormField
                     control={form.control}
-                    name="format"
+                    name="inputs.format"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel className={STYLES.LABEL}>输出格式 (Format)</FormLabel>
+                            <FormLabel className={STYLES.LABEL}>输出格式</FormLabel>
                             <FormControl>
-                                <Input {...field} className={STYLES.INPUT} placeholder="YYYY-MM-DD HH:mm:ss" />
+                                <Input {...field} value={field.value || ""} className={STYLES.INPUT} placeholder="YYYY-MM-DD HH:mm:ss" />
                             </FormControl>
                             <FormMessage />
                         </FormItem>
@@ -230,12 +233,12 @@ const UrlReaderForm = ({ form }: { form: any }) => (
     <div className="space-y-4 pt-2">
         <FormField
             control={form.control}
-            name="url"
+            name="inputs.url"
             render={({ field }) => (
                 <FormItem>
-                    <FormLabel className={STYLES.LABEL}>目标链接 (URL)</FormLabel>
+                    <FormLabel className={STYLES.LABEL}>网页链接（URL）</FormLabel>
                     <FormControl>
-                        <Input {...field} className={STYLES.INPUT} placeholder="https://example.com/article" />
+                        <Input {...field} value={field.value || ""} className={STYLES.INPUT} placeholder="https://example.com/article" />
                     </FormControl>
                     <FormMessage />
                 </FormItem>
@@ -243,12 +246,12 @@ const UrlReaderForm = ({ form }: { form: any }) => (
         />
         <FormField
             control={form.control}
-            name="maxLength"
+            name="inputs.maxLength"
             render={({ field }) => (
                 <FormItem>
-                    <FormLabel className={STYLES.LABEL}>最大抓取长度</FormLabel>
+                    <FormLabel className={STYLES.LABEL}>最多抓取字符数</FormLabel>
                     <FormControl>
-                        <Input type="number" {...field} className={STYLES.INPUT} placeholder="5000" />
+                        <Input type="number" {...field} value={field.value || ""} className={STYLES.INPUT} placeholder="5000" />
                     </FormControl>
                     <FormMessage />
                 </FormItem>
@@ -261,7 +264,7 @@ const CodeInterpreterForm = ({ form }: { form: any }) => (
     <div className="space-y-4 pt-2">
         <FormField
             control={form.control}
-            name="code"
+            name="inputs.code"
             render={({ field }) => (
                 <FormItem>
                     <FormControl>
@@ -269,13 +272,14 @@ const CodeInterpreterForm = ({ form }: { form: any }) => (
                             <div className={STYLES.EDITOR_HEADER}>
                                 <div className={STYLES.EDITOR_LABEL}>
                                     <Terminal className="w-3 h-3" />
-                                    Python Code
+                                    Python 代码
                                 </div>
                             </div>
                             <Textarea 
                                 {...field} 
+                                value={field.value || ""}
                                 className={`${STYLES.EDITOR_AREA} font-mono min-h-[200px]`}
-                                placeholder={"print('Hello World')\n# Write your python code here"}
+                                placeholder={"print('Hello World')\n# 在这里写 Python 代码"}
                                 spellCheck={false}
                             />
                         </div>
@@ -287,12 +291,12 @@ const CodeInterpreterForm = ({ form }: { form: any }) => (
         
         <FormField
             control={form.control}
-            name="outputFileName"
+            name="inputs.outputFileName"
             render={({ field }) => (
                 <FormItem>
-                    <FormLabel className={STYLES.LABEL}>输出文件名 (可选)</FormLabel>
+                    <FormLabel className={STYLES.LABEL}>输出文件名（可选）</FormLabel>
                     <FormControl>
-                        <Input {...field} className={STYLES.INPUT} placeholder="result.csv" />
+                        <Input {...field} value={field.value || ""} className={STYLES.INPUT} placeholder="result.csv" />
                     </FormControl>
                     <FormMessage />
                 </FormItem>
@@ -302,7 +306,7 @@ const CodeInterpreterForm = ({ form }: { form: any }) => (
 );
 
 const DefaultToolForm = () => (
-    <div className="text-xs text-gray-400 p-2">此工具暂无额外配置</div>
+    <div className="text-xs text-gray-400 p-2">此工具无需额外配置</div>
 );
 
 // ============ Main Renderer ============
@@ -351,6 +355,13 @@ export function ToolNodeForm({ form }: BaseNodeFormProps) {
     const watchedToolType = useWatch({ control: form.control, name: "toolType" }) as ToolType | undefined;
     const toolType: ToolType = (watchedToolType && watchedToolType in TOOL_REGISTRY) ? watchedToolType : DEFAULT_TOOL_TYPE;
     const toolConfig = TOOL_REGISTRY[toolType];
+    const watchedMaxResults = useWatch({ control: form.control, name: "inputs.maxResults" }) as number | undefined;
+
+    useEffect(() => {
+        if (toolType !== "web_search") return;
+        if (typeof watchedMaxResults === "number") return;
+        form.setValue("inputs.maxResults", 5, { shouldDirty: false, shouldTouch: false, shouldValidate: false });
+    }, [toolType, watchedMaxResults, form]);
 
     return (
         <div className="space-y-4 px-1 pb-4">
@@ -362,7 +373,7 @@ export function ToolNodeForm({ form }: BaseNodeFormProps) {
                     <FormItem>
                         <FormLabel className={STYLES.LABEL}>节点名称</FormLabel>
                         <FormControl>
-                            <Input {...field} className={STYLES.INPUT} placeholder="扩展能力节点" />
+                            <Input {...field} className={STYLES.INPUT} placeholder="例如：调用工具" />
                         </FormControl>
                         <FormMessage />
                     </FormItem>
@@ -373,7 +384,7 @@ export function ToolNodeForm({ form }: BaseNodeFormProps) {
 
             {/* 2. Tool Selection */}
             <div className="space-y-2">
-                <div className={STYLES.SECTION_TITLE}>扩展能力选择</div>
+                <div className={STYLES.SECTION_TITLE}>选择工具</div>
                 <FormField
                     control={form.control}
                     name="toolType"
@@ -386,7 +397,7 @@ export function ToolNodeForm({ form }: BaseNodeFormProps) {
                             >
                                 <FormControl>
                                     <SelectTrigger className={STYLES.INPUT}>
-                                        <SelectValue placeholder="选择扩展能力" />
+                                        <SelectValue placeholder="选择一个工具" />
                                     </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
@@ -416,13 +427,13 @@ export function ToolNodeForm({ form }: BaseNodeFormProps) {
             {/* 3. Tool Parameters - Dynamic & Wrapped */}
             {toolConfig && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className={STYLES.SECTION_TITLE}>能力参数设置</div>
+                    <div className={STYLES.SECTION_TITLE}>工具参数</div>
                     
                     <CapabilityItem
                         icon={<ToolIcon type={toolType} />}
                         iconColorClass={getToolColorClass(toolType)}
                         title={toolConfig.name}
-                        description={`${toolConfig.category} 能力参数配置`}
+                        description={`${toolConfig.category} 参数`}
                         isExpanded={true}
                     >
                         <div className="px-1 pb-2">

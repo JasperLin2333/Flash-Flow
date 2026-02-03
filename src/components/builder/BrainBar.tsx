@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import PromptBubble from "@/components/ui/prompt-bubble";
-import type { AppNode, NodeKind } from "@/types/flow";
+import type { NodeKind } from "@/types/flow";
 
 import { showError } from "@/utils/errorNotify";
 import { track } from "@/lib/trackingService";
@@ -225,13 +225,9 @@ export default function BrainBar() {
     const urlAgentMode = searchParams?.get("mode") === "agent";
 
     const setCopilotBackdrop = useFlowStore((s) => s.setCopilotBackdrop);
-    const setCopilotStatus = useFlowStore((s) => s.setCopilotStatus);
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [libraryOpen, setLibraryOpen] = useState(false);
     const addNode = useFlowStore((s) => s.addNode);
-    const nodes = useFlowStore((s) => s.nodes);
-    const edges = useFlowStore((s) => s.edges);
-    const setNodes = useFlowStore((s) => s.setNodes);
     // const setEdges = useFlowStore((s) => s.setEdges);
     // const updateNodeData = useFlowStore((s) => s.updateNodeData);
 
@@ -330,4 +326,3 @@ export default function BrainBar() {
         </motion.div>
     );
 }
-

@@ -1,7 +1,6 @@
 "use client";
 import React, { useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Plus, ChevronDown, X, Trash2 } from "lucide-react";
+import { Plus, ChevronDown, Trash2 } from "lucide-react";
 import type { OutputMode, ContentSource, AttachmentSource, OutputInputMappings } from "@/types/flow";
 import { FormSeparator, NODE_FORM_STYLES } from "../node-forms/shared";
 import { OUTPUT_MODE_OPTIONS } from "@/lib/outputModeConstants";
@@ -31,6 +30,15 @@ export function OutputNodeConfig({
     const sources = inputMappings?.sources || [];
     const template = inputMappings?.template || '';
     const attachments = inputMappings?.attachments || [];
+
+    const normalizedSources = sources.map((s) => (s?.value || "").trim()).filter(Boolean);
+    const sourceError =
+        mode === 'template'
+            ? null
+            : mode === 'direct'
+                ? ((sources[0]?.value || "").trim() ? null : 'direct 模式需要配置 1 个内容来源')
+                : (normalizedSources.length > 0 ? null : '请至少配置 1 个内容来源');
+    const templateError = mode === 'template' && !template.trim() ? 'template 模式需要填写输出模板' : null;
 
     const [showModeDropdown, setShowModeDropdown] = React.useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -179,6 +187,11 @@ export function OutputNodeConfig({
                         disabled={isExecuting}
                         className={`w-full min-h-32 text-xs px-3 py-2 border rounded-lg outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 resize-y font-mono ${isExecuting ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
                     />
+                    {templateError && (
+                        <p className="text-[10px] text-red-500 mt-1 pl-1">
+                            {templateError}
+                        </p>
+                    )}
                     <p className="text-[9px] text-gray-400 mt-1">
                         支持 <code className="bg-gray-100 px-1 rounded">{"{{变量名}}"}</code> 或 <code className="bg-gray-100 px-1 rounded">{"{{节点名.字段}}"}</code> 语法
                     </p>
@@ -258,6 +271,11 @@ export function OutputNodeConfig({
                         )}
                     </div>
 
+                    {sourceError && (
+                        <p className="text-[10px] text-red-500 mt-1 pl-1">
+                            {sourceError}
+                        </p>
+                    )}
                     {mode === 'select' && (
                         <p className="text-[9px] text-gray-400 mt-1 pl-1">
                             💡 按顺序检查，使用第一个非空结果作为输出

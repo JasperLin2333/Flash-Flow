@@ -58,7 +58,7 @@ describe("LLMNodeExecutor Segmented Mode (Merge Output)", () => {
         flowStoreState.streamingText = segments.map((s: any) => s.content).join("\n\n");
     });
 
-    const failSegment = vi.fn((sourceId, error) => {
+    const failSegment = vi.fn((sourceId) => {
         const segments = flowStoreState.streamingSegments || [];
         const index = segments.findIndex((s: any) => s.sourceId === sourceId);
         if (index !== -1) {
@@ -111,7 +111,7 @@ describe("LLMNodeExecutor Segmented Mode (Merge Output)", () => {
       completeSegment: vi.fn(),
     };
 
-    // @ts-ignore
+    // @ts-expect-error test store mock typing
     import("@/store/flowStore").then(mod => mod.__setFlowStoreState(state));
     flowStoreState = state;
 

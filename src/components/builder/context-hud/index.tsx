@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useFlowStore } from "@/store/flowStore";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -7,12 +7,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Form } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { X, Play, Loader2, CheckCircle2, AlertCircle, MessageSquare, BrainCircuit, Database, Send, Hammer, GitFork, Image as ImageIcon } from "lucide-react";
-import type { NodeKind, ExecutionStatus, LLMNodeData, RAGNodeData, InputNodeData } from "@/types/flow";
+import type { NodeKind, ExecutionStatus } from "@/types/flow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
 import { handleNodeTest } from "@/store/utils/nodeTestUtils";
 import { track } from "@/lib/trackingService";
+import { DEFAULT_TOOL_TYPE } from "@/lib/tools/registry";
 
 // Node form components
 import { LLMNodeForm } from "../node-forms/LLMNodeForm";
@@ -81,6 +81,7 @@ export default function ContextHUD() {
         openInputPrompt, // Keep for standard input test
     } = useFlowStore();
     const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+    const selectedNodeType = selectedNode?.type;
 
     // Panel width state for resizable functionality
     const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_WIDTH);
@@ -135,18 +136,21 @@ export default function ContextHUD() {
             enableMemory: type === "llm" && has("enableMemory") ? (d as Record<string, unknown>).enableMemory as boolean : false,
             memoryMaxTurns: type === "llm" && has("memoryMaxTurns") ? (d as Record<string, unknown>).memoryMaxTurns as number : 10,
             // LLM JSON output mode
-            responseFormat: type === "llm" && has("responseFormat") ? (d as Record<string, unknown>).responseFormat as 'text' | 'json_object' : undefined,
-            inputMappings: has("inputMappings") ? (d as Record<string, unknown>).inputMappings as Record<string, string> : {},
+            responseFormat: type === "llm" ? (has("responseFormat") ? (d as Record<string, unknown>).responseFormat as 'text' | 'json_object' : 'text') : undefined,
+            inputMappings: type === "llm"
+                ? (has("inputMappings") ? (d as Record<string, unknown>).inputMappings as Record<string, string> : { user_input: "{{user_input}}" })
+                : (has("inputMappings") ? (d as Record<string, unknown>).inputMappings as Record<string, string> : {}),
 
-            text: (type === "input" || type === "output") && has("text") ? String((d as { text?: string }).text || "") : "",
+            text: type === "input" && has("text") ? String((d as { text?: string }).text || "") : "",
             // Input node specific fields
             enableTextInput: type === "input" && has("enableTextInput") ? (d as Record<string, unknown>).enableTextInput as boolean : true,
             enableFileInput: type === "input" && has("enableFileInput") ? (d as Record<string, unknown>).enableFileInput as boolean : false,
             enableStructuredForm: type === "input" && has("enableStructuredForm") ? (d as Record<string, unknown>).enableStructuredForm as boolean : false,
+            fileRequired: type === "input" && has("fileRequired") ? (d as Record<string, unknown>).fileRequired as boolean : false,
             fileConfig: type === "input" && has("fileConfig") ? (d as Record<string, unknown>).fileConfig as { allowedTypes: string[]; maxSizeMB: number; maxCount: number } : undefined,
             formFields: type === "input" && has("formFields") ? (d as Record<string, unknown>).formFields as unknown[] : undefined,
             greeting: type === "input" && has("greeting") ? String((d as Record<string, unknown>).greeting || "") : "",
-            toolType: type === "tool" && has("toolType") ? String((d as { toolType?: string }).toolType || "web_search") : "web_search",
+            toolType: type === "tool" && has("toolType") ? String((d as { toolType?: string }).toolType || DEFAULT_TOOL_TYPE) : DEFAULT_TOOL_TYPE,
             inputs: type === "tool" && has("inputs") ? (d as { inputs?: Record<string, unknown> }).inputs || {} : {},
             // Branch node specific fields
             condition: type === "branch" && has("condition") ? String((d as Record<string, unknown>).condition || "") : "",
@@ -177,8 +181,41 @@ export default function ContextHUD() {
             // 跳过无效状态
             if (!selectedNodeId || !name) return;
 
-            // 立即更新节点数据
-            updateNodeData(selectedNodeId, values as FormValues);
+            const value = form.getValues(name as any);
+
+            if (name.includes(".")) {
+                const [rootKey, ...rest] = name.split(".");
+                const { nodes: currentNodes } = useFlowStore.getState();
+                const node = currentNodes.find((n) => n.id === selectedNodeId);
+                const currentRoot = (node?.data as Record<string, unknown> | undefined)?.[rootKey];
+
+                const setDeep = (input: unknown, path: string[], nextValue: unknown) => {
+                    const base =
+                        input && typeof input === "object" && !Array.isArray(input)
+                            ? { ...(input as Record<string, unknown>) }
+                            : {};
+                    if (path.length === 0) return base;
+                    let cursor = base as Record<string, unknown>;
+                    for (let i = 0; i < path.length - 1; i++) {
+                        const key = path[i];
+                        const existing = cursor[key];
+                        const cloned =
+                            existing && typeof existing === "object" && !Array.isArray(existing)
+                                ? { ...(existing as Record<string, unknown>) }
+                                : {};
+                        cursor[key] = cloned;
+                        cursor = cloned;
+                    }
+                    cursor[path[path.length - 1]] = nextValue;
+                    return base;
+                };
+
+                const updatedRoot = setDeep(currentRoot, rest, value);
+                updateNodeData(selectedNodeId, { [rootKey]: updatedRoot } as any);
+                return;
+            }
+
+            updateNodeData(selectedNodeId, { [name]: value } as any);
         });
 
         return () => subscription.unsubscribe();
@@ -186,7 +223,7 @@ export default function ContextHUD() {
 
     // 当选中的节点变化时，标记正在初始化
     useEffect(() => {
-        if (selectedNode) {
+        if (selectedNodeId) {
             isInitializing.current = true;
             // 使用 setTimeout 确保 form.reset 完成后再取消初始化状态
             const timer = setTimeout(() => {
@@ -194,26 +231,33 @@ export default function ContextHUD() {
             }, 50);
             return () => clearTimeout(timer);
         }
-    }, [selectedNode?.id]);
-
-    // 保留 onSubmit 供需要时使用（例如按钮提交）
-    const onSubmit = (values: FormValues) => {
-        if (selectedNodeId) {
-            updateNodeData(selectedNodeId, values);
-        }
-    };
+    }, [selectedNodeId]);
 
     // Calculate derived data conditionally usually
     const type = selectedNode?.type as NodeKind | undefined;
-    const executionOutput = selectedNode ? flowContext[selectedNode.id] : undefined;
+    const rawExecutionOutput = selectedNode ? flowContext[selectedNode.id] : undefined;
+    const executionOutput = useMemo(() => {
+        if (!selectedNodeType || selectedNodeType !== "branch") {
+            return rawExecutionOutput;
+        }
+        if (!rawExecutionOutput || typeof rawExecutionOutput !== "object") {
+            return rawExecutionOutput;
+        }
+        const data = rawExecutionOutput as Record<string, unknown>;
+        const filtered: Record<string, unknown> = {};
+        if ("passed" in data) filtered.passed = data.passed;
+        if ("condition" in data) filtered.condition = data.condition;
+        if ("conditionResult" in data) filtered.conditionResult = data.conditionResult;
+        return filtered;
+    }, [rawExecutionOutput, selectedNodeType]);
     const nodeLabel = selectedNode?.data?.label as string | undefined;
 
     // 埋点：节点配置面板打开
     useEffect(() => {
-        if (selectedNode && type) {
-            track('node_config_open', { node_id: selectedNode.id, node_type: type });
+        if (selectedNodeId && type) {
+            track('node_config_open', { node_id: selectedNodeId, node_type: type });
         }
-    }, [selectedNode?.id, type]);
+    }, [selectedNodeId, type]);
 
     // Check if this node is currently running
     const isNodeRunning = selectedNodeId ? runningNodeIds.has(selectedNodeId) : false;
@@ -279,7 +323,7 @@ export default function ContextHUD() {
                                         output: "输出节点",
                                         tool: "工具节点",
                                         branch: "分支节点",
-                                        imagegen: "绘图节点",
+                                        imagegen: "图像生成节点",
                                     }[type] || `${type} 节点`}
                                 </span>
                                 <div className="flex items-center gap-1.5">
@@ -318,7 +362,7 @@ export default function ContextHUD() {
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="text-xs">
-                                        {isNodeRunning ? "节点正在执行..." : "运行此节点 (Test Run)"}
+                                        {isNodeRunning ? "运行中…" : "运行此节点"}
                                     </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>

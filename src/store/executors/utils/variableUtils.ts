@@ -219,14 +219,21 @@ function processFlowContextEntries<T>(
 
         const node = nodeMap.get(nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
+        (processor as any)._originNodeId = nodeId;
+        (processor as any)._originNodeLabel = nodeLabel;
 
         if (typeof nodeOutput === 'object' && nodeOutput !== null) {
             const record = nodeOutput as Record<string, unknown>;
 
             for (const [key, value] of Object.entries(record)) {
                 if (key.startsWith('_')) continue;
-                // 过滤掉 reasoning 字段
-                if (key === 'reasoning') continue;
+                if (key === 'reasoning') {
+                    if (nodeLabel) {
+                        processor.addVariable(`${nodeLabel}.${key}`, value);
+                    }
+                    processor.addVariable(`${nodeId}.${key}`, value);
+                    continue;
+                }
 
                 // 顶级字段
                 processor.addVariable(key, value);
@@ -293,14 +300,62 @@ export const collectVariables = (
     // 使用传入的 nodeMap 或创建新的
     const effectiveNodeMap = nodeMap ?? new Map(allNodes.map(n => [n.id, n]));
 
-    // 创建字符串版本的处理器
+    const aliasOwners = new Map<string, string>();
+    const ambiguousAliases = new Set<string>();
+
     const processor: NodeOutputProcessor<Record<string, string>> = {
         variables,
         addVariable: (key, value) => {
-            variables[key] = getSemanticStringValue(value);
+            const originNodeId = (processor as any)._originNodeId as string | undefined;
+            const originNodeLabel = (processor as any)._originNodeLabel as string | undefined;
+            const semanticValue = getSemanticStringValue(value);
+
+            const isNamespaced =
+                (originNodeId && key.startsWith(`${originNodeId}.`)) ||
+                (originNodeLabel && key.startsWith(`${originNodeLabel}.`));
+
+            if (isNamespaced || !originNodeId) {
+                variables[key] = semanticValue;
+                return;
+            }
+
+            if (ambiguousAliases.has(key)) return;
+
+            const owner = aliasOwners.get(key);
+            if (!owner) {
+                aliasOwners.set(key, originNodeId);
+                variables[key] = semanticValue;
+                delete variables[`__ambiguous.${key}`];
+                return;
+            }
+
+            if (owner !== originNodeId) {
+                ambiguousAliases.add(key);
+                aliasOwners.delete(key);
+                delete variables[key];
+                variables[`__ambiguous.${key}`] = "true";
+                return;
+            }
+
+            variables[key] = semanticValue;
+            delete variables[`__ambiguous.${key}`];
         },
         flattenNested: (obj, prefix) => {
-            flattenObject(obj, variables, prefix);
+            const walk = (current: unknown, currentPrefix: string) => {
+                processor.addVariable(currentPrefix, current);
+                if (Array.isArray(current)) {
+                    current.forEach((item, idx) => walk(item, `${currentPrefix}[${idx}]`));
+                    return;
+                }
+                if (typeof current === "object" && current !== null) {
+                    const record = current as Record<string, unknown>;
+                    for (const [k, v] of Object.entries(record)) {
+                        if (k.startsWith('_')) continue;
+                        walk(v, `${currentPrefix}.${k}`);
+                    }
+                }
+            };
+            walk(obj, prefix);
         }
     };
 
@@ -314,6 +369,9 @@ export const collectVariables = (
         processor,
         directUpstreamIds
     );
+
+    aliasOwners.clear();
+    ambiguousAliases.clear();
 
     // 3. 从直接上游 context 中提取变量（会覆盖全局中的同名变量）
     processFlowContextEntries(
@@ -343,48 +401,61 @@ export const collectVariablesRaw = (
     // 使用传入的 nodeMap 或创建新的
     const effectiveNodeMap = nodeMap ?? new Map(allNodes.map(n => [n.id, n]));
 
-    /**
-     * 递归展开对象并添加到变量集合（保留原始类型）
-     */
-    const flattenAndAddRaw = (obj: unknown, prefix: string): void => {
-        if (obj === null || obj === undefined) {
-            variables[prefix] = obj;
-            return;
-        }
+    const aliasOwners = new Map<string, string>();
+    const ambiguousAliases = new Set<string>();
 
-        if (typeof obj !== 'object') {
-            variables[prefix] = obj;
-            return;
-        }
-
-        if (Array.isArray(obj)) {
-            // 1. 保留数组整体引用 (供 Output 节点附件数组引用)
-            variables[prefix] = obj;
-
-            // 2. 递归展开数组元素 (供 Output 节点引用单个文件)
-            // 这解决了 {{files[0]}} 在 Output 附件中作为对象传递的需求
-            obj.forEach((item, index) => {
-                flattenAndAddRaw(item, `${prefix}[${index}]`);
-            });
-            return;
-        }
-
-        // 对象：保留整体引用，同时递归展开
-        variables[prefix] = obj;
-        const record = obj as Record<string, unknown>;
-        for (const [key, value] of Object.entries(record)) {
-            if (key.startsWith('_')) continue;
-            flattenAndAddRaw(value, `${prefix}.${key}`);
-        }
-    };
-
-    // 创建原始类型版本的处理器
     const processor: NodeOutputProcessor<Record<string, unknown>> = {
         variables,
         addVariable: (key, value) => {
+            const originNodeId = (processor as any)._originNodeId as string | undefined;
+            const originNodeLabel = (processor as any)._originNodeLabel as string | undefined;
+            const isNamespaced =
+                (originNodeId && key.startsWith(`${originNodeId}.`)) ||
+                (originNodeLabel && key.startsWith(`${originNodeLabel}.`));
+
+            if (isNamespaced || !originNodeId) {
+                variables[key] = value;
+                return;
+            }
+
+            if (ambiguousAliases.has(key)) return;
+
+            const owner = aliasOwners.get(key);
+            if (!owner) {
+                aliasOwners.set(key, originNodeId);
+                variables[key] = value;
+                delete (variables as any)[`__ambiguous.${key}`];
+                return;
+            }
+
+            if (owner !== originNodeId) {
+                ambiguousAliases.add(key);
+                aliasOwners.delete(key);
+                delete variables[key];
+                (variables as any)[`__ambiguous.${key}`] = true;
+                return;
+            }
+
             variables[key] = value;
+            delete (variables as any)[`__ambiguous.${key}`];
         },
-        flattenNested: flattenAndAddRaw
+        flattenNested: (obj, prefix) => {
+            const walk = (current: unknown, currentPrefix: string) => {
+                processor.addVariable(currentPrefix, current);
+                if (Array.isArray(current)) {
+                    current.forEach((item, idx) => walk(item, `${currentPrefix}[${idx}]`));
+                    return;
+                }
+                if (typeof current === "object" && current !== null) {
+                    const record = current as Record<string, unknown>;
+                    for (const [k, v] of Object.entries(record)) {
+                        if (k.startsWith('_')) continue;
+                        walk(v, `${currentPrefix}.${k}`);
+                    }
+                }
+            };
+            walk(obj, prefix);
+        }
     };
 
     // 要跳过的节点（直接上游的，后面会单独处理以确保优先级）
@@ -397,6 +468,9 @@ export const collectVariablesRaw = (
         processor,
         directUpstreamIds
     );
+
+    aliasOwners.clear();
+    ambiguousAliases.clear();
 
     // 2. 从直接上游 context 中收集（会覆盖全局中的同名变量）
     processFlowContextEntries(
@@ -419,58 +493,70 @@ export const collectVariablesRaw = (
 export const buildGlobalNodeLookupMap = (
     context: FlowContext,
     globalFlowContext: FlowContext,
-    allNodes: AppNode[]
+    allNodes: AppNode[],
+    allowedNodeIds?: Set<string>
 ): Map<string, unknown> => {
     const lookupMap = new Map<string, unknown>();
 
     // 使用 Map 优化节点查找性能
     const nodeMap = new Map(allNodes.map(n => [n.id, n]));
 
-    // 共享的注入逻辑
-    const injectAliases = (nodeId: string, output: unknown) => {
+    const enrichOutput = (nodeId: string, output: unknown): unknown => {
         if (!output || typeof output !== 'object') return output;
 
         const node = nodeMap.get(nodeId);
-        if (!node || node.type !== 'input') return output;
+        if (!node) return output;
 
-        const nodeData = node.data as Record<string, unknown>;
-        const formFields = nodeData?.formFields as Array<{ name: string; label: string }> | undefined;
-        const enableStructuredForm = nodeData?.enableStructuredForm as boolean;
-
-        if (enableStructuredForm && formFields && formFields.length > 0) {
+        if (node.type === 'input') {
             const record = output as Record<string, unknown>;
-            if (record.formData && typeof record.formData === 'object') {
-                // 创建 formData 的浅拷贝以注入别名
-                const enrichedFormData = { ...record.formData as Record<string, unknown> };
+            const next: Record<string, unknown> = { ...record };
 
-                formFields.forEach(field => {
-                    // 如果存在 name 对应的值，则添加 label 对应的别名
-                    // 这样 {{formData.预算}} 就能指向 result.formData.budget 的值
-                    if (field.name in enrichedFormData) {
-                        enrichedFormData[field.label] = enrichedFormData[field.name];
-                    }
-                });
-
-                // 返回带有增强 formData 的新对象
-                return {
-                    ...record,
-                    formData: enrichedFormData
-                };
+            if (typeof next.user_input === "string" && (typeof next.text !== "string" || !next.text.trim())) {
+                next.text = next.user_input;
             }
+
+            const nodeData = node.data as Record<string, unknown>;
+            const formFields = nodeData?.formFields as Array<{ name: string; label: string }> | undefined;
+            const enableStructuredForm = nodeData?.enableStructuredForm as boolean;
+
+            if (enableStructuredForm && formFields && formFields.length > 0) {
+                if (next.formData && typeof next.formData === 'object') {
+                    const enrichedFormData = { ...(next.formData as Record<string, unknown>) };
+                    formFields.forEach(field => {
+                        if (field.name in enrichedFormData) {
+                            enrichedFormData[field.label] = enrichedFormData[field.name];
+                        }
+                    });
+                    next.formData = enrichedFormData;
+                }
+            }
+
+            return next;
         }
+
+        if (node.type === 'llm') {
+            const record = output as Record<string, unknown>;
+            const next: Record<string, unknown> = { ...record };
+            if (typeof next.response === "string" && (typeof next.answer !== "string" || !next.answer.trim())) {
+                next.answer = next.response;
+            }
+            return next;
+        }
+
         return output;
     };
 
     // 1. 先添加全局 flowContext 中的节点
     for (const [nodeId, nodeOutput] of Object.entries(globalFlowContext)) {
         if (nodeId.startsWith('_')) continue;
+        if (allowedNodeIds && !allowedNodeIds.has(nodeId)) continue;
         if (typeof nodeOutput !== 'object' || nodeOutput === null) continue;
 
         const node = nodeMap.get(nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
 
         // 注入别名
-        const enrichedOutput = injectAliases(nodeId, nodeOutput);
+        const enrichedOutput = enrichOutput(nodeId, nodeOutput);
 
         // Add by nodeId (exact and lowercase)
         lookupMap.set(nodeId, enrichedOutput);
@@ -486,13 +572,14 @@ export const buildGlobalNodeLookupMap = (
     // 2. 然后添加直接上游 context（会覆盖全局中的同名节点）
     for (const [nodeId, nodeOutput] of Object.entries(context)) {
         if (nodeId.startsWith('_')) continue;
+        if (allowedNodeIds && !allowedNodeIds.has(nodeId)) continue;
         if (typeof nodeOutput !== 'object' || nodeOutput === null) continue;
 
         const node = nodeMap.get(nodeId);
         const nodeLabel = node?.data?.label as string | undefined;
 
         // 注入别名
-        const enrichedOutput = injectAliases(nodeId, nodeOutput);
+        const enrichedOutput = enrichOutput(nodeId, nodeOutput);
 
         lookupMap.set(nodeId, enrichedOutput);
         lookupMap.set(nodeId.toLowerCase(), enrichedOutput);

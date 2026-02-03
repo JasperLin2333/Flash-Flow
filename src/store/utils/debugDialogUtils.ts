@@ -1,6 +1,5 @@
 import type { DebugInputs, ToolNodeData, AppNode, FlowState } from "@/types/flow";
 import { TOOL_REGISTRY, type ToolType } from "@/lib/tools/registry";
-import { z } from "zod";
 
 /**
  * Debug Dialog 通用状态和动作
@@ -143,7 +142,7 @@ export function createDebugDialogActions(
 
                 set({ [dialogOpenKey]: false });
                 await get().runNode(nodeId, mockData);
-            } catch (e) {
+            } catch {
                 // Silently handled
             }
         },

@@ -30,7 +30,7 @@ async function createActionClient() {
                         cookiesToSet.forEach(({ name, value, options }) => {
                             cookieStore.set(name, value, options);
                         });
-                    } catch (error) {
+                    } catch {
                         // The `set` method was called from a Server Component.
                         // This can be ignored if you have middleware refreshing
                         // user sessions.
@@ -54,6 +54,16 @@ async function createActionClient() {
  */
 export async function executeToolAction(input: ToolExecutionInput): Promise<ToolExecutionResult> {
     const { toolType, inputs } = input;
+    const normalizedInputs = toolType === "datetime"
+        ? (() => {
+            const base = (inputs && typeof inputs === "object") ? inputs : {};
+            const operation = (base as Record<string, unknown>).operation;
+            if (typeof operation !== "string" || operation.trim().length === 0) {
+                return { ...base, operation: "now" };
+            }
+            return base;
+        })()
+        : inputs;
 
     // 1. Authentication & Quota Check (Pre-execution)
     const supabase = await createActionClient();
@@ -76,7 +86,7 @@ export async function executeToolAction(input: ToolExecutionInput): Promise<Tool
     }
 
     // 2. Validate inputs against the tool's schema
-    const validation = validateToolInputs(toolType as ToolType, inputs);
+    const validation = validateToolInputs(toolType as ToolType, normalizedInputs);
 
     if (!validation.success) {
         return {

@@ -2,6 +2,7 @@
 import { supabase } from "@/lib/supabase";
 import { authService } from "@/services/authService";
 import type { FlowRecord, FlowData } from "@/types/flow";
+import { normalizeLoadedFlowData } from "@/services/flowDataNormalizer";
 
 // Supabase 行类型定义
 type SupabaseFlowRow = {
@@ -32,6 +33,7 @@ function mapRowToFlowRecord(row: SupabaseFlowRow): FlowRecord {
             // 验证必需字段
             if (!Array.isArray(flowData.nodes)) flowData.nodes = [];
             if (!Array.isArray(flowData.edges)) flowData.edges = [];
+            flowData = normalizeLoadedFlowData(flowData);
         } else {
             console.error('[flowAPI] Invalid flow data structure for flow:', row.id);
             flowData = { nodes: [], edges: [] };

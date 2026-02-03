@@ -1,10 +1,10 @@
 "use client";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useFlowStore } from "@/store/flowStore";
-import { Play, Search } from "lucide-react";
+import { Play } from "lucide-react";
 
 export default function RAGDebugDialog() {
     const open = useFlowStore((s) => s.activeDialog === 'rag');

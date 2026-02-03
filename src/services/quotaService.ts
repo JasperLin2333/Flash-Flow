@@ -384,7 +384,7 @@ export const quotaService = {
             }
 
             return true;
-        } catch (e) {
+        } catch {
             return false;
         }
     },
@@ -409,7 +409,7 @@ export const quotaService = {
             }
 
             return true;
-        } catch (e) {
+        } catch {
             return false;
         }
     },
@@ -436,7 +436,7 @@ export const quotaService = {
             }
 
             return true;
-        } catch (e) {
+        } catch {
             return false;
         }
     },

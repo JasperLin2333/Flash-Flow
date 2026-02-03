@@ -46,6 +46,7 @@ const webSearchSchema = z.object({
         .int()
         .min(1)
         .max(10)
+        .default(5)
         .describe("请在此输入你期望搜索内容的最大数量 (1-10)"),
 });
 
@@ -306,4 +307,3 @@ export const TIME_UNIT_OPTIONS = [
     { value: "minute", label: "分" },
     { value: "second", label: "秒" },
 ] as const;
-

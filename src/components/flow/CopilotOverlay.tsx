@@ -1,5 +1,4 @@
 "use client";
-import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Search, GitGraph, Settings, Loader2 } from "lucide-react";
 import { useFlowStore, COPILOT_STEPS } from "@/store/flowStore";

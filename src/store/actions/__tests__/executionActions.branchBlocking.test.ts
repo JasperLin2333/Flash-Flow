@@ -131,6 +131,70 @@ describe("executionActions branch blocking", () => {
     expect(falseNode?.data.status).not.toBe("completed");
     expect(state.executionStatus).toBe("completed");
   });
+
+  it("blocks the not-taken path when branch edges are missing sourceHandle", async () => {
+    const { createExecutionActions } = await import("@/store/actions/executionActions");
+    const nodes: AppNode[] = [
+      { id: "entry", type: "tool", position: { x: 0, y: 0 }, data: { label: "Entry" } },
+      { id: "branch1", type: "branch", position: { x: 100, y: 0 }, data: { label: "Branch", condition: "true" } },
+      { id: "trueNode", type: "tool", position: { x: 200, y: 0 }, data: { label: "True Path" } },
+      { id: "falseNode", type: "tool", position: { x: 200, y: 120 }, data: { label: "False Path" } },
+    ];
+
+    const edges: AppEdge[] = [
+      { id: "e1", source: "entry", target: "branch1" },
+      { id: "e2", source: "branch1", target: "trueNode" },
+      { id: "e3", source: "branch1", target: "falseNode" },
+    ];
+
+    const state = {
+      nodes,
+      edges,
+      flowContext: {},
+      executionStatus: "idle",
+      executionError: null,
+      currentFlowId: null,
+      _executionLock: false,
+      runningNodeIds: new Set<string>(),
+      nodeAbortControllers: new Map<string, AbortController>(),
+      initSegmentedStreaming: vi.fn(),
+      initSelectStreaming: vi.fn(),
+      openInputPrompt: vi.fn(),
+      openDialog: vi.fn(),
+    } as unknown as FlowState;
+
+    const set = (partial: ((state: FlowState) => Partial<FlowState>) | Partial<FlowState>) => {
+      const next = typeof partial === "function" ? partial(state) : partial;
+      Object.assign(state, next);
+    };
+    const get = () => state;
+
+    const actions = createExecutionActions(set, get);
+    Object.assign(state, actions);
+
+    await state.runFlow();
+
+    const trueNode = state.nodes.find((node) => node.id === "trueNode");
+    const falseNode = state.nodes.find((node) => node.id === "falseNode");
+
+    expect(trueNode?.data.status).toBe("completed");
+    expect(falseNode?.data.status).not.toBe("completed");
+    expect(state.executionStatus).toBe("completed");
+  });
+
+  it("fails branch execution when condition expression is invalid", async () => {
+    const { BranchNodeExecutor } = await import("@/store/executors/BranchNodeExecutor");
+    const executor = new BranchNodeExecutor();
+
+    const branchNode: AppNode = {
+      id: "branch1",
+      type: "branch",
+      position: { x: 0, y: 0 },
+      data: { label: "Branch", condition: "Input.user_input == 'YES'" } as any,
+    };
+
+    await expect(executor.execute(branchNode, {} as any)).rejects.toThrow(/不支持的格式/);
+  });
 });
 
 describe("LLMNodeExecutor streaming error handling", () => {
@@ -202,7 +266,7 @@ describe("LLMNodeExecutor streaming error handling", () => {
     })));
 
     const executor = new LLMNodeExecutor();
-    const result = await executor.execute(state.nodes[0], {} as any);
+    const result = await executor.execute(state.nodes[0] as AppNode, {} as any);
 
     expect(clearStreaming).toHaveBeenCalled();
     expect(result.output).toEqual({ error: "Stream read failed: boom" });

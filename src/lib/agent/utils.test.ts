@@ -50,55 +50,48 @@ describe('Agent Utils', () => {
             `;
             expect(extractBalancedJson(input)).toBe('{"nodes": ["2"], "edges": []}');
         });
+
+        it('should prefer the more complete workflow JSON when multiple exist', () => {
+            const input = `
+                Old (longer): {"nodes": ["1", "1", "1", "1"], "edges": [{"source":"a","target":"b"}]}
+                New (shorter): {"nodes": ["2"], "edges": []}
+            `;
+            expect(extractBalancedJson(input)).toBe('{"nodes": ["1", "1", "1", "1"], "edges": [{"source":"a","target":"b"}]}');
+        });
     });
 
-    describe('validateWorkflow - Structure Healing', () => {
-        it('should fix circular dependencies', () => {
+    describe('validateWorkflow - Deterministic Fix Only', () => {
+        it('should not block on cycles (report-only / pass-through)', () => {
             const nodes = [
                 { id: '1', type: 'input', data: { label: 'Input' } },
-                { id: '2', type: 'llm', data: { label: 'LLM' } },
+                { id: '2', type: 'llm', data: { label: 'LLM', model: 'm', systemPrompt: 'hi' } },
+                { id: '3', type: 'output', data: { label: 'Output', inputMappings: { mode: 'direct', sources: [{ type: 'static', value: 'ok' }] } } },
             ];
             const edges = [
                 { source: '1', target: '2' },
-                { source: '2', target: '1' } // Cycle
+                { source: '2', target: '1' }, // Cycle
+                { source: '2', target: '3' }
             ];
 
             const result = validateWorkflow(nodes, edges);
-            
-            expect(result.valid).toBe(true); // Should be valid after healing
-            expect(result.fixedEdges?.length).toBe(1); // One edge removed
-            expect(result.warnings?.some(w => /修复循环依赖/.test(w))).toBe(true);
-        });
-
-        it('should connect isolated islands', () => {
-            const nodes = [
-                { id: '1', type: 'input', data: { label: 'Input' } },
-                { id: '2', type: 'llm', data: { label: 'Processor' } }, // Isolated
-                { id: '3', type: 'output', data: { label: 'Output' } }
-            ];
-            const edges: any[] = []; // No edges
-
-            const result = validateWorkflow(nodes, edges);
-
-            expect(result.valid).toBe(true);
-            // Should connect Input -> Processor -> Output
-            expect(result.fixedEdges?.length).toBe(2);
-            expect(result.warnings?.some(w => /修复孤岛/.test(w))).toBe(true);
+            expect(result.softPass).toBe(true);
         });
 
         it('should remove edges referring to non-existent nodes', () => {
-            const nodes = [{ id: '1', type: 'input', data: { label: 'Input' } }];
+            const nodes = [
+                { id: '1', type: 'input', data: { label: 'Input' } },
+                { id: '2', type: 'output', data: { label: 'Output', inputMappings: { mode: 'direct', sources: [{ type: 'static', value: 'ok' }] } } },
+            ];
             const edges = [{ source: '1', target: '999' }];
 
             const result = validateWorkflow(nodes, edges);
 
-            expect(result.valid).toBe(true);
-            expect(result.fixedEdges?.length).toBe(0);
+            expect(result.fixedEdges?.some(e => e.target === '999')).toBe(false);
         });
     });
 
-    describe('validateWorkflow - Variable Healing', () => {
-        it('should fix ID references to Label references', () => {
+    describe('validateWorkflow - Deterministic Variable Fix', () => {
+        it('should normalize ID/field references deterministically', () => {
             const nodes = [
                 { id: 'node_1', type: 'input', data: { label: 'UserQuery' } },
                 { 
@@ -106,21 +99,24 @@ describe('Agent Utils', () => {
                     type: 'llm', 
                     data: { 
                         label: 'LLM',
-                        prompt: 'Hello {{node_1.text}}' // Wrong: using ID
+                        model: 'm',
+                        systemPrompt: 'Hello {{node_1.text}}' // Wrong: using ID
                     } 
-                }
+                },
+                { id: 'node_3', type: 'output', data: { label: 'Output', inputMappings: { mode: 'direct', sources: [{ type: 'static', value: 'ok' }] } } },
             ];
-            const edges = [{ source: 'node_1', target: 'node_2' }];
+            const edges = [
+                { source: 'node_1', target: 'node_2' },
+                { source: 'node_2', target: 'node_3' }
+            ];
 
             const result = validateWorkflow(nodes, edges);
 
-            expect(result.valid).toBe(true);
             const fixedLLM = result.fixedNodes?.find(n => n.id === 'node_2');
-            expect(fixedLLM.data.prompt).toBe('Hello {{UserQuery.text}}');
-            expect(result.warnings?.some(w => /Auto-fixed ID reference/.test(w))).toBe(true);
+            expect(fixedLLM.data.systemPrompt).toBe('Hello {{UserQuery.user_input}}');
         });
 
-        it('should fix Singleton Type references', () => {
+        it('should not fix ambiguous prefixes (keeps original text)', () => {
             const nodes = [
                 { id: '1', type: 'input', data: { label: 'My Input' } },
                 { 
@@ -128,40 +124,21 @@ describe('Agent Utils', () => {
                     type: 'llm', 
                     data: { 
                         label: 'LLM',
-                        prompt: 'Analyze {{Input.text}}' // Wrong: using Type "Input"
+                        model: 'm',
+                        systemPrompt: 'Analyze {{Input.text}}'
                     } 
-                }
+                },
+                { id: '3', type: 'output', data: { label: 'Output', inputMappings: { mode: 'direct', sources: [{ type: 'static', value: 'ok' }] } } },
             ];
-            const edges = [{ source: '1', target: '2' }];
+            const edges = [
+                { source: '1', target: '2' },
+                { source: '2', target: '3' }
+            ];
 
             const result = validateWorkflow(nodes, edges);
 
-            expect(result.valid).toBe(true);
             const fixedLLM = result.fixedNodes?.find(n => n.id === '2');
-            expect(fixedLLM.data.prompt).toBe('Analyze {{My Input.text}}');
-            expect(result.warnings?.some(w => /Auto-fixed Singleton Type/.test(w))).toBe(true);
-        });
-
-        it('should fix fuzzy typos in variable names', () => {
-            const nodes = [
-                { id: '1', type: 'input', data: { label: 'User Context' } },
-                { 
-                    id: '2', 
-                    type: 'llm', 
-                    data: { 
-                        label: 'LLM',
-                        prompt: 'Read {{UserContext.text}}' // Typo: Missing space
-                    } 
-                }
-            ];
-            const edges = [{ source: '1', target: '2' }];
-
-            const result = validateWorkflow(nodes, edges);
-
-            expect(result.valid).toBe(true);
-            const fixedLLM = result.fixedNodes?.find(n => n.id === '2');
-            expect(fixedLLM.data.prompt).toBe('Read {{User Context.text}}');
-            expect(result.warnings?.some(w => /Auto-fixed typo/.test(w))).toBe(true);
+            expect(fixedLLM.data.systemPrompt).toBe('Analyze {{Input.text}}');
         });
     });
 });

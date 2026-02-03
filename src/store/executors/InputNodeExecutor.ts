@@ -18,6 +18,18 @@ export class InputNodeExecutor extends BaseNodeExecutor {
       const files = rawFiles?.filter((f: any) => f && (f.url || f instanceof File)) ?? [];
       const formData = (mockData?.formData as Record<string, unknown>) ?? inputData.formData;
 
+      const isTextRequiredByFileUpload = inputData.enableFileInput === true;
+      const isTextRequired =
+        (inputData.enableTextInput !== false || isTextRequiredByFileUpload) &&
+        (inputData.textRequired === true || isTextRequiredByFileUpload);
+      if (isTextRequired && text.trim().length === 0) {
+        throw new Error("Input 节点要求填写文本内容");
+      }
+
+      if (inputData.enableFileInput === true && inputData.fileRequired === true && files.length === 0) {
+        throw new Error("Input 节点要求上传至少 1 个文件");
+      }
+
       // Build output object
       const output: Record<string, unknown> = {
         user_input: text,
@@ -26,6 +38,12 @@ export class InputNodeExecutor extends BaseNodeExecutor {
       // Add file metadata if files are present
       if (files && files.length > 0) {
         output.files = files;
+        const urls = files
+          .map((f: any) => (f && typeof f === "object" ? f.url : undefined))
+          .filter((u: unknown): u is string => typeof u === "string" && u.trim().length > 0);
+        if (urls.length > 0) {
+          output.files_url = urls.join(", ");
+        }
       }
 
       // Include formData as a nested object

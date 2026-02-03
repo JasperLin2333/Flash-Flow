@@ -53,8 +53,6 @@ export function handleNodeTest(
         const ragData = data as RAGNodeData;
         const inputMappings = (ragData as unknown as { inputMappings?: Record<string, string> })?.inputMappings;
         const queryValue = inputMappings?.query;
-        const files = ragData.files || [];
-
         // Logic: 
         // 1. Must have at least one file uploaded (static context) OR be in variable mode (which needs dialog anyway, so logic holds).
         // 2. Must have a query provided.

@@ -33,6 +33,42 @@ export function cleanCondition(condition: string): string {
     return condition.replace(/\{\{/g, '').replace(/\}\}/g, '');
 }
 
+function splitByLogicalOperator(input: string, operator: "||" | "&&"): string[] {
+    const parts: string[] = [];
+    let buf = "";
+    let quote: "'" | '"' | null = null;
+
+    for (let i = 0; i < input.length; i++) {
+        const ch = input[i];
+
+        if (quote) {
+            buf += ch;
+            if (ch === quote && input[i - 1] !== "\\") {
+                quote = null;
+            }
+            continue;
+        }
+
+        if (ch === "'" || ch === '"') {
+            quote = ch;
+            buf += ch;
+            continue;
+        }
+
+        if (ch === operator[0] && input[i + 1] === operator[1]) {
+            parts.push(buf);
+            buf = "";
+            i += 1;
+            continue;
+        }
+
+        buf += ch;
+    }
+
+    parts.push(buf);
+    return parts.map((p) => p.trim()).filter((p) => p.length > 0);
+}
+
 /**
  * 验证单个条件表达式是否符合白名单格式
  */
@@ -67,23 +103,27 @@ export function validateCondition(condition: string): { valid: boolean; error?: 
     const trimmed = cleanCondition(condition).trim();
 
     // Split by || first (lower precedence)
-    if (trimmed.includes(' || ')) {
-        const parts = trimmed.split(' || ').map(p => p.trim()).filter(p => p);
-        for (const part of parts) {
-            const result = validateCondition(part);
-            if (!result.valid) return result;
+    {
+        const parts = splitByLogicalOperator(trimmed, "||");
+        if (parts.length > 1) {
+            for (const part of parts) {
+                const result = validateCondition(part);
+                if (!result.valid) return result;
+            }
+            return { valid: true };
         }
-        return { valid: true };
     }
 
     // Split by && 
-    if (trimmed.includes(' && ')) {
-        const parts = trimmed.split(' && ').map(p => p.trim()).filter(p => p);
-        for (const part of parts) {
-            const result = validateCondition(part);
-            if (!result.valid) return result;
+    {
+        const parts = splitByLogicalOperator(trimmed, "&&");
+        if (parts.length > 1) {
+            for (const part of parts) {
+                const result = validateCondition(part);
+                if (!result.valid) return result;
+            }
+            return { valid: true };
         }
-        return { valid: true };
     }
 
     // Single condition
@@ -169,21 +209,15 @@ export function safeEvaluateCondition(
 
     // ===== 逻辑运算符处理 (递归求值) =====
     // 优先处理 OR (||)，因为 OR 优先级低于 AND
-    // 使用 ' || ' 带空格避免误匹配字符串中的 ||
-    if (trimmed.includes(' || ')) {
-        const parts = trimmed.split(' || ').map(p => p.trim()).filter(p => p);
-        if (parts.length > 1) {
-            return parts.some(part => safeEvaluateCondition(part, context, lookupMap));
-        }
+    {
+        const parts = splitByLogicalOperator(trimmed, "||");
+        if (parts.length > 1) return parts.some((part) => safeEvaluateCondition(part, context, lookupMap));
     }
 
     // 处理 AND (&&)
-    // 使用 ' && ' 带空格避免误匹配字符串中的 &&
-    if (trimmed.includes(' && ')) {
-        const parts = trimmed.split(' && ').map(p => p.trim()).filter(p => p);
-        if (parts.length > 1) {
-            return parts.every(part => safeEvaluateCondition(part, context, lookupMap));
-        }
+    {
+        const parts = splitByLogicalOperator(trimmed, "&&");
+        if (parts.length > 1) return parts.every((part) => safeEvaluateCondition(part, context, lookupMap));
     }
 
     // ===== 单一条件求值 =====

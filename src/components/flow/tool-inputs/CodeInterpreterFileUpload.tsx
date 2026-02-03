@@ -104,7 +104,7 @@ export function CodeInterpreterFileUpload({
                         disabled={isDisabled}
                     >
                         <Paperclip className="w-3.5 h-3.5" />
-                        {isUploading ? "上传中..." : "添加文件"}
+                        {isUploading ? "上传中…" : "添加文件"}
                     </Button>
                 </div>
             </div>

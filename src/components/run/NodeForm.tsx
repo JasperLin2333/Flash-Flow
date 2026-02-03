@@ -1,5 +1,4 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -35,7 +34,7 @@ export function NodeForm({ fields, formData, formErrors = {}, onChange, classNam
                                 onValueChange={(val) => onChange(field.name, val)}
                             >
                                 <SelectTrigger className={cn("h-10 text-sm", hasError ? "border-red-500" : "border-gray-200")}>
-                                    <SelectValue placeholder="请选择" />
+                                    <SelectValue placeholder="请选择…" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {(field as SelectFieldConfig).options
@@ -68,7 +67,7 @@ export function NodeForm({ fields, formData, formErrors = {}, onChange, classNam
                                         <span className="truncate">
                                             {((formData[field.name] as string[])?.length || 0) > 0
                                                 ? `已选择 ${(formData[field.name] as string[]).length} 项`
-                                                : "请选择"}
+                                                : "请选择…"}
                                         </span>
                                         <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
@@ -113,7 +112,7 @@ export function NodeForm({ fields, formData, formErrors = {}, onChange, classNam
                             </Popover>
                         ) : (
                             <Textarea
-                                placeholder={field.placeholder || "请输入..."}
+                                placeholder={field.placeholder || "请输入…"}
                                 value={(formData[field.name] as string) || ""}
                                 onChange={(e) => onChange(field.name, e.target.value)}
                                 className={cn(

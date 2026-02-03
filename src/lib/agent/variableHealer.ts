@@ -1,5 +1,4 @@
-import { AppNode } from "@/types/flow";
-import { extractVariables, escapeRegExp } from "@/lib/promptParser";
+import { extractVariables } from "@/lib/promptParser";
 
 /**
  * 变量自愈结果接口
@@ -8,6 +7,7 @@ export interface HealerResult {
     fixedNodes: any[];   // 修复后的节点列表 (使用 any 兼容 AppNode 和生成时的纯 JSON 对象)
     fixes: string[];     // 修复日志 (如 "Auto-fixed ID 'input_1' to Label '用户输入'")
     errors: string[];    // 剩余无法修复的错误 (包含智能建议)
+    availableLabels: string[]; // 当前工作流中所有合法的节点 Label
 }
 
 /**
@@ -82,8 +82,6 @@ export function healVariables(nodes: any[]): HealerResult {
             // 字符串字段可能是 Prompt 或其他含变量的文本
             if (typeof value === 'string') {
                 const vars = extractVariables(value);
-                let newValue = value;
-                let modified = false;
 
                 for (const varName of vars) {
                     // 解析前缀 (e.g., "用户输入" form "用户输入.text")
@@ -93,21 +91,17 @@ export function healVariables(nodes: any[]): HealerResult {
                     // A. 如果 Prefix 已经是有效的 Label，跳过
                     if (labelSet.has(prefix)) continue;
 
-                    // B. 尝试自动修复 (Auto-Correction)
+                    // B. 仅生成确定性建议（report-only，不直接改写）
 
-                    // B1. ID 还原策略: {{input_1.text}} -> {{用户输入.text}}
+                    // B1. ID 还原建议: {{input_1.text}} -> {{用户输入.text}}
                     if (idToLabelMap.has(prefix)) {
                         const correctLabel = idToLabelMap.get(prefix)!;
                         const newVarName = [correctLabel, ...parts.slice(1)].join('.');
-                        // 全局替换该变量 (注意转义 varName)
-                        const escapedVarName = escapeRegExp(varName);
-                        newValue = newValue.replace(new RegExp(`\\{\\{\\s*${escapedVarName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
-                        modified = true;
-                        fixes.push(`Node '${nodeId}': Auto-fixed ID reference '{{${varName}}}' to '{{${newVarName}}}'`);
+                        fixes.push(`Node '${nodeId}': Suggest replacing '{{${varName}}}' with '{{${newVarName}}}'`);
                         continue;
                     }
 
-                    // B2. 单例类型推导策略: {{Input.text}} -> {{用户输入.text}} (前提: 只有一个 Input 节点)
+                    // B2. 单例类型推导建议: {{Input.text}} -> {{用户输入.text}} (前提: 只有一个 Input 节点)
                     // 将 prefix 视为 Type (忽略大小写, e.g. "input" == "Input")
                     // 常见误用的类型名映射
                     const typeAliasMap: Record<string, string> = {
@@ -130,24 +124,18 @@ export function healVariables(nodes: any[]): HealerResult {
                         const correctLabel = typeToLabelMap.get(normalizedType);
                         if (correctLabel) {
                             const newVarName = [correctLabel, ...parts.slice(1)].join('.');
-                            const escapedVarName = escapeRegExp(varName);
-                            newValue = newValue.replace(new RegExp(`\\{\\{\\s*${escapedVarName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
-                            modified = true;
-                            fixes.push(`Node '${nodeId}': Auto-fixed Singleton Type reference '{{${varName}}}' to '{{${newVarName}}}'`);
+                            fixes.push(`Node '${nodeId}': Suggest replacing '{{${varName}}}' with '{{${newVarName}}}'`);
                             continue;
                         }
                     }
 
-                    // B3. 大小写/空格修正策略: {{User Input.text}} vs {{UserInput.text}}
+                    // B3. 大小写/空格修正建议: {{User Input.text}} vs {{UserInput.text}}
                     // 尝试在 labelSet 中找不区分空格和大小写的匹配
                     const cleanPrefix = prefix.replace(/\s+/g, '').toLowerCase();
                     const matchedLabel = allLabels.find(l => l.replace(/\s+/g, '').toLowerCase() === cleanPrefix);
                     if (matchedLabel) {
                         const newVarName = [matchedLabel, ...parts.slice(1)].join('.');
-                        const escapedVarName = escapeRegExp(varName);
-                        newValue = newValue.replace(new RegExp(`\\{\\{\\s*${escapedVarName}\\s*\\}\\}`, 'g'), `{{${newVarName}}}`);
-                        modified = true;
-                        fixes.push(`Node '${nodeId}': Auto-fixed typo '{{${varName}}}' to '{{${newVarName}}}'`);
+                        fixes.push(`Node '${nodeId}': Suggest replacing '{{${varName}}}' with '{{${newVarName}}}'`);
                         continue;
                     }
 
@@ -172,10 +160,6 @@ export function healVariables(nodes: any[]): HealerResult {
 
                     errors.push(`Node '${nodeId}' references undefined variable '{{${varName}}}'. Label '${prefix}' found.${suggestion}`);
                 }
-
-                if (modified) {
-                    obj[key] = newValue;
-                }
             }
             // 递归处理数组和对象
             else if (typeof value === 'object') {
@@ -191,6 +175,7 @@ export function healVariables(nodes: any[]): HealerResult {
     return {
         fixedNodes: clonedNodes,
         fixes,
-        errors
+        errors,
+        availableLabels: allLabels
     };
 }

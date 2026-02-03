@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import LogoBlack from "@/app/logoBlack.png";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -44,7 +44,6 @@ interface HomeSidebarProps {
  * 改进：持久化展开，无遮罩，作为页面布局的一部分
  */
 export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
-    const router = useRouter();
     const searchParams = useSearchParams();
     const currentFlowId = searchParams.get("flowId");
     const [searchQuery, setSearchQuery] = useState("");
@@ -175,14 +174,14 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
                                         <Input
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
-                                            placeholder="查找我的工作流..."
+                                            placeholder="查找我的工作流…"
                                             className="h-9 pl-9 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:border-gray-200 transition-all duration-200"
                                         />
                                     </div>
                                 </div>
                                 <div className="px-4 space-y-1.5">
                                     {loading ? (
-                                        <div className="text-center py-8 text-sm text-gray-400">加载中...</div>
+                                        <div className="text-center py-8 text-sm text-gray-400">加载中…</div>
                                     ) : loadError ? (
                                         <div className="text-center py-8 text-sm text-red-500">
                                             {loadError}
@@ -256,4 +255,3 @@ export default function HomeSidebar({ isOpen, onToggle }: HomeSidebarProps) {
 
 // Export sidebar width for layout calculations
 export { SIDEBAR_WIDTH };
-

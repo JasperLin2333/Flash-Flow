@@ -7,7 +7,7 @@ import {
     TOOL_IO_DEFINITIONS,
     NODE_UPSTREAM_INPUTS,
 } from "../../constants";
-import { extractVariablesFromText, flattenObjectToVariables, flattenInputNodeOutput } from "../../utils";
+import { extractVariablesFromText, flattenInputNodeOutput, flattenObjectToVariables, flattenToolNodeOutput } from "../../utils";
 
 // 输出字段类型
 export interface OutputField {
@@ -91,6 +91,15 @@ export function useNodeIO({
                         upLabel,
                         upId,
                         upNode.data as Record<string, unknown>
+                    );
+                    variables.push(...simplified);
+                } else if (upNode.type === 'tool') {
+                    const toolType = (upNode.data as Record<string, unknown>)?.toolType as string | undefined;
+                    const simplified = flattenToolNodeOutput(
+                        upOutput as Record<string, unknown>,
+                        upLabel,
+                        upId,
+                        toolType
                     );
                     variables.push(...simplified);
                 } else {
@@ -265,24 +274,48 @@ export function useNodeIO({
         // 记录节点 ID 前缀的变量（如 nodeId.field）
         const upstreamIdNames = new Set(upstreamVariables.map(v => `${v.nodeId}.${v.field}`));
 
+        const normalizeArrayIndex = (str: string): string => {
+            return str.replace(/\[(\d+)\]/g, '[n]');
+        };
+
+        const ownersByField = new Map<string, Set<string>>();
+        const ownersByNormalizedField = new Map<string, Set<string>>();
+        upstreamVariables.forEach(v => {
+            const set1 = ownersByField.get(v.field) ?? new Set<string>();
+            set1.add(v.nodeId);
+            ownersByField.set(v.field, set1);
+
+            const normalizedField = normalizeArrayIndex(v.field);
+            const set2 = ownersByNormalizedField.get(normalizedField) ?? new Set<string>();
+            set2.add(v.nodeId);
+            ownersByNormalizedField.set(normalizedField, set2);
+        });
+
+        const ambiguousFields = new Set(
+            [...ownersByField.entries()].filter(([, owners]) => owners.size > 1).map(([field]) => field)
+        );
+        const ambiguousNormalizedFields = new Set(
+            [...ownersByNormalizedField.entries()].filter(([, owners]) => owners.size > 1).map(([field]) => field)
+        );
+
         // 验证变量引用是否有效
         const validateVarRefs = (value: string): boolean => {
             const vars = extractVariablesFromText(value);
             if (vars.length === 0) return true; // 没有变量引用，不需要验证
 
-            // 将 files[数字] 格式转换为 files[n] 进行验证
-            const normalizeArrayIndex = (str: string): string => {
-                return str.replace(/\[(\d+)\]/g, '[n]');
-            };
-
             return vars.every(varName => {
+                const normalizedVarName = normalizeArrayIndex(varName);
+
+                if (ambiguousFields.has(varName) || ambiguousNormalizedFields.has(normalizedVarName)) {
+                    return false;
+                }
+
                 // 先尝试直接匹配
                 if (upstreamFieldNames.has(varName)) return true;
                 if (upstreamFullNames.has(varName)) return true;
                 if (upstreamIdNames.has(varName)) return true;
 
                 // 尝试将数组索引标准化后匹配（如 files[0].name -> files[n].name）
-                const normalizedVarName = normalizeArrayIndex(varName);
                 if (normalizedVarName !== varName) {
                     if (upstreamFieldNames.has(normalizedVarName)) return true;
                     if (upstreamFullNames.has(normalizedVarName)) return true;
@@ -306,6 +339,33 @@ export function useNodeIO({
             });
         };
 
+        const getDisplayValue = (value: unknown): string => {
+            if (value === undefined || value === null) return '';
+            if (typeof value === 'string') return value;
+            if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+            if (Array.isArray(value)) return `数组 (${value.length} 项)`;
+            if (typeof value === 'object') return `对象 (${Object.keys(value as Record<string, unknown>).length} 字段)`;
+            return String(value);
+        };
+
+        const hasConfiguredValue = (value: unknown): boolean => {
+            if (value === undefined || value === null) return false;
+            if (typeof value === 'string') return value.trim().length > 0;
+            if (typeof value === 'number' || typeof value === 'boolean') return true;
+            if (Array.isArray(value)) return value.length > 0;
+            if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length > 0;
+            return true;
+        };
+
+        const collectStringLeaves = (value: unknown): string[] => {
+            if (typeof value === 'string') return [value];
+            if (Array.isArray(value)) return value.flatMap(collectStringLeaves);
+            if (value && typeof value === 'object') {
+                return Object.values(value as Record<string, unknown>).flatMap(collectStringLeaves);
+            }
+            return [];
+        };
+
         if (nodeType === 'tool') {
             // Tool 节点：根据工具类型获取输入参数需求
             const toolType = nodeData?.toolType as string | undefined;
@@ -314,13 +374,14 @@ export function useNodeIO({
                 const configuredInputs = nodeData?.inputs as Record<string, unknown> | undefined;
                 toolDef.inputs.forEach(inp => {
                     const configuredValue = configuredInputs?.[inp.field];
-                    const valueStr = configuredValue !== undefined ? String(configuredValue) : '';
-                    // 检查变量引用是否有效
-                    const hasVarRef = valueStr.includes('{{');
-                    const varsValid = hasVarRef ? validateVarRefs(valueStr) : true;
+                    const valueStr = getDisplayValue(configuredValue);
+                    const stringLeaves = collectStringLeaves(configuredValue);
+                    const varStrings = stringLeaves.filter(s => s.includes('{{'));
+                    const hasVarRef = varStrings.length > 0;
+                    const varsValid = hasVarRef ? varStrings.every(validateVarRefs) : true;
                     const hasInvalidVars = hasVarRef && !varsValid;
                     // 检查是否已配置值或引用了变量
-                    const hasValue = valueStr !== '';
+                    const hasValue = hasConfiguredValue(configuredValue);
                     const isSatisfied = hasValue && varsValid;
                     let isRequired = inp.required;
 

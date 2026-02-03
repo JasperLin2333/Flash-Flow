@@ -6,7 +6,7 @@ import { TrackedSwitch } from "@/components/ui/tracked-switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, ChevronRight, GripVertical, Settings2, Asterisk } from "lucide-react";
 import type { FormFieldConfig, SelectFieldConfig, MultiSelectFieldConfig } from "@/types/flow";
-import { INPUT_CLASS, type StructuredFormSectionProps } from "./constants";
+import type { StructuredFormSectionProps } from "./constants";
 import { OptionsEditor } from "./OptionsEditor";
 
 /**
@@ -56,9 +56,9 @@ function FieldEditor({
 
     const getTypeLabel = (type: string) => {
         switch (type) {
-            case 'select': return '单选 (Select)';
-            case 'multi-select': return '多选 (Multi-Select)';
-            case 'text': return '文本 (Text)';
+            case 'select': return '单选';
+            case 'multi-select': return '多选';
+            case 'text': return '文本';
             default: return type;
         }
     };
@@ -128,7 +128,7 @@ function FieldEditor({
                     <div className="grid grid-cols-2 gap-4">
                         {/* Field Label */}
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight px-0.5">参数显示名称</label>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight px-0.5">字段标题（给用户看）</label>
                             <Input
                                 value={field.label}
                                 onChange={handleLabelChange}
@@ -139,7 +139,7 @@ function FieldEditor({
 
                         {/* Field Type Selector */}
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight px-0.5">参数类型</label>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight px-0.5">字段类型</label>
                             <Select
                                 value={field.type}
                                 onValueChange={(value: "select" | "text" | "multi-select") =>
@@ -150,9 +150,9 @@ function FieldEditor({
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="text">文本 (Text)</SelectItem>
-                                    <SelectItem value="select">单选 (Select)</SelectItem>
-                                    <SelectItem value="multi-select">多选 (Multi-Select)</SelectItem>
+                                    <SelectItem value="text">文本</SelectItem>
+                                    <SelectItem value="select">单选</SelectItem>
+                                    <SelectItem value="multi-select">多选</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -163,20 +163,20 @@ function FieldEditor({
                         {/* Field Name - Variable Identity */}
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between px-0.5">
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">参数标识符 (ID)</label>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">变量名（自动生成）</label>
                                 <span className="text-[9px] text-gray-400 font-mono">variable_name</span>
                             </div>
                             <Input
                                 value={field.name}
-                                onChange={(e) => onUpdate(index, { name: e.target.value })}
                                 placeholder="field_name"
-                                className="h-8 font-mono text-[11px] bg-gray-50/50 focus:bg-white transition-colors text-gray-600"
+                                readOnly
+                                className="h-8 font-mono text-[11px] bg-gray-50/50 focus:bg-gray-50/50 transition-colors text-gray-600"
                             />
                         </div>
 
                         {/* Required Toggle */}
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight px-0.5 block">校验规则</label>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight px-0.5 block">校验</label>
                             <div className="flex items-center gap-2 h-8 px-2 rounded-lg border border-gray-100 bg-gray-50/50">
                                 <TrackedSwitch
                                     id={`req-${field.name}`}
@@ -187,7 +187,7 @@ function FieldEditor({
                                     className="scale-75 origin-left"
                                 />
                                 <label htmlFor={`req-${field.name}`} className="text-xs text-gray-600 cursor-pointer select-none">
-                                    设为必填
+                                    必填
                                 </label>
                             </div>
                         </div>
@@ -203,7 +203,7 @@ function FieldEditor({
                             <OptionsEditor
                                 options={(field as SelectFieldConfig | MultiSelectFieldConfig).options}
                                 onChange={(options) => onUpdate(index, { options })}
-                                placeholder="输入选项内容，按回车键添加..."
+                                placeholder="输入选项，回车添加…"
                             />
                         </div>
                     )}
@@ -249,7 +249,7 @@ export function StructuredFormSection({
                 className="w-full h-9 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-600 transition-all rounded-lg text-xs font-medium text-gray-500"
             >
                 <Plus className="w-3.5 h-3.5 mr-1.5" />
-                添加新的输入字段
+                添加字段
             </Button>
         </div>
     );

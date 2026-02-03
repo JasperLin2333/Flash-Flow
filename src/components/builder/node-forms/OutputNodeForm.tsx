@@ -15,12 +15,12 @@ export function OutputNodeForm({ form }: BaseNodeFormProps) {
         name="label"
         render={({ field }) => (
           <FormItem>
-            <FormLabel className={STYLES.LABEL}>智能体输出节点</FormLabel>
+            <FormLabel className={STYLES.LABEL}>节点名称</FormLabel>
             <FormControl>
               <Input 
                 {...field} 
                 className={STYLES.INPUT} 
-                placeholder="智能体结果输出" 
+                placeholder="例如：输出结果" 
               />
             </FormControl>
             <FormMessage />

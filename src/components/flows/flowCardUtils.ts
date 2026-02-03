@@ -100,7 +100,7 @@ export async function uploadFlowIcon(
     // console.log("[uploadFlowIcon] Uploading to:", { bucket, path, ownerId, flowId });
 
     // 上传文件
-    const { data: uploadData, error: uploadError } = await supabase
+    const { error: uploadError } = await supabase
       .storage.from(bucket)
       .upload(path, file, { upsert: true });
 

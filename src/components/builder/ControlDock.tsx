@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useEffect, useState } from "react";
-import { useZoomControl, ZOOM_LEVELS, ZOOM_TIMING } from "./hooks/useZoomControl";
+import { useZoomControl, ZOOM_LEVELS } from "./hooks/useZoomControl";
 import { ErrorNotification } from "./ErrorNotification";
 import { track } from "@/lib/trackingService";
 

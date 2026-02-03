@@ -215,7 +215,7 @@ export function AvatarDialog({
               </div>
               <div className="text-xs text-gray-500 mt-2">支持 {SUPPORTED_IMAGE_FORMATS} 格式，最大 {MAX_FILE_SIZE_MB}MB</div>
               {uploading && (
-                <div className="text-xs mt-2 text-gray-600 font-medium">上传中...</div>
+                <div className="text-xs mt-2 text-gray-600 font-medium">上传中…</div>
               )}
             </div>
           </div>

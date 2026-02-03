@@ -154,7 +154,7 @@ export const createDebugActions: StateCreator<
      * 确认运行当前弹窗（通用入口，内部分发到各类型处理逻辑）
      */
     confirmDialogRun: async (extraData?: Record<string, unknown>) => {
-        const { activeDialog, activeNodeId, dialogData, runNode, updateNodeData, runFlow, nodes, flowContext } = get();
+        const { activeDialog, activeNodeId, dialogData, runNode, runFlow, nodes, flowContext } = get();
 
         // Input dialog accommodates "Run Flow" which implies no specific activeNodeId (or empty string/null) in legacy context
         // But for strict type safety in unified API, we usually expect activeNodeId.

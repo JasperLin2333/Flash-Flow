@@ -9,7 +9,6 @@ import type { ToolExecutionResult } from "./types";
 // Define a type for executor functions
 // Note: We use a generic input type here because each executor has its own specific input type.
 // Type safety is guaranteed by Zod schema validation in executeToolAction before calling executors.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ToolExecutor = (inputs: any) => Promise<ToolExecutionResult>;
 
 export const TOOL_EXECUTORS: Record<ToolType, ToolExecutor> = {

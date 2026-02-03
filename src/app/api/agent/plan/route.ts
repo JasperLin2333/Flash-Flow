@@ -4,18 +4,365 @@ export const runtime = 'edge';
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
 import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
-import { CORE_RULES, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES, FLOW_EXAMPLES, NEGATIVE_EXAMPLES } from "@/lib/prompts";
-import { WorkflowZodSchema } from "@/lib/schemas/workflow";
-import { detectIntentFromPrompt, getProactiveSuggestions, BEST_PRACTICES } from "@/lib/agent/bestPractices";
+import { CORE_RULES, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES } from "@/lib/prompts";
+import { FULL_EXAMPLES } from "@/lib/prompts/examples";
+import { detectIntentFromPrompt, BEST_PRACTICES } from "@/lib/agent/bestPractices";
 import { extractBalancedJson, validateWorkflow } from "@/lib/agent/utils";
-import type { AppNode, AppEdge } from "@/types/flow";
+import { StreamXmlParser } from "@/lib/agent/streamUtils";
+import { validateGeneratedWorkflowV1_2 } from "@/lib/agent/generatedWorkflowValidatorV1";
+import { deterministicFixWorkflowV1 } from "@/lib/agent/deterministicFixerV1";
+
+// 🔧 根本性修复：校验并修正AI生成的节点配置
+function validateAndFixGeneratedNodes(nodes: any[]): any[] {
+    return nodes.map(node => {
+        if (!node || !node.type) return node;
+        
+        // 深拷贝节点数据以避免修改原始对象
+        const fixedNode = JSON.parse(JSON.stringify(node));
+        
+        // 修复Input节点配置问题
+        if (node.type === 'input' && node.data) {
+            const data = node.data;
+            
+            // 检查单一文本输入场景：只有文本对话开启，其他输入方式都关闭
+            const isSingleTextInput = 
+                data.enableTextInput !== false && 
+                data.enableFileInput !== true && 
+                data.enableStructuredForm !== true;
+            
+            if (isSingleTextInput) {
+                // 在单一文本输入场景下，必须设置textRequired=true
+                if (data.textRequired !== true) {
+                    fixedNode.data.textRequired = true;
+                    console.log(`[FIX] Input节点 "${data.label || node.id}" 单一文本输入场景已自动设置 textRequired=true`);
+                }
+            }
+        }
+        
+        // 🔧 重点修复：Output节点模板语法问题
+        if (node.type === 'output' && node.data && node.data.inputMappings) {
+            const mappings = node.data.inputMappings;
+            
+            // 检查template模式中的非法语法
+            if (mappings.mode === 'template' && mappings.template) {
+                let template = mappings.template;
+                let hasIllegalSyntax = false;
+                let fixApplied = false;
+                
+                // 检测并移除Handlebars逻辑标签
+                const illegalPatterns = [
+                    // 循环语法
+                    { pattern: /\{\{#[a-zA-Z]+[^}]*\}\}/g, name: 'Handlebars 开标签' },
+                    { pattern: /\{\{\/[a-zA-Z]*\}\}/g, name: 'Handlebars 闭合标签' },
+                    // 特定的each循环
+                    { pattern: /\{\{#each\s+[^}]+\}\}/gi, name: 'each 循环开始' },
+                    { pattern: /\{\{\/each\}\}/gi, name: 'each 循环结束' },
+                    // 条件语法
+                    { pattern: /\{\{#if\s+[^}]+\}\}/gi, name: 'if 条件开始' },
+                    { pattern: /\{\{\/if\}\}/gi, name: 'if 条件结束' },
+                    { pattern: /\{\{#unless\s+[^}]+\}\}/gi, name: 'unless 条件开始' },
+                    { pattern: /\{\{\/unless\}\}/gi, name: 'unless 条件结束' },
+                    { pattern: /\{\{else\}\}/gi, name: 'else 分支' }
+                ];
+                
+                for (const { pattern, name } of illegalPatterns) {
+                    if (pattern.test(template)) {
+                        hasIllegalSyntax = true;
+                        fixApplied = true;
+                        const matches = template.match(pattern) || [];
+                        console.log(`[FIX] Output节点 "${node.data.label || node.id}" 检测到非法语法: ${name} (${matches.join(', ')})`);
+                        template = template.replace(pattern, '');
+                    }
+                }
+                
+                // 清理残留的不完整标签
+                const residualPatterns = [
+                    /\{\{[a-zA-Z]*\}\}/g,  // 不完整的标签
+                    /\{\{\s*\}\}/g         // 空标签
+                ];
+                
+                for (const pattern of residualPatterns) {
+                    if (pattern.test(template)) {
+                        template = template.replace(pattern, '');
+                    }
+                }
+                
+                if (fixApplied) {
+                    // 如果模板被清理后为空或基本无效，建议改为direct模式
+                    const cleanedTemplate = template.trim();
+                    if (!cleanedTemplate || cleanedTemplate.length < 10) {
+                        fixedNode.data.inputMappings.mode = 'direct';
+                        fixedNode.data.inputMappings.sources = [
+                            { type: 'variable', value: '{{上游节点.response}}' }
+                        ];
+                        delete fixedNode.data.inputMappings.template;
+                        console.log(`[FIX] Output节点 "${node.data.label || node.id}" 模板内容无效，已转换为 direct 模式`);
+                    } else {
+                        fixedNode.data.inputMappings.template = cleanedTemplate;
+                        console.log(`[FIX] Output节点 "${node.data.label || node.id}" 已移除非法的Handlebars语法`);
+                    }
+                }
+            }
+        }
+        
+        return fixedNode;
+    });
+}
+
+
 
 // ============ Agent Configuration ============
 const DEFAULT_MODEL = process.env.DEFAULT_LLM_MODEL || "deepseek-v3.2";
-const MAX_RETRIES = 5; // Phase 2: Allow more self-correction rounds
-const PLAN_MAX_RETRIES = 2;
-const TIMEOUT_ANALYSIS_MS = 25000;
-const TIMEOUT_GENERATION_MS = 45000;
+const TIMEOUT_ANALYSIS_MS = 60000;
+const TIMEOUT_GENERATION_MS = 120000;
+
+function encodeSseEvent(encoder: TextEncoder, payload: unknown) {
+    return encoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function encodeSseDone(encoder: TextEncoder) {
+    return encoder.encode("data: [DONE]\n\n");
+}
+
+function createSseResponse(status: number, payload: unknown) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        start(controller) {
+            controller.enqueue(encodeSseEvent(encoder, payload));
+            controller.enqueue(encodeSseDone(encoder));
+            controller.close();
+        }
+    });
+    return new Response(stream, {
+        status,
+        headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    });
+}
+
+function extractTagBlock(text: string, startTag: string, endTag: string) {
+    const start = text.indexOf(startTag);
+    if (start === -1) return null;
+    const end = text.indexOf(endTag, start + startTag.length);
+    if (end === -1) return null;
+    return text.slice(start + startTag.length, end).trim();
+}
+
+function parsePlanSections(planText: string) {
+    const lines = planText.split("\n").map(l => l.trim());
+    const findSectionRange = (title: string) => {
+        const header = `## ${title}`;
+        const start = lines.findIndex(l => l === header);
+        if (start === -1) return null;
+        let end = lines.length;
+        for (let i = start + 1; i < lines.length; i++) {
+            if (lines[i].startsWith("## ")) {
+                end = i;
+                break;
+            }
+        }
+        return { start: start + 1, end };
+    };
+
+    const pickLines = (title: string) => {
+        const range = findSectionRange(title);
+        if (!range) return [];
+        return lines.slice(range.start, range.end).filter(Boolean);
+    };
+
+    const refinedIntent = pickLines("需求理解").find(Boolean) || "";
+
+    const workflowLines = pickLines("工作流结构");
+    const workflowNodes = workflowLines
+        .filter(l => l.startsWith("- [type:"))
+        .map(l => {
+            const raw = l.replace(/^-\s*/, "");
+            const match = raw.match(/^\[type:([a-zA-Z_]+)\]\s*(.+)$/);
+            const type = match?.[1] || "unknown";
+            const rest = match?.[2] || raw;
+            const splitIndex = rest.indexOf("：") >= 0 ? rest.indexOf("：") : rest.indexOf(":");
+            const label = splitIndex >= 0 ? rest.slice(0, splitIndex).trim() : rest.trim();
+            const description = splitIndex >= 0 ? rest.slice(splitIndex + 1).trim() : "";
+            return { type, label, description };
+        });
+
+    const useCases = pickLines("适用场景")
+        .map(l => l.replace(/^-\s*/, "").trim())
+        .filter(Boolean);
+
+    const howToUse = pickLines("使用方法")
+        .map(l => l.replace(/^\d+\.\s*/, "").replace(/^-\s*/, "").trim())
+        .filter(Boolean);
+
+    const steps = planText
+        .split("\n")
+        .map(l => l.trim())
+        .filter(Boolean);
+
+    return { refinedIntent, workflowNodes, useCases, howToUse, steps };
+}
+
+function ensureInputOutputNodesAndEdges(rawNodes: unknown[], rawEdges: unknown[]) {
+    const nodes: any[] = Array.isArray(rawNodes) ? JSON.parse(JSON.stringify(rawNodes)) : [];
+    const edges: any[] = Array.isArray(rawEdges) ? JSON.parse(JSON.stringify(rawEdges)) : [];
+
+    const fixes: string[] = [];
+
+    const usedIds = new Set<string>(nodes.map(n => n?.id).filter(Boolean));
+    const usedLabels = new Set<string>(nodes.map(n => n?.data?.label).filter(Boolean));
+
+    const uniqueId = (base: string) => {
+        let id = base;
+        let i = 1;
+        while (usedIds.has(id)) {
+            id = `${base}_${i}`;
+            i++;
+        }
+        usedIds.add(id);
+        return id;
+    };
+
+    const uniqueLabel = (base: string) => {
+        let label = base;
+        let i = 1;
+        while (usedLabels.has(label)) {
+            label = `${base}${i}`;
+            i++;
+        }
+        usedLabels.add(label);
+        return label;
+    };
+
+    const hasInput = nodes.some(n => n?.type === "input");
+    const hasOutput = nodes.some(n => n?.type === "output");
+
+    let inputId: string | null = null;
+    let outputId: string | null = null;
+
+    const guessOutputSource = () => {
+        const candidates: Array<{ type: string; field: string }> = [
+            { type: "llm", field: "response" },
+            { type: "rag", field: "documents" },
+            { type: "tool", field: "result" },
+            { type: "imagegen", field: "imageUrl" },
+            { type: "input", field: "user_input" },
+        ];
+
+        for (const c of candidates) {
+            for (let i = nodes.length - 1; i >= 0; i--) {
+                const n = nodes[i];
+                if (n?.type === c.type && typeof n?.id === "string" && n.id) {
+                    return `{{${n.id}.${c.field}}}`;
+                }
+            }
+        }
+        return "{{response}}";
+    };
+
+    if (!hasInput) {
+        inputId = uniqueId("auto_input");
+        nodes.unshift({ id: inputId, type: "input", data: { label: uniqueLabel("用户输入") } });
+        fixes.push("已自动补齐「输入」节点");
+    }
+
+    if (!hasOutput) {
+        outputId = uniqueId("auto_output");
+        nodes.push({
+            id: outputId,
+            type: "output",
+            data: {
+                label: uniqueLabel("最终输出"),
+                inputMappings: {
+                    mode: "select",
+                    sources: [{ type: "variable", value: guessOutputSource() }],
+                },
+            }
+        });
+        fixes.push("已自动补齐「输出」节点");
+    }
+
+    if (!inputId && !outputId) {
+        return { nodes, edges, fixes };
+    }
+
+    const nodeIdSet = new Set<string>(nodes.map(n => n?.id).filter(Boolean));
+    const inDegree = new Map<string, number>();
+    const outDegree = new Map<string, number>();
+
+    const idToType = new Map<string, string>();
+    nodes.forEach(n => {
+        if (n?.id && n?.type) idToType.set(n.id, n.type);
+    });
+
+    const edgeKeySet = new Set<string>();
+    edges
+        .filter(e => nodeIdSet.has(e?.source) && nodeIdSet.has(e?.target))
+        .forEach(e => {
+            edgeKeySet.add(`${e.source}::${e.target}`);
+        });
+
+    const computeDegrees = () => {
+        inDegree.clear();
+        outDegree.clear();
+        nodeIdSet.forEach(id => {
+            inDegree.set(id, 0);
+            outDegree.set(id, 0);
+        });
+
+        edges
+            .filter(e => nodeIdSet.has(e?.source) && nodeIdSet.has(e?.target))
+            .forEach(e => {
+                inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+                outDegree.set(e.source, (outDegree.get(e.source) || 0) + 1);
+            });
+    };
+
+    computeDegrees();
+
+    const getStartCandidates = () =>
+        nodes
+            .filter(n => n?.id && n.type !== "input" && n.type !== "output")
+            .filter(n => (inDegree.get(n.id) || 0) === 0)
+            .map(n => n.id);
+
+    const getEndCandidates = () =>
+        nodes
+            .filter(n => n?.id && n.type !== "output")
+            .filter(n => (outDegree.get(n.id) || 0) === 0)
+            .map(n => n.id);
+
+    if (inputId) {
+        const candidates = getStartCandidates();
+        const targets = candidates.length > 0 ? candidates : nodes.filter(n => n?.id && n.id !== inputId && n.type !== "output").slice(0, 1).map(n => n.id);
+        targets.forEach((targetId, i) => {
+            const key = `${inputId}::${targetId}`;
+            if (edgeKeySet.has(key)) return;
+            edgeKeySet.add(key);
+            edges.push({ id: `edge_${inputId}_${targetId}_auto_${i}`, source: inputId, target: targetId });
+        });
+        computeDegrees();
+    }
+
+    if (outputId) {
+        computeDegrees();
+        const candidates = getEndCandidates().filter(id => id !== outputId);
+        const preferred = candidates.filter(id => idToType.get(id) !== "input");
+        const sources = preferred.length > 0
+            ? preferred
+            : (candidates.length > 0 ? candidates : nodes.filter(n => n?.id && n.id !== outputId).slice(-1).map(n => n.id));
+        sources.forEach((sourceId, i) => {
+            const key = `${sourceId}::${outputId}`;
+            if (edgeKeySet.has(key)) return;
+            edgeKeySet.add(key);
+            edges.push({ id: `edge_${sourceId}_${outputId}_auto_${i}`, source: sourceId, target: outputId });
+        });
+    }
+
+    return { nodes, edges, fixes };
+}
 
 // ============ Agent System Prompt (Modular) ============
 
@@ -26,7 +373,11 @@ const ANALYSIS_ONLY_PROMPT = `你是 Flash Flow Agent，一个专业的工作流
 1. **不要复述** - 用户说的话他们自己知道，你要挖掘他们没说的
 2. **主动推理** - 根据上下文推导隐含意图和约束
 3. **发现盲点** - 识别用户可能遗漏的边界情况
-4. **用户视角** - 规划必须用**用户听得懂的语言**描述
+4. **技术可行性** - 规划必须符合平台能力。例如：
+   - LLM 无法直接读取文件，必须经过 RAG。
+   - url_reader 输出的是文本，无法直接作为 RAG 的文件输入。
+   - 互斥路径必须在 Output 节点汇聚。
+5. **用户视角** - 规划必须用**用户听得懂的语言**描述
 
 ## 📋 输出格式
 请按顺序输出两个部分：深度分析 和 任务规划。
@@ -51,9 +402,9 @@ const ANALYSIS_ONLY_PROMPT = `你是 Flash Flow Agent，一个专业的工作流
 ${'{直接一句话描述核心目标，禁止使用"我理解"、"用户想要"等前缀}'}
 
 ## 工作流结构
-- [type:input] 输入节点：${'{简述功能}'}
-- [type:llm] ${'{核心节点名}'}：${'{简述功能}'}
-- [type:output] 输出节点：${'{简述功能}'}
+- [type:input] ${'{节点名}'}：${'{触发：何时会用到；做什么：这一步要完成什么；输出：产出什么给下一步用（短句）}'}
+- [type:llm] ${'{节点名}'}：${'{触发：何时会用到；做什么：这一步要完成什么；输出：产出什么给下一步用（短句）}'}
+- [type:output] ${'{节点名}'}：${'{触发：何时会用到；做什么：这一步要完成什么；输出：用户最终会看到/拿到什么（短句）}'}
 
 ## 适用场景
 - ${'{场景1}'}
@@ -68,94 +419,81 @@ ${'{直接一句话描述核心目标，禁止使用"我理解"、"用户想要"
 
 ## ⚡️ 规则
 - 必须包含 <plan> 标签
-- <plan> 内容由用户阅读，**严禁**使用技术术语（如"JSON参数"），要说人话
+- <plan> 内容给用户看：用短句、说人话，尽量不出现术语（如 JSON、参数、Handlebars、NodeID）
 - **不要**提及"下一步"
 - 节点必须带 [type:xxx] 标记，支持: input, llm, rag, tool, imagegen, branch, output
 `;
 
-// Phase 2: Generation - With analysis context, do strategy/reflection/JSON
+// Phase 2: Generation - Compile approved plan into JSON
 const GENERATION_PROMPT = `你是 Flash Flow Agent，一个专业的工作流设计AI。
 
 ## 🎯 任务
-根据已完成的需求分析，设计并生成工作流。
+你会收到用户输入，其中包含 **<approved_plan>**（用户已确认的方案）与原始补充需求。
+你的任务是把 <approved_plan> **精准翻译**为可执行的工作流 JSON；不要重新做需求澄清，不要改写核心结构。
 
 ## 🧠 执行流程
-用户已确认需求分析，现在请执行以下步骤：
+用户已确认需求分析与方案，现在请严格按顺序执行并输出以下结构化步骤：
 
-### 步骤 1：深度架构规划
-<step type="strategy">
-你不仅是执行者，更是**系统架构师**。请按以下维度制定技术方案：
+### 步骤 1：蓝图映射 (Plan Mapping)
+<step type="mapping">
+把 <approved_plan> 的每一步映射成工作流节点清单，并明确每个节点的输入来源与职责边界。
 
-1. **架构模式选择**:
-   - 针对此需求，采用哪种设计模式？(如: 简单的线性处理 / RAG 检索增强 / 复杂的分支判断 / 多步工具调用)
-   - *理由*: 为什么这个模式最适合？
-
-2. **关键节点推演**:
-   - 核心节点 1: [类型+功能] -> [配置理由: 为什么选这个模型/参数？]
-   - 核心节点 2: ...
-   - *注意*: 必须确保每个节点都有明确的输入来源。
-
-3. **数据流拓扑**:
-   - 模拟数据流向: Input.user_input -> NodeA -> NodeB -> Output
-   - *检查*: 是否存在"断头"数据（有产出无引用）或"悬空"引用（引用了不存在的变量）？
-
-4. **防御性设计**:
-   - 如果上游节点失败或返回空值，下游该如何处理？(是否需要默认值或分支？)
+输出格式（必须包含且按顺序）：
+1. **节点清单**（每行一个）：
+   - NodeID: ... | type: ... | label: ... | 负责: ...
+2. **调用链**（一行）：
+   - Input -> ... -> Output（若有分支，明确 true/false 路径）
 </step>
 
-### 步骤 2：深度逻辑审查
-<step type="reflection">
-现在，请扮演**首席代码审查员**，对上述“架构规划”进行无情的批判与优化：
+### 步骤 2：数据契约定义 (Data Contract) 🔥
+<step type="data_flow">
+定义每个节点对外暴露的核心输出字段，以及下游节点的引用语法，防止变量引用错误。
 
-1. **奥卡姆剃刀检查**:
-   - 能否删减不必要的节点？(例如：能用正则提取的不要用 LLM)
-   - 现在的设计是不是最简路径？
+| 节点 ID | 节点类型 | 核心输出字段 | 下游引用语法 (Handlebars) |
+| :--- | :--- | :--- | :--- |
+| input | input | input.topic | {{input.topic}} |
+| ... | ... | ... | ... |
 
-2. **Prompt 质量审计**:
-   - LLM 节点的 System Prompt 是否包含了角色定义(Persona)？
-   - 是否给出了足够的上下文(Context)？
-
-3. **隐患排查**:
-   - ⚠️ 最大的失败风险点在哪里？（如：RAG 检索不到内容怎么办？）
-   - *修正方案*: 我将增加...配置来规避此风险。
-
-4. **最终决策**:
-   - 基于以上审查，我将对方案做出的具体修正...
+规则：
+1. 引用必须使用 {{节点Label.field}} 或 {{node_id.field}} 格式（优先 Label，且前缀必须真实存在）。
+2. 下游引用前，上游节点必须存在且有连线。
+3. Branch 节点必须通过 sourceHandle 区分 true/false 两条边。
 </step>
 
-### 步骤 3：合规性自查
+### 步骤 3：实现要点 (Implementation Draft)
+<step type="drafting">
+基于步骤 2 的数据契约，为每个节点补齐关键配置，确保可以直接写入 JSON。
+1. LLM 节点：System Prompt / Model / Temperature / 输入引用（必须来自步骤 2）
+2. RAG/Tool/HTTP 节点：查询/参数/输入引用（必须来自步骤 2）
+3. Branch 节点：判断条件所用变量引用与 true/false 分支含义
+
+约束：
+1. 不要输出任何 JSON、YAML、代码块或 \`\`\` 标记。
+2. 不要在本步骤展示完整节点 JSON；只用要点描述“哪些字段如何填”，每个节点最多 2～3 行要点。
+</step>
+
+### 步骤 4：合规自检 (Compliance Check)
 <step type="verification">
-请对照以下核心规则，逐项检查你的设计方案。如有违反，必须在下一步中修正：
-
-1. **依赖检查**: 每一个变量引用 (如 {{A.res}}) 是否都对应一条 A -> Current 的连线？
-2. **分支检查**: Branch 节点是否正确配置了 \`sourceHandle: "true"\` 和 \`"false"\`？
-3. **输出检查**: Output 节点是否在汇聚多分支？是否严禁了 Handlebars 逻辑？
-4. **安全检查**: 是否存在将 \`{{Input.files}}\` 直接传给 LLM 的违规行为？
-5. **拓扑检查**: 是否存在自环或循环依赖？
-</step>
-
-### 步骤 4：优化实施
-<step type="modified_plan">
-作为技术负责人，请根据上述自查结果，确认最终的实施方案。不要复述废话，直接列出变动点：
-
-1. **修正执行记录**:
-   - [保留/删除/新增] 节点X: *原因...*
-   - [优化] 节点Y: *增加了...配置*
-
-2. **最终架构蓝图**:
-   - 确认最终的节点调用链 (Input -> ... -> Output)
-   - *确认*: 这就是即将写入 JSON 的最终版本。
+逐项核对（发现问题必须在生成 JSON 前自我修正）：
+1. 变量引用是否都有对应上游节点与连线？
+2. Branch 的 sourceHandle 是否正确设置为 "true"/"false"？
+3. **Output 节点模板检查**：
+   - ✅ template 模式中绝对禁止 Handlebars 逻辑标签（{{#each}}, {{#if}}, {{#unless}} 等）
+   - ✅ 复杂逻辑应由上游 LLM 节点处理，Output 节点仅做简单变量替换
+   - ✅ 优先考虑使用 direct/select/merge 模式替代复杂的 template 模式
+4. 是否避免把 Input 节点的 files 直接传给 LLM（应通过 RAG 中转）？
+5. 拓扑是否无自环/循环依赖？
 </step>
 
 ### 步骤 5：生成 JSON
-\`\`\`json
-{"title": "工作流标题", "nodes": [...], "edges": [...]}
-\`\`\`
+直接输出一个 JSON 对象（以 { 开头，以 } 结尾），不要使用 Markdown 代码块，不要添加任何解释性文字。
 
 ## ⚡️ 规则
 - 严格按顺序执行步骤 1 → 2 → 3 → 4 → 5
-- 每个步骤使用对应的 <step type="xxx"> 标签
-- 最后输出合法 JSON
+- 每个步骤必须使用对应的 <step type="xxx"> 标签
+- 不要输出 <plan> 标签（plan 已在上一阶段完成）
+- 任何 <step> 内容里都禁止输出 JSON 或 \`\`\` 代码块；JSON 仅允许在最后一段输出且必须是唯一输出
+- 最后一段 JSON 后不要输出任何额外文本
 
 ${CORE_RULES}
 
@@ -165,9 +503,7 @@ ${VARIABLE_RULES}
 
 ${EDGE_RULES}
 
-${FLOW_EXAMPLES}
-
-${NEGATIVE_EXAMPLES}`;
+${FULL_EXAMPLES}`;
 
 // Direct mode (no confirmation needed) - 4-step flow with deep reasoning
 const DIRECT_MODE_PROMPT = `你是 Flash Flow Agent，一个专业的工作流设计AI。你的任务是**深度理解**用户需求，而不是简单复述。
@@ -198,81 +534,86 @@ const DIRECT_MODE_PROMPT = `你是 Flash Flow Agent，一个专业的工作流�
 **所需节点:** ${'{根据分析列出节点}'}
 </step>
 
-### 步骤 2：深度架构规划
-<step type="strategy">
-你不仅是执行者，更是**系统架构师**。请按以下维度制定技术方案：
+### 步骤 2：任务规划（面向用户）
+<plan>
+## 需求理解
+${'{直接一句话描述核心目标，禁止使用"我理解"、"用户想要"等前缀}'}
 
-1. **架构模式选择**:
-   - 针对此需求，采用哪种设计模式？(如: 简单的线性处理 / RAG 检索增强 / 复杂的分支判断 / 多步工具调用)
-   - *理由*: 为什么这个模式最适合？
+## 工作流结构
+- [type:input] ${'{节点名}'}：${'{触发：何时会用到；做什么：这一步要完成什么；输出：产出什么给下一步用（短句）}'}
+- [type:llm] ${'{节点名}'}：${'{触发：何时会用到；做什么：这一步要完成什么；输出：产出什么给下一步用（短句）}'}
+- [type:output] ${'{节点名}'}：${'{触发：何时会用到；做什么：这一步要完成什么；输出：用户最终会看到/拿到什么（短句）}'}
 
-2. **关键节点推演**:
-   - 核心节点 1: [类型+功能] -> [配置理由: 为什么选这个模型/参数？]
-   - 核心节点 2: ...
-   - *注意*: 必须确保每个节点都有明确的输入来源。
+## 适用场景
+- ${'{场景1}'}
+- ${'{场景2}'}
+- ${'{场景3}'}
 
-3. **数据流拓扑**:
-   - 模拟数据流向: Input.user_input -> NodeA -> NodeB -> Output
-   - *检查*: 是否存在"断头"数据（有产出无引用）或"悬空"引用（引用了不存在的变量）？
+## 使用方法
+1. ${'{步骤1}'}
+2. ${'{步骤2}'}
+3. ${'{步骤3}'}
+</plan>
 
-4. **防御性设计**:
-   - 如果上游节点失败或返回空值，下游该如何处理？(是否需要默认值或分支？)
+### 步骤 3：蓝图映射 (Plan Mapping)
+<step type="mapping">
+把上面的分析与 <plan> 方案映射成工作流节点清单，并明确每个节点的输入来源与职责边界。
+
+输出格式（必须包含且按顺序）：
+1. **节点清单**（每行一个）：
+   - NodeID: ... | type: ... | label: ... | 负责: ...
+2. **调用链**（一行）：
+   - Input -> ... -> Output（若有分支，明确 true/false 路径）
 </step>
 
-### 步骤 3：深度逻辑审查
-<step type="reflection">
-现在，请扮演**首席代码审查员**，对上述“架构规划”进行无情的批判与优化：
+### 步骤 4：数据契约定义 (Data Contract) 🔥
+<step type="data_flow">
+定义每个节点对外暴露的核心输出字段，以及下游节点的引用语法，防止变量引用错误。
 
-1. **奥卡姆剃刀检查**:
-   - 能否删减不必要的节点？(例如：能用正则提取的不要用 LLM)
-   - 现在的设计是不是最简路径？
+| 节点 ID | 节点类型 | 核心输出字段 | 下游引用语法 (Handlebars) |
+| :--- | :--- | :--- | :--- |
+| input | input | input.topic | {{input.topic}} |
+| ... | ... | ... | ... |
 
-2. **Prompt 质量审计**:
-   - LLM 节点的 System Prompt 是否包含了角色定义(Persona)？
-   - 是否给出了足够的上下文(Context)？
-
-3. **隐患排查**:
-   - ⚠️ 最大的失败风险点在哪里？（如：RAG 检索不到内容怎么办？）
-   - *修正方案*: 我将增加...配置来规避此风险。
-
-4. **最终决策**:
-   - 基于以上审查，我将对方案做出的具体修正...
+规则：
+1. 引用必须使用 {{节点Label.field}} 或 {{node_id.field}} 格式（优先 Label，且前缀必须真实存在）。
+2. 下游引用前，上游节点必须存在且有连线。
+3. Branch 节点必须通过 sourceHandle 区分 true/false 两条边。
 </step>
 
-### 步骤 4：合规性自查
+### 步骤 5：实现要点 (Implementation Draft)
+<step type="drafting">
+基于步骤 4 的数据契约，为每个节点补齐关键配置，确保可以直接写入 JSON。
+1. LLM 节点：System Prompt / Model / Temperature / 输入引用（必须来自步骤 4）
+2. RAG/Tool/HTTP 节点：查询/参数/输入引用（必须来自步骤 4）
+3. Branch 节点：判断条件所用变量引用与 true/false 分支含义
+
+约束：
+1. 不要输出任何 JSON、YAML、代码块或 \`\`\` 标记。
+2. 不要在本步骤展示完整节点 JSON；只用要点描述“哪些字段如何填”，每个节点最多 2～3 行要点。
+</step>
+
+### 步骤 6：合规自检 (Compliance Check)
 <step type="verification">
-请对照以下核心规则，逐项检查你的设计方案。如有违反，必须在下一步中修正：
-
-1. **依赖检查**: 每一个变量引用 (如 {{A.res}}) 是否都对应一条 A -> Current 的连线？
-2. **分支检查**: Branch 节点是否正确配置了 \`sourceHandle: "true"\` 和 \`"false"\`？
-3. **输出检查**: Output 节点是否在汇聚多分支？是否严禁了 Handlebars 逻辑？
-4. **安全检查**: 是否存在将 \`{{Input.files}}\` 直接传给 LLM 的违规行为？
-5. **拓扑检查**: 是否存在自环或循环依赖？
+逐项核对（发现问题必须在生成 JSON 前自我修正）：
+1. 变量引用是否都有对应上游节点与连线？
+2. Branch 的 sourceHandle 是否正确设置为 \"true\"/\"false\"？
+3. Output 是否只做输出拼接，不写 Handlebars 逻辑？
+4. 是否避免把 Input 节点的 files 直接传给 LLM（应通过 RAG 中转）？
+5. 拓扑是否无自环/循环依赖？
 </step>
 
-### 步骤 5：优化实施
-<step type="modified_plan">
-作为技术负责人，请根据上述自查结果，确认最终的实施方案。不要复述废话，直接列出变动点：
-
-1. **修正执行记录**:
-   - [保留/删除/新增] 节点X: *原因...*
-   - [优化] 节点Y: *增加了...配置*
-
-2. **最终架构蓝图**:
-   - 确认最终的节点调用链 (Input -> ... -> Output)
-   - *确认*: 这就是即将写入 JSON 的最终版本。
-</step>
-
-### 步骤 6：生成 JSON
-在所有 step 标签结束后，输出最终的工作流 JSON：
-\`\`\`json
-{"title": "工作流标题", "nodes": [...], "edges": [...]}
-\`\`\`
+### 步骤 7：生成 JSON
+直接输出一个 JSON 对象（以 { 开头，以 } 结尾），不要使用 Markdown 代码块，不要添加任何解释性文字。
 
 ## ⚡️ 规则
-- 严格按顺序执行步骤 1 → 2 → 3 → 4 → 5 → 6
+- 严格按顺序执行步骤 1 → 2 → 3 → 4 → 5 → 6 → 7
 - 每个步骤使用对应的 <step type="xxx"> 标签
-- 最后输出合法 JSON
+- 必须包含 <plan> 标签
+- <plan> 内容给用户看：用短句、说人话，尽量不出现术语（如 JSON、参数、Handlebars、NodeID）
+- 节点必须带 [type:xxx] 标记，支持: input, llm, rag, tool, imagegen, branch, output
+- 任何 <step> 内容里都禁止输出 JSON 或 \`\`\` 代码块；JSON 仅允许在最后一段输出且必须是唯一输出
+- 最后一段 JSON 后不要输出任何额外文本
 
 ${CORE_RULES}
 
@@ -282,710 +623,337 @@ ${VARIABLE_RULES}
 
 ${EDGE_RULES}
 
-${FLOW_EXAMPLES}
-
-${NEGATIVE_EXAMPLES}`;
-
-// Legacy constant for backward compatibility
-const AGENT_SYSTEM_PROMPT = DIRECT_MODE_PROMPT;
-
-
-
+${FULL_EXAMPLES}`;
 
 // ============ Main Handler ============
 export async function POST(req: Request) {
     const reqClone = req.clone();
 
     try {
-        // Authentication check
+        const body = await reqClone.json();
+        const { prompt, enableClarification, skipAutomatedValidation } = body;
+        const shouldSkipAutomatedValidation = skipAutomatedValidation === true;
+
         const user = await getAuthenticatedUser(req);
         if (!user) {
-            return unauthorizedResponse();
+            const res = unauthorizedResponse();
+            return createSseResponse(res.status, { type: "step", stepType: "error", status: "error", content: "请先登录后再生成工作流。" });
         }
 
-        // Server-side quota check
         const pointsCheck = await checkPointsOnServer(req, user.id, "flow_generation");
         if (!pointsCheck.allowed) {
-            return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
+            const res = pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
+            return createSseResponse(res.status, { type: "step", stepType: "error", status: "error", content: `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。` });
         }
 
-        const body = await reqClone.json();
-        const { prompt, enableClarification } = body;
-
-        if (!prompt?.trim()) {
-            return new Response(
-                JSON.stringify({ nodes: [], edges: [] }),
-                { headers: { "Content-Type": "application/json" } }
-            );
-        }
-
-        // Get model and provider
-        const modelName = DEFAULT_MODEL;
-        const provider = getProviderForModel(modelName);
-        const config = PROVIDER_CONFIG[provider];
-
-        const client = new OpenAI({
-            apiKey: config.getApiKey(),
-            baseURL: config.baseURL,
-        });
-
-        // Create streaming response
         const encoder = new TextEncoder();
-        let accumulatedText = "";
-        let thinkingEmitted = false;
-        let suggestionEmitted = false;
-
         const stream = new ReadableStream({
             async start(controller) {
-                let success = false;
-                let lastError: string | null = null;
-                let validationAttempt = 0;
-                let planAttempt = 0;
-                let fallbackToDirect = false;
+                const emit = (payload: unknown) => controller.enqueue(encodeSseEvent(encoder, payload));
+                const finish = () => {
+                    controller.enqueue(encodeSseDone(encoder));
+                    controller.close();
+                };
 
-                // Detect Plan Confirmation
-                const isPlanConfirmed = prompt.includes("[PLAN_CONFIRMED]");
-                const effectivePrompt = isPlanConfirmed ? prompt.replace("[PLAN_CONFIRMED]", "").trim() : prompt;
+                try {
+                    if (!prompt?.trim()) {
+                        emit({ type: "step", stepType: "analysis", status: "error", content: "先写下你的需求，我再开始生成工作流。" });
+                        finish();
+                        return;
+                    }
 
-                // ============ DETERMINISTIC TWO-PHASE FLOW ============
-                // Instead of relying on LLM to "stop at the right place",
-                // we use completely different prompts for each phase.
+                    const modelName = DEFAULT_MODEL;
+                    const provider = getProviderForModel(modelName);
+                    const config = PROVIDER_CONFIG[provider];
 
-                let systemPrompt: string;
-                let isAnalysisPhase = false;
+                    const client = new OpenAI({
+                        apiKey: config.getApiKey(),
+                        baseURL: config.baseURL
+                    });
 
-                if (isPlanConfirmed) {
-                    // Phase 2: User confirmed plan, do strategy → reflection → JSON
-                    // Extract analysis context from the prompt (it should be included)
-                    systemPrompt = GENERATION_PROMPT;
-                } else if (enableClarification) {
-                    // Phase 1: ONLY do analysis, LLM doesn't even know about other steps
-                    systemPrompt = ANALYSIS_ONLY_PROMPT;
-                    isAnalysisPhase = true;
-                } else {
-                    // Direct mode: no confirmation needed, full 4-step flow
-                    systemPrompt = DIRECT_MODE_PROMPT;
-                }
+                    const scenario = detectIntentFromPrompt(prompt);
+                    const practice = BEST_PRACTICES[scenario];
+                    const practices = practice ? practice.tips : [];
+                    const practicesPrompt = practices.length > 0
+                        ? `\n## 💡 针对此场景的最佳实践\n${practices.map((p: string, i: number) => `${i + 1}. ${p}`).join("\n")}`
+                        : "";
 
-                let messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: `请根据以下需求设计工作流:\n\n${effectivePrompt}` },
-                ];
+                    emit({ type: "thinking-start" });
 
-                while (!success && validationAttempt < MAX_RETRIES) {
+                    const isPlanConfirmed = typeof prompt === "string" && (prompt.includes("[PLAN_CONFIRMED]") || prompt.includes("<approved_plan>"));
+                    let approvedPlanBlock: string | null = null;
+                    let phase: "plan" | "generation" = "generation";
+                    let planConfirmStatus: string = "idle";
+
+                    let fullText = "";
+                    let planBuffer = "";
+                    let currentStepType: string | null = null;
+                    let isPlanTag = false;
+
+                    const parser = new StreamXmlParser((event) => {
+                        if (event.type === 'tag_open') {
+                             if (event.tagName === 'step') {
+                                 if (phase === "generation" && planConfirmStatus === "streaming") {
+                                     emit({ type: "step", stepType: "plan_confirm", status: "completed", content: "" });
+                                     planConfirmStatus = "completed";
+                                 }
+                                 currentStepType = event.attributes?.type || null;
+                             } else if (event.tagName === 'plan') {
+                                 isPlanTag = true;
+                             }
+                        } else if (event.type === 'content') {
+                             if (currentStepType && event.content) {
+                                 emit({ type: "step", stepType: currentStepType, status: "streaming", content: event.content });
+                                 if (currentStepType === 'analysis') {
+                                     emit({ type: "thinking", content: event.content });
+                                 }
+                             } else if (isPlanTag && event.content) {
+                                 planBuffer += event.content;
+                             }
+                        } else if (event.type === 'tag_close') {
+                             if (event.tagName === 'step') {
+                                 const closingStepType = currentStepType;
+                                 if (closingStepType) {
+                                     emit({ type: "step", stepType: closingStepType, status: "completed", content: "" });
+                                 }
+                                 if (phase === "plan" && closingStepType === "analysis" && planConfirmStatus === "idle") {
+                                     emit({ type: "step", stepType: "plan_confirm", status: "streaming", content: "" });
+                                     planConfirmStatus = "streaming";
+                                 }
+                                 currentStepType = null;
+                             } else if (event.tagName === 'plan') {
+                                 isPlanTag = false;
+                             }
+                        }
+                    });
+
+                    const shouldRequestPlan = Boolean(enableClarification) && !isPlanConfirmed;
+                    const shouldAutoPlan = !enableClarification && !isPlanConfirmed;
+
+                    if (shouldRequestPlan || shouldAutoPlan) {
+                        phase = "plan";
+                        const PLAN_MAX_RETRIES = 2;
+                        let planBlock: string | null = null;
+
+                        for (let attempt = 0; attempt < PLAN_MAX_RETRIES; attempt++) {
+                            fullText = "";
+                            planBuffer = "";
+
+                            const abortController = new AbortController();
+                            const timeoutId = setTimeout(() => abortController.abort(), TIMEOUT_ANALYSIS_MS);
+
+                            try {
+                                const completion = await client.chat.completions.create({
+                                    model: modelName,
+                                    temperature: 0.5,
+                                    messages: [
+                                        { role: "system", content: ANALYSIS_ONLY_PROMPT + practicesPrompt },
+                                        { role: "user", content: `用户需求: ${prompt}` },
+                                    ],
+                                    stream: true,
+                                }, { signal: abortController.signal });
+
+                                for await (const chunk of completion) {
+                                    const content = chunk.choices[0]?.delta?.content || "";
+                                    if (content) {
+                                        fullText += content;
+                                        parser.process(content);
+                                    }
+                                }
+                            } finally {
+                                clearTimeout(timeoutId);
+                            }
+
+                            planBlock = planBuffer.trim() || extractTagBlock(fullText, `<plan>`, `</plan>`);
+                            if (planBlock) break;
+                        }
+
+                        emit({ type: "thinking-end" });
+
+                        if (planBlock) {
+                            if (planConfirmStatus === "idle") {
+                                emit({ type: "step", stepType: "plan_confirm", status: "streaming", content: "" });
+                                planConfirmStatus = "streaming";
+                            }
+                            if (shouldRequestPlan) {
+                                const parsedPlan = parsePlanSections(planBlock);
+                                emit({
+                                    type: "plan",
+                                    userPrompt: parsedPlan.refinedIntent || String(prompt),
+                                    steps: parsedPlan.steps,
+                                    refinedIntent: parsedPlan.refinedIntent,
+                                    workflowNodes: parsedPlan.workflowNodes,
+                                    useCases: parsedPlan.useCases,
+                                    howToUse: parsedPlan.howToUse
+                                });
+                            } else {
+                                approvedPlanBlock = planBlock;
+                            }
+                        } else {
+                            emit({
+                                type: "step",
+                                stepType: "fallback",
+                                status: "completed",
+                                content: "规划阶段未产出有效计划，我会直接生成工作流（你可以稍后再调整）。"
+                            });
+                        }
+                        if (planBlock && shouldRequestPlan) {
+                            finish();
+                            return;
+                        }
+                        fullText = "";
+                        phase = "generation";
+                    }
+
+                    const shouldUseGenerationPrompt = isPlanConfirmed || Boolean(approvedPlanBlock);
+                    const systemPrompt = shouldUseGenerationPrompt ? (GENERATION_PROMPT + practicesPrompt) : (DIRECT_MODE_PROMPT + practicesPrompt);
+                    const userContent = approvedPlanBlock && !isPlanConfirmed
+                        ? `用户需求: ${prompt}
+
+<approved_plan>
+${approvedPlanBlock}
+</approved_plan>`
+                        : `用户需求: ${prompt}`;
+
+                    const abortController = new AbortController();
+                    const timeoutId = setTimeout(() => abortController.abort(), TIMEOUT_GENERATION_MS);
+                    
                     try {
-                        // Create timeout signal for this generation attempt
-                        const abortController = new AbortController();
-                        const timeoutMs = isAnalysisPhase ? TIMEOUT_ANALYSIS_MS : TIMEOUT_GENERATION_MS;
-                        const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
-
                         const completion = await client.chat.completions.create({
                             model: modelName,
-                            temperature: isPlanConfirmed ? 0.2 : 0.4, // Higher temp for planning/analysis
-                            messages,
+                            temperature: 0.2,
+                            messages: [
+                                { role: "system", content: systemPrompt },
+                                { role: "user", content: userContent },
+                            ],
                             stream: true,
-                            // Note: JSON mode removed to allow <thinking> and other XML tags
                         }, { signal: abortController.signal });
-
-                        accumulatedText = "";
-
-                        let processedStepCount = 0; // Track which steps we have fully finalized
-
-                        for await (const chunk of completion) {
-                            const content = chunk.choices?.[0]?.delta?.content || "";
-                            if (content) {
-                                accumulatedText += content;
-
-                                // Phase 2: Detect Clarification Tags
-                                // First, strip out EXAMPLE blocks to avoid matching the System Prompt example
-                                const textWithoutExamples = accumulatedText.replace(/\[EXAMPLE_START\][\s\S]*?\[EXAMPLE_END\]/g, '');
-                                const clarificationMatch = textWithoutExamples.match(/<clarification>([\s\S]*?)<\/clarification>/);
-                                if (clarificationMatch) {
-                                    const questionsText = clarificationMatch[1].trim();
-                                    const questions = questionsText
-                                        .split(/\n/)
-                                        .map(q => q.replace(/^\d+\.\s*/, '').trim())
-                                        .filter(q => {
-                                            // Filter out non-question lines
-                                            if (q.length < 5) return false;
-                                            // Exclude lines containing XML tags
-                                            if (/<[^>]+>/.test(q)) return false;
-                                            // Exclude metadata/markers
-                                            if (q.startsWith('[') || q.includes('EXAMPLE')) return false;
-                                            // Exclude empty or whitespace-only
-                                            if (!q.trim()) return false;
-                                            return true;
-                                        })
-                                        // Limit to max 5 questions to avoid overwhelming UI
-                                        .slice(0, 5);
-
-                                    // Only emit clarification if we have valid questions
-                                    if (questions.length > 0) {
-                                        controller.enqueue(
-                                            encoder.encode(`data: ${JSON.stringify({
-                                                type: "clarification",
-                                                questions: questions
-                                            })}\n\n`)
-                                        );
-
-                                        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-                                        controller.close();
-                                        return; // Stop checking further
-                                    }
-                                }
-
-                                // Phase 2b: Detect Plan Tag
-                                // Pattern: <plan> ... </plan>
-                                // First, strip out PLAN_EXAMPLE blocks to avoid matching the System Prompt example
-                                const textWithoutPlanExamples = accumulatedText.replace(/\[PLAN_EXAMPLE_START\][\s\S]*?\[PLAN_EXAMPLE_END\]/g, '');
-                                const planMatch = textWithoutPlanExamples.match(/<plan>([\s\S]*?)<\/plan>/);
-                                if (planMatch) {
-                                    // 🔍 Debug Logging: Track interruption timing
-                                    const stepCount = (accumulatedText.match(/<step type="/g) || []).length;
-                                    const hasAnalysis = accumulatedText.includes('type="analysis"');
-                                    const hasStrategy = accumulatedText.includes('type="strategy"');
-                                    const hasReflection = accumulatedText.includes('type="reflection"');
-
-                                    console.log('[Agent Plan] Plan detected:', {
-                                        position: planMatch.index,
-                                        totalLength: accumulatedText.length,
-                                        stepsCompleted: stepCount,
-                                        afterAnalysis: hasAnalysis,
-                                        hasStrategy,
-                                        hasReflection,
-                                        timestamp: new Date().toISOString()
-                                    });
-
-                                    const planContent = planMatch[1].trim();
-
-                                    // Parse new structured plan sections
-                                    const refinedIntentMatch = planContent.match(/## 需求理解\n([\s\S]*?)(?=\n##|$)/);
-                                    const refinedIntent = refinedIntentMatch ? refinedIntentMatch[1].trim() : "";
-
-                                    const nodesMatch = planContent.match(/## 工作流结构\n([\s\S]*?)(?=\n##|$)/);
-                                    const workflowNodesRaw = nodesMatch ? nodesMatch[1].trim() : "";
-
-                                    const workflowNodes = workflowNodesRaw.split('\n')
-                                        .map(line => {
-                                            // Match "- [type:xxx] Label: Description"
-                                            // Regex: ^[-*]\s*(?:\[type:(\w+)\])?\s*(.*?)[：:]\s*(.*)
-                                            const match = line.match(/^[-*]\s*(?:\[type:(\w+)\])?\s*(.*?)[：:]\s*(.*)/);
-                                            if (match) {
-                                                return {
-                                                    type: match[1] || 'default', // Captures 'type' if present
-                                                    label: match[2].trim(),
-                                                    description: match[3].trim()
-                                                };
-                                            }
-                                            return null;
-                                        })
-                                        .filter((n): n is { type: string; label: string; description: string } => n !== null);
-
-                                    const useCasesMatch = planContent.match(/## 适用场景\n([\s\S]*?)(?=\n##|$)/);
-                                    const useCases = useCasesMatch
-                                        ? useCasesMatch[1].split('\n').map(l => l.replace(/^[-*]\s*/, '').trim()).filter(l => l.length > 2)
-                                        : [];
-
-                                    const howToUseMatch = planContent.match(/## 使用方法\n([\s\S]*?)(?=\n##|$)/);
-                                    const howToUse = howToUseMatch
-                                        ? howToUseMatch[1].split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(l => l.length > 2)
-                                        : [];
-
-                                    // Fallback / Backward Compatibility
-                                    const steps = workflowNodes.length > 0
-                                        ? workflowNodes.map(n => `${n.label}: ${n.description}`)
-                                        : planContent.split('\n').filter(l => l.startsWith('-')).map(l => l.replace(/^[-*]\s*/, '').trim());
-
-                                    const userPrompt = refinedIntent || effectivePrompt;
-
-                                    // Emit Plan Event with new fields
-                                    controller.enqueue(
-                                        encoder.encode(`data: ${JSON.stringify({
-                                            type: "plan",
-                                            userPrompt: userPrompt,
-                                            steps: steps, // Valid for legacy, but UI will prefer new fields
-                                            refinedIntent,
-                                            workflowNodes,
-                                            useCases,
-                                            howToUse
-                                        })}\n\n`)
-                                    );
-
-                                    // STOP generation here to wait for confirmation
-                                    controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-                                    controller.close();
-                                    return;
-                                }
-
-
-
-                                // Detect step tags
-                                const stepMatches = [...accumulatedText.matchAll(/<step type="([^"]+)">/g)];
-
-                                // 1. Handle "jumped" steps (steps that were skipped or finished in this chunk)
-                                // If we have more matches than we've processed + 1 (the active one), implies intermediate steps are done.
-                                while (processedStepCount < stepMatches.length - 1) {
-                                    const match = stepMatches[processedStepCount];
-                                    const nextMatch = stepMatches[processedStepCount + 1];
-                                    const stepType = match[1];
-
-                                    // Extract content: from this match end to next match start
-                                    // Robustly remove closing tag
-                                    let stepContent = accumulatedText.slice(match.index! + match[0].length, nextMatch.index);
-                                    const closeTagIndex = stepContent.indexOf("</step>");
-                                    if (closeTagIndex !== -1) {
-                                        stepContent = stepContent.slice(0, closeTagIndex);
-                                    }
-
-                                    controller.enqueue(
-                                        encoder.encode(`data: ${JSON.stringify({
-                                            type: "step",
-                                            stepType: stepType,
-                                            status: "completed",
-                                            content: stepContent.trim()
-                                        })}\n\n`)
-                                    );
-
-                                    processedStepCount++;
-                                }
-
-                                // 2. Handle the Active Step (The last one found)
-                                if (stepMatches.length > 0) {
-                                    const lastMatch = stepMatches[stepMatches.length - 1];
-                                    const stepType = lastMatch[1];
-
-                                    // Extract content from this step start until end of text
-                                    const startIndex = lastMatch.index! + lastMatch[0].length;
-                                    let content = accumulatedText.slice(startIndex);
-
-                                    // FIX: Truncate content if <plan> or <clarification> tags appear to prevent leakage
-                                    // This ensures we don't emit raw tags as step content while waiting for them to close
-                                    const leakMatch = content.match(/<plan>|<clarification>/);
-                                    if (leakMatch && leakMatch.index !== undefined) {
-                                        content = content.slice(0, leakMatch.index);
-                                    }
-
-                                    // Check if it's closed
-                                    const closeTag = "</step>";
-                                    const closeIndex = content.indexOf(closeTag);
-                                    const isClosed = closeIndex !== -1;
-
-                                    if (isClosed) {
-                                        content = content.slice(0, closeIndex);
-                                        // Only increment if we haven't already counted this one (logic check)
-                                        // This handles the case where the closing tag arrives in the SAME chunk as the opening tag
-                                        // But we handled 'skipped' steps above. 
-                                        // If isClosed is true, this step is effectively done.
-                                        // However, we'll let the next chunk (or loop) finalize it via the 'while' loop if a NEW step appears?
-                                        // NO, the user wants immediate feedback.
-
-                                        // If closed, emit completed IMMEDIATELY and increment count
-                                        // But wait, if we increment count, the 'while' loop won't touch it next time. Correct.
-                                        if (processedStepCount === stepMatches.length - 1) {
-                                            controller.enqueue(
-                                                encoder.encode(`data: ${JSON.stringify({
-                                                    type: "step",
-                                                    stepType: stepType,
-                                                    status: "completed",
-                                                    content: content.trim()
-                                                })}\n\n`)
-                                            );
-                                            processedStepCount++;
-
-                                            // [Removed Legacy Forced Interruption Logic - relied on prompt now]
-                                        }
-                                    } else {
-                                        // Still streaming
-                                        controller.enqueue(
-                                            encoder.encode(`data: ${JSON.stringify({
-                                                type: "step",
-                                                stepType: stepType,
-                                                status: "streaming",
-                                                content: content.trim()
-                                            })}\n\n`)
-                                        );
-                                    }
-                                }
-
-                                // Send raw progress (still useful for debug or fallback)
-                                controller.enqueue(
-                                    encoder.encode(`data: ${JSON.stringify({ type: "progress", content })}\n\n`)
-                                );
-                            }
-                        }
                         
-                        // Clear timeout as soon as generation is done (or loop finishes)
+                        for await (const chunk of completion) {
+                            const content = chunk.choices[0]?.delta?.content || "";
+                            if (content) {
+                                fullText += content;
+                                parser.process(content);
+                            }
+                        }
+                    } finally {
                         clearTimeout(timeoutId);
-
-                        if (isAnalysisPhase) {
-                            const textWithoutPlanExamples = accumulatedText.replace(/\[PLAN_EXAMPLE_START\][\s\S]*?\[PLAN_EXAMPLE_END\]/g, '');
-                            const planMatch = textWithoutPlanExamples.match(/<plan>([\s\S]*?)<\/plan>/);
-                            if (planMatch) {
-                                const planContent = planMatch[1].trim();
-                                const refinedIntentMatch = planContent.match(/## 需求理解\n([\s\S]*?)(?=\n##|$)/);
-                                const refinedIntent = refinedIntentMatch ? refinedIntentMatch[1].trim() : "";
-
-                                const nodesMatch = planContent.match(/## 工作流结构\n([\s\S]*?)(?=\n##|$)/);
-                                const workflowNodesRaw = nodesMatch ? nodesMatch[1].trim() : "";
-
-                                const workflowNodes = workflowNodesRaw.split('\n')
-                                    .map(line => {
-                                        const match = line.match(/^[-*]\s*(?:\[type:(\w+)\])?\s*(.*?)[：:]\s*(.*)/);
-                                        if (match) {
-                                            return {
-                                                type: match[1] || 'default',
-                                                label: match[2].trim(),
-                                                description: match[3].trim()
-                                            };
-                                        }
-                                        return null;
-                                    })
-                                    .filter((n): n is { type: string; label: string; description: string } => n !== null);
-
-                                const useCasesMatch = planContent.match(/## 适用场景\n([\s\S]*?)(?=\n##|$)/);
-                                const useCases = useCasesMatch
-                                    ? useCasesMatch[1].split('\n').map(l => l.replace(/^[-*]\s*/, '').trim()).filter(l => l.length > 2)
-                                    : [];
-
-                                const howToUseMatch = planContent.match(/## 使用方法\n([\s\S]*?)(?=\n##|$)/);
-                                const howToUse = howToUseMatch
-                                    ? howToUseMatch[1].split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(l => l.length > 2)
-                                    : [];
-
-                                const steps = workflowNodes.length > 0
-                                    ? workflowNodes.map(n => `${n.label}: ${n.description}`)
-                                    : planContent.split('\n').filter(l => l.startsWith('-')).map(l => l.replace(/^[-*]\s*/, '').trim());
-
-                                const userPrompt = refinedIntent || effectivePrompt;
-
-                                controller.enqueue(
-                                    encoder.encode(`data: ${JSON.stringify({
-                                        type: "plan",
-                                        userPrompt: userPrompt,
-                                        steps: steps,
-                                        refinedIntent,
-                                        workflowNodes,
-                                        useCases,
-                                        howToUse
-                                    })}\n\n`)
-                                );
-                                controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-                                controller.close();
-                                return;
-                            }
-
-                            planAttempt++;
-
-                            if (planAttempt < PLAN_MAX_RETRIES && !fallbackToDirect) {
-                                messages.push({
-                                    role: "user",
-                                    content: `请严格只输出 <plan> 标签内的内容，必须包含以下 4 个小节标题：\n## 需求理解\n## 工作流结构\n## 适用场景\n## 使用方法\n不要输出 JSON、<step> 或其他标签。`
-                                });
-                                lastError = "Plan not generated";
-                                validationAttempt++;
-                                continue;
-                            }
-
-                            if (!fallbackToDirect) {
-                                fallbackToDirect = true;
-                                isAnalysisPhase = false;
-                                systemPrompt = DIRECT_MODE_PROMPT;
-                                messages = [
-                                    { role: "system", content: systemPrompt },
-                                    { role: "user", content: `请根据以下需求设计工作流:\n\n${effectivePrompt}` },
-                                ];
-                                controller.enqueue(
-                                    encoder.encode(`data: ${JSON.stringify({
-                                        type: "step",
-                                        stepType: "fallback",
-                                        status: "completed",
-                                        content: "规划阶段未产出有效计划，已切换为直接生成流程"
-                                    })}\n\n`)
-                                );
-                                validationAttempt++;
-                                continue;
-                            }
-                        }
-
-                        // Parse and validate result
-                        let parsedResult: { title?: string; nodes?: unknown[]; edges?: unknown[] } = {};
-                        try {
-                            // 使用增强后的提取器，不再预先删除 step 标签，以防 JSON 在标签内
-                            const jsonMatch = extractBalancedJson(accumulatedText);
-                            if (jsonMatch) {
-                                parsedResult = JSON.parse(jsonMatch);
-                            }
-                        } catch {
-                            lastError = "Failed to parse JSON from response";
-                            validationAttempt++;
-                            continue;
-                        }
-
-                        const nodes = parsedResult.nodes || [];
-                        const edges = parsedResult.edges || [];
-
-                        if (nodes.length === 0) {
-                            lastError = "No valid JSON workflow found in the output";
-                            validationAttempt++;
-                            continue;
-                        }
-
-                        // Emit Drafting Step (Completed)
-                        // This visualizes the "Structure Generation" phase
-                        controller.enqueue(
-                            encoder.encode(`data: ${JSON.stringify({
-                                type: "step",
-                                stepType: "drafting",
-                                status: "completed",
-                                content: `🎉 工作流结构构建完成！共包含 ${nodes.length} 个核心节点和 ${edges.length} 条逻辑连线。`
-                            })}\n\n`)
-                        );
-
-                        // Add a small delay for visual pacing
-                        await new Promise(r => setTimeout(r, 400));
-
-                        // Validate
-                        const validation = validateWorkflow(nodes, edges);
-
-                        // Signal validation start
-
-                        controller.enqueue(
-                            encoder.encode(`data: ${JSON.stringify({
-                                type: "step",
-                                stepType: "validation",
-                                status: "streaming",
-                                content: "正在进行最终逻辑校验..."
-                            })}\n\n`)
-                        );
-
-                        // Simulate a small delay for user perception if needed, or just proceed
-                        // await new Promise(r => setTimeout(r, 500));
-
-                        if (validation.valid || validation.softPass) {
-                            // 显示自动修复详情
-                            const warnings = validation.warnings || [];
-                            let validationMessage = "逻辑校验通过";
-                            if (warnings.length > 0) {
-                                // 区分结构修复和变量修复
-                                const structureFixes = warnings.filter(w => w.includes('循环') || w.includes('孤岛') || w.includes('边'));
-                                const variableFixes = warnings.filter(w => w.includes('Auto-fixed'));
-                                const parts = [];
-                                if (structureFixes.length > 0) parts.push(`结构优化 ${structureFixes.length} 处`);
-                                if (variableFixes.length > 0) parts.push(`变量修正 ${variableFixes.length} 处`);
-                                validationMessage = `逻辑校验通过 (${parts.join('，') || `自动修复 ${warnings.length} 处`})`;
-                            }
-
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "step",
-                                    stepType: "validation",
-                                    status: "completed",
-                                    content: validationMessage
-                                })}\n\n`)
-                            );
-
-                            await new Promise(r => setTimeout(r, 600)); // Delay for visual pacing
-
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "tool-call",
-                                    tool: "validate_flow",
-                                    args: { nodeCount: (nodes as AppNode[]).length, edgeCount: (edges as AppEdge[]).length }
-                                })}\n\n`)
-                            );
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "tool-result",
-                                    tool: "validate_flow",
-                                    result: {
-                                        valid: validation.valid,
-                                        softPass: validation.softPass,
-                                        warnings: validation.valid ? validation.warnings : validation.errors
-                                    }
-                                })}\n\n`)
-                            );
-
-                            await new Promise(r => setTimeout(r, 600)); // Delay for visual pacing
-
-                            // Success or soft pass - Send result with optional warnings
-                            // 使用三层自愈后的节点和边
-                            const finalNodes = validation.fixedNodes || nodes;
-                            const finalEdges = validation.fixedEdges || edges;
-
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "result",
-                                    title: parsedResult.title || prompt.slice(0, 20),
-                                    nodes: finalNodes,
-                                    edges: finalEdges,
-                                    warnings: validation.valid ? validation.warnings : validation.errors,
-                                })}\n\n`)
-                            );
-
-                            // Phase 3: Emit proactive suggestions based on intent analysis
-                            try {
-                                const scenario = detectIntentFromPrompt(prompt);
-                                const suggestions = getProactiveSuggestions(scenario);
-                                const practice = BEST_PRACTICES[scenario];
-
-                                // Analyze workflow for specific suggestions
-                                const nodeTypes = (nodes as AppNode[]).map(n => n.type);
-                                const hasImageGen = nodeTypes.includes("imagegen");
-                                const hasBranch = nodeTypes.includes("branch");
-
-                                const workflowSuggestions: string[] = [];
-
-                                // Scenario-specific suggestions
-                                if (scenario === "翻译" && !hasBranch) {
-                                    workflowSuggestions.push("建议添加人工审核节点以保证翻译质量");
-                                }
-
-                                if (hasImageGen) {
-                                    const imageGenNode = (nodes as AppNode[]).find(n => n.type === "imagegen");
-                                    if (imageGenNode && (imageGenNode.data as any)?.negativePrompt === undefined) {
-                                         // Note: accessing data.negativePrompt directly requires narrowing, keeping it safe for now or using cast
-                                         // Actually AppNode union makes data access tricky without narrowing.
-                                         // Let's use 'as any' just for the property check if TS complains, or rely on the fact that ImageGenNodeData has it.
-                                    }
-                                    // Re-writing the logic to be cleaner:
-                                    const imgNode = (nodes as AppNode[]).find(n => n.type === "imagegen");
-                                    if (imgNode) {
-                                        // We need to cast data because AppNode is a union and not all data has negativePrompt
-                                        const data = imgNode.data as { negativePrompt?: string };
-                                        if (!data.negativePrompt) {
-                                            workflowSuggestions.push("建议为图片生成节点添加 negativePrompt 以提高生成质量");
-                                        }
-                                    }
-                                }
-
-                                // Add general best practice tips
-                                if (practice && practice.tips.length > 0) {
-                                    workflowSuggestions.push(`💡 ${scenario}最佳实践: ${practice.tips[0]}`);
-                                }
-
-                                // Emit suggestions if any
-                                if (workflowSuggestions.length > 0) {
-                                    controller.enqueue(
-                                        encoder.encode(`data: ${JSON.stringify({
-                                            type: "suggestion",
-                                            scenario,
-                                            content: workflowSuggestions.join("\n")
-                                        })}\n\n`)
-                                    );
-                                }
-                            } catch {
-                                // Suggestion generation is optional, don't fail on errors
-                            }
-
-                            await deductPointsOnServer(req, user.id, "flow_generation", null, "Flow 生成");
-                            success = true;
-                        } else {
-                            // Hard validation failure (no softPass) - emit error and retry
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "tool-call",
-                                    tool: "validate_flow",
-                                    args: { nodeCount: (nodes as AppNode[]).length, edgeCount: (edges as AppEdge[]).length }
-                                })}\n\n`)
-                            );
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "tool-result",
-                                    tool: "validate_flow",
-                                    result: { valid: false, softPass: false, errors: validation.errors }
-                                })}\n\n`)
-                            );
-
-                            await new Promise(r => setTimeout(r, 600));
-
-                            // Emit Validation Error Step
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "step",
-                                    stepType: "validation",
-                                    status: "error",
-                                    content: `校验未通过: 发现 ${validation.errors.length} 个问题`
-                                })}\n\n`)
-                            );
-
-                            await new Promise(r => setTimeout(r, 600));
-
-                            // Emit Retry Step Start
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "step",
-                                    stepType: "retry",
-                                    status: "streaming",
-                                    content: "正在尝试自动修复工作流..."
-                                })}\n\n`)
-                            );
-
-                            await new Promise(r => setTimeout(r, 1000));
-
-                            // Emit Retry Step Completed
-                            controller.enqueue(
-                                encoder.encode(`data: ${JSON.stringify({
-                                    type: "step",
-                                    stepType: "retry",
-                                    status: "completed",
-                                    content: "已启动自动修复优化"
-                                })}\n\n`)
-                            );
-
-                            // 增量修复：提供更明确的错误反馈和规则提醒
-                            messages.push({ role: "assistant", content: accumulatedText });
-                            messages.push({
-                                role: "user",
-                                content: `工作流校验未通过，请根据以下错误信息进行修正：
-
-### ❌ 发现的问题：
-${validation.errors.join("\n")}
-
-### ⚠️ 修正提示：
-1. **变量引用规则**：必须使用节点的 **Label** (如 {{用户输入.text}})，严禁使用节点 ID (如 {{input_1.text}})。
-2. **结构完整性**：确保输出完整的 JSON，包含 "nodes" 和 "edges" 数组。
-3. **节点一致性**：如果你修改了节点的 Label，请同步更新所有引用该节点的变量。
-
-请直接输出修正后的完整工作流 JSON，无需其他解释。`
-                            });
-
-                            lastError = validation.errors.join("; ");
-                            validationAttempt++;
-                            thinkingEmitted = false; // Reset for next attempt
-                            suggestionEmitted = false;
-                        }
-                    } catch (error) {
-                        // Check for AbortError (timeout)
-                        if (error instanceof Error && (error.name === 'AbortError' || (error as any).code === 'ETIMEDOUT')) {
-                             lastError = "Generation timed out (limit reached)";
-                        } else {
-                             lastError = error instanceof Error ? error.message : "Unknown error";
-                        }
-                        validationAttempt++;
                     }
-                }
 
-                // All attempts failed
-                if (!success) {
-                    controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({
-                            type: "error",
-                            message: lastError || "Generation failed after retries"
-                        })}\n\n`)
-                    );
-                    controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({
-                            type: "result",
-                            title: prompt.slice(0, 20),
-                            nodes: [],
-                            edges: [],
-                        })}\n\n`)
-                    );
-                }
+                    if (planConfirmStatus !== "completed" && planConfirmStatus !== "idle") {
+                        emit({ type: "step", stepType: "plan_confirm", status: "completed", content: "" });
+                        planConfirmStatus = "completed";
+                    }
 
-                controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-                controller.close();
-            },
+                    emit({ type: "thinking-end" });
+
+                    const jsonText = extractBalancedJson(fullText);
+                    if (!jsonText) {
+                        emit({ type: "step", stepType: "error", status: "error", content: "生成结果缺少合法 JSON，已中止。请重试或简化需求。" });
+                        finish();
+                        return;
+                    }
+
+                    const workflow = JSON.parse(jsonText);
+                    let nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+                    let edges = Array.isArray(workflow.edges) ? workflow.edges : [];
+
+                    // 🔧 根本性修复：后端校验和自动修正AI生成的配置问题
+                    nodes = validateAndFixGeneratedNodes(nodes);
+
+                    const enableReport = process.env.FLOW_VALIDATION_REPORT_ENABLED === "true";
+                    const enableSafeFix = process.env.FLOW_VALIDATION_SAFE_FIX_ENABLED === "true";
+                    const reportBefore = validateGeneratedWorkflowV1_2(nodes, edges);
+
+                    if (enableReport && reportBefore.hardErrors.length > 0) {
+                        const grouped = new Map<string, { code: string; message: string; count: number; sampleLocs: string[] }>();
+                        for (const e of reportBefore.hardErrors) {
+                            const key = `${e.code}||${e.message}`;
+                            const cur = grouped.get(key) || { code: e.code, message: e.message, count: 0, sampleLocs: [] };
+                            cur.count += 1;
+                            const locParts = [
+                                e.location?.nodeId ? `node:${e.location.nodeId}` : null,
+                                e.location?.edgeId ? `edge:${e.location.edgeId}` : null,
+                                e.location?.fieldPath ? `field:${e.location.fieldPath}` : null,
+                            ].filter(Boolean) as string[];
+                            if (locParts.length > 0 && cur.sampleLocs.length < 3) {
+                                const loc = `(${locParts.join(", ")})`;
+                                if (!cur.sampleLocs.includes(loc)) cur.sampleLocs.push(loc);
+                            }
+                            grouped.set(key, cur);
+                        }
+                        const items = Array.from(grouped.values());
+                        const lines = items.slice(0, 20).map((g) => {
+                            const countSuffix = g.count > 1 ? ` x${g.count}` : "";
+                            const locSuffix = g.sampleLocs.length > 0 ? ` ${g.sampleLocs.join(" ")}` : "";
+                            return `- ${g.code} ${g.message}${countSuffix}${locSuffix}`;
+                        });
+                        const more = items.length > 20 ? `\n- ... 还有 ${items.length - 20} 类` : "";
+                        emit({ type: "step", stepType: "validation", status: "completed", content: `[校验报告] 发现 Hard Error：${reportBefore.hardErrors.length} 条（共 ${items.length} 类）\n${lines.join("\n")}${more}` });
+                    }
+
+                    const includeIoInDeterministicFix = process.env.FLOW_DETERMINISTIC_FIX_INCLUDE_IO === "true";
+                    const fixResult = enableSafeFix && reportBefore.hardErrors.length > 0
+                        ? deterministicFixWorkflowV1(nodes, edges, {
+                            includeInputOutput: includeIoInDeterministicFix,
+                            safeFixOptions: {
+                                removeInvalidEdges: process.env.FLOW_SAFE_FIX_REMOVE_INVALID_EDGES !== "false",
+                                dedupeEdges: process.env.FLOW_SAFE_FIX_DEDUPE_EDGES !== "false",
+                                ensureEdgeIds: process.env.FLOW_SAFE_FIX_ENSURE_EDGE_IDS !== "false",
+                                replaceVariableIdPrefixToLabel: process.env.FLOW_SAFE_FIX_ID_TO_LABEL !== "false",
+                            }
+                        })
+                        : null;
+
+                    if (fixResult) {
+                        const reportAfter = validateGeneratedWorkflowV1_2(fixResult.nodes, fixResult.edges);
+                        const improved = reportAfter.hardErrors.length < reportBefore.hardErrors.length;
+                        if (improved) {
+                            nodes = fixResult.nodes;
+                            edges = fixResult.edges;
+                            if (enableReport && fixResult.fixes.length > 0) {
+                                const fixLines = fixResult.fixes.slice(0, 20).map((x) => `- ${x}`);
+                                const moreFix = fixResult.fixes.length > 20 ? `\n- ... 还有 ${fixResult.fixes.length - 20} 条` : "";
+                                emit({ type: "step", stepType: "validation_fix", status: "completed", content: `[安全修复] Hard Error ${reportBefore.hardErrors.length} → ${reportAfter.hardErrors.length}\n${fixLines.join("\n")}${moreFix}` });
+                            }
+                        } else if (enableReport && fixResult.fixes.length > 0) {
+                            emit({ type: "step", stepType: "validation_fix", status: "completed", content: `[安全修复] 本次修复未降低 Hard Error（${reportBefore.hardErrors.length} → ${reportAfter.hardErrors.length}），已回退到原工作流。` });
+                        }
+                    }
+
+                    let validation: ReturnType<typeof validateWorkflow> | null = null;
+                    if (!shouldSkipAutomatedValidation) {
+                        const enableValidateWorkflowReport = process.env.FLOW_VALIDATE_WORKFLOW_REPORT_ENABLED === "true";
+                        const ensured = ensureInputOutputNodesAndEdges(nodes, edges);
+                        nodes = ensured.nodes;
+                        edges = ensured.edges;
+                        if (enableValidateWorkflowReport && ensured.fixes.length > 0) {
+                            emit({
+                                type: "step",
+                                stepType: "verification",
+                                status: "completed",
+                                content: ensured.fixes.join("\n")
+                            });
+                        }
+
+                        validation = validateWorkflow(nodes, edges);
+                    }
+
+                    await deductPointsOnServer(req, user.id, "flow_generation", null, "Flow 生成 (Agent)");
+
+                    emit({
+                        type: "result",
+                        title: workflow.title || String(prompt).slice(0, 20),
+                        nodes: validation?.fixedNodes || nodes,
+                        edges: validation?.fixedEdges || edges
+                    });
+                    finish();
+                } catch (e) {
+                    const message = e instanceof Error ? e.message : "生成失败，请稍后重试";
+                    emit({ type: "step", stepType: "error", status: "error", content: message });
+                    finish();
+                }
+            }
         });
 
         return new Response(stream, {
@@ -993,13 +961,25 @@ ${validation.errors.join("\n")}
                 "Content-Type": "text/event-stream",
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-            },
+            }
         });
+
     } catch (e) {
-        console.error("[Agent Plan API] Error:", e);
-        return new Response(
-            JSON.stringify({ nodes: [], edges: [], error: e instanceof Error ? e.message : "Unknown error" }),
-            { status: 200, headers: { "Content-Type": "application/json" } }
-        );
+        console.error("Agent API error:", e);
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(encodeSseEvent(encoder, { type: "step", stepType: "error", status: "error", content: e instanceof Error ? e.message : "服务器开小差了，请稍后再试。" }));
+                controller.enqueue(encodeSseDone(encoder));
+                controller.close();
+            }
+        });
+        return new Response(stream, {
+            headers: {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
+        });
     }
 }

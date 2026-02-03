@@ -39,7 +39,7 @@ export function ProtectedRoute({ children, fallback }: ProtectedRouteProps) {
                 <div className="flex items-center justify-center h-screen w-full bg-white">
                     <div className="flex flex-col items-center gap-3">
                         <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-                        <p className="text-sm text-gray-600">加载中...</p>
+                        <p className="text-sm text-gray-600">加载中…</p>
                     </div>
                 </div>
             )

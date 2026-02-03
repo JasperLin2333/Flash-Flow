@@ -76,7 +76,7 @@ describe("LLMNodeExecutor Basic Execution", () => {
       nodeAbortControllers: new Map(),
     };
 
-    // @ts-ignore
+    // @ts-expect-error test store mock typing
     import("@/store/flowStore").then(mod => mod.__setFlowStoreState(state));
     flowStoreState = state;
 

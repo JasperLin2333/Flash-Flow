@@ -244,3 +244,43 @@ export const trackCopilotPlanAdjust = () =>
 
 export const trackKeyboardShortcut = (shortcutKey: string, action: string) =>
     track('keyboard_shortcut', { shortcut_key: shortcutKey, action });
+
+// ============ Network Diagnostics ============
+export const trackNetworkDiagnostic = (data: Record<string, unknown>) =>
+    track('network_diagnostic', data);
+
+export const trackAgentFailNetwork = (error: string, metrics: Record<string, unknown>) =>
+    track('agent_fail_network', { error, ...metrics });
+
+/**
+ * 运行简单的网络诊断并返回结果
+ */
+export async function runQuickDiagnostic() {
+    try {
+        const start = performance.now();
+        const resp = await fetch("/api/health", { method: "HEAD", cache: "no-cache" });
+        const latency = performance.now() - start;
+
+        // 获取地理位置信息（可选）
+        let geo = {};
+        try {
+            const geoResp = await fetch("https://api.ip.sb/geoip", { cache: 'no-cache' });
+            geo = await geoResp.json();
+        } catch {
+            // Ignore geo errors
+        }
+
+        return {
+            latency,
+            status: resp.status,
+            ok: resp.ok,
+            ...geo,
+            timestamp: new Date().toISOString()
+        };
+    } catch (e) {
+        return {
+            error: e instanceof Error ? e.message : String(e),
+            timestamp: new Date().toISOString()
+        };
+    }
+}

@@ -18,8 +18,10 @@ export const formSchema = z.object({
     inputMappings: z.record(z.string(), z.string()).optional(), // 输入映射
     // Input node specific fields
     enableTextInput: z.boolean().optional(),
+    textRequired: z.boolean().optional(),
     enableFileInput: z.boolean().optional(),
     enableStructuredForm: z.boolean().optional(),
+    fileRequired: z.boolean().optional(),
     fileConfig: z.object({
         allowedTypes: z.array(z.string()),
         maxSizeMB: z.number(),
@@ -63,13 +65,13 @@ export const INPUT_CLASS = "bg-gray-50 border-gray-200 text-gray-900";
 // ============ Node Output Field Definitions ============
 export const NODE_OUTPUT_FIELDS: Record<NodeKind, { field: string; description: string }[]> = {
     input: [
-        { field: "user_input", description: "用户输入的文本" },
+        { field: "user_input", description: "输入的文本" },
 
-        { field: "files", description: "上传的文件列表" },
-        { field: "formData", description: "表单数据对象" },
+        { field: "files", description: "上传的文件列表，支持通过file[n]获取第n个文件" },
+        { field: "formData", description: "表单数据对象，支持通过formData.fieldName获取" },
     ],
     llm: [
-        { field: "response", description: "智能回复内容" },
+        { field: "response", description: "智能回复内容（若开启Json，支持通过节点名.字段名'JSON内的名称'获取）" },
         { field: "reasoning", description: "思维链内容" },
     ],
     rag: [
@@ -93,9 +95,10 @@ export const TOOL_IO_DEFINITIONS: Record<string, ToolIODefinition> = {
     web_search: {
         inputs: [
             { field: "query", description: "搜索关键词", required: true },
-            { field: "maxResults", description: "最大搜索结果数 (1-10)", required: true },
+            { field: "maxResults", description: "最大搜索结果数 (1-10，默认 5)", required: false },
         ],
         outputs: [
+            { field: "content", description: "搜索结果文本（聚合）" },
             { field: "results", description: "搜索结果列表" },
             { field: "count", description: "结果数量" },
         ],

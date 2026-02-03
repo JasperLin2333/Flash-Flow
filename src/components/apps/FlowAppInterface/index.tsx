@@ -40,15 +40,20 @@ export default memo(function FlowAppInterface({
 
     // Handle central form send (with formData)
     const handleCentralFormSend = (data: { text: string; files?: File[]; formData?: Record<string, unknown> }) => {
+        const enableTextInput = inputNodeData?.enableTextInput !== false;
         if (inputNode) {
             updateNodeData(inputNode.id, {
                 text: data.text,
                 formData: data.formData,
-                files: undefined // Central form currently doesn't support file upload, logic can be added later
             });
         }
-        // Then trigger the actual send
-        onSend([]);
+        if (enableTextInput && data.text.trim().length > 0) {
+            onInputChange(data.text);
+        } else {
+            onInputChange("");
+        }
+
+        onSend(data.files);
     };
 
     // Handle send with files and form data

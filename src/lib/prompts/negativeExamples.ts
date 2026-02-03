@@ -1,36 +1,44 @@
-
 export const NEGATIVE_EXAMPLES = `
 # ❌ 反面教材 (Anti-Patterns)
 
-## 1. Template 中的循环逻辑 (Strictly Prohibited)
-**❌ 错误**: 在 Output 节点的 template 中使用 \`{{#each}}\` 或 \`{{#if}}\`。
-**✅ 修正**: 在上游 LLM 节点中直接生成格式化好的 Markdown 字符串。
+## 1. 变量引用错误 (Reference Errors)
+**❌ 错误 (逻辑计算/随机ID)**: 
+- \`{{node_a7b.response.length > 0}}\`
+- \`{{A + B}}\`
+**✅ 修正 (纯净引用/Label)**: 
+- \`{{智能分析.response}}\`
 
-## 2. 非法变量命名 (Invalid Naming)
-**❌ 错误**: 
-\`\`\`json
-"formFields": [{ "name": "主题 (Topic)", "label": "主题" }] 
-\`\`\`
-**✅ 修正**: \`name\` 必须为纯英文，禁止中文、括号或空格。
-\`\`\`json
-"formFields": [{ "name": "topic", "label": "主题" }]
-\`\`\`
+## 2. 命名违规 (Naming Violations)
+**❌ 错误 (中文/空格)**: 
+- \`"name": "用户主题"\`
+- \`"name": "topic name"\`
+**✅ 修正 (纯英文)**: 
+- \`"name": "user_topic"\`
 
-## 3. 隐式变量依赖 (Implicit Dependency)
-**❌ 错误**: 在 LLM 节点引用了 \`{{Input.user_input}}\` 但 \`edges\` 中没有 \`Input -> LLM\` 的连线。
-**✅ 修正**: 只要引用了变量，**必须** 在 \`edges\` 数组中添加对应的连线。
+## 3. 数据流缺失 (Broken Data Flow)
+**❌ 错误 (引用了但没连线)**: 
+- 配置中使用了 \`{{A.res}}\`，但在 \`edges\` 中没有 \`A -> 当前节点\` 的连线。
+**✅ 修正**: 
+- 只要有引用，必须在 \`edges\` 中显式连线。
 
-## 4. 裸文件传递 (Raw File Pass-through)
-**❌ 错误**: 
-\`\`\`json
-{ "type": "llm", "data": { "inputMappings": { "user_input": "{{Input.files}}" } } }
-\`\`\`
-**✅ 修正**: LLM 无法直接读取文件列表。必须先经过 **RAG** 节点进行检索提取。
-\`\`\`json
-Input -> RAG (files: "{{Input.files}}") -> LLM (user_input: "{{RAG.documents}}")
-\`\`\`
+## 4. 节点使用不当 (Improper Node Usage)
+**❌ 错误 (文件直传 LLM)**: 
+- \`LLM.user_input = "{{Input.files}}"\`
+**✅ 修正 (RAG 中转)**: 
+- \`Input.files -> RAG -> LLM.context = "{{RAG.documents}}"\`
 
-## 5. 互斥分支合并 (Mutual Exclusivity Deadlock)
-**❌ 错误**: 将 Branch 节点的 \`true\` 和 \`false\` 两个分支同时连向同一个标准节点（如 LLM）。
-**✅ 修正**: 标准节点会等待所有入边信号。如果两条边互斥，该节点将永远无法执行（死锁）。请在 **Output** 节点汇聚，或复制下游节点。
+## 5. 模板逻辑违规 (Template Violation)
+**❌ 核心错误 (Handlebars 逻辑标签)**: 
+- \`{{#each items}}...{{/each}}\` - 循环语法
+- \`{{#if condition}}...{{/if}}\` - 条件语法
+**✅ 核心修正原则**: 
+- 复杂逻辑交给上游 LLM 节点处理
+- Output 节点仅做简单变量引用
+- 优先使用 direct/select/merge 模式
+
+## 6. 缺失 JSON 模式开关 (Missing JSON Switch)
+**❌ 错误 (Prompt 要求 JSON 但未开启开关)**: 
+- \`systemPrompt: "请输出 JSON 格式..."\` 且 **未设置** \`responseFormat: "json_object"\`。
+**✅ 修正**: 
+- 只要涉及结构化输出或引用，必须显式设置 \`responseFormat: "json_object"\`。
 `;

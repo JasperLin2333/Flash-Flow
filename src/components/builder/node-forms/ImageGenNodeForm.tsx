@@ -16,16 +16,25 @@ import { showError } from "@/utils/errorNotify";
 import { NODE_FORM_STYLES, type ExtendedNodeFormProps, CapabilityItem } from "./shared";
 import type { AppNode } from "@/types/flow";
 import { useImageGenModel } from "@/hooks/useImageGenModel";
-import { IMAGEGEN_CONFIG } from "@/store/constants/imageGenConstants";
+import { IMAGEGEN_CONFIG, IMAGEGEN_SIZE_NAMES } from "@/store/constants/imageGenConstants";
 import { ImageSlotUploader } from "./components/ImageSlotUploader";
 
 const STYLES = NODE_FORM_STYLES;
+
+function getSizeAspectValue(size: string | undefined | null): number | null {
+    if (!size) return null;
+    const [wRaw, hRaw] = String(size).split("x");
+    const w = Number(wRaw);
+    const h = Number(hRaw);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+    return w / h;
+}
 
 interface ImageGenNodeFormProps extends ExtendedNodeFormProps {
     selectedNode?: AppNode;
 }
 
-export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selectedNode }: ImageGenNodeFormProps) {
+export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selectedNode: _selectedNode }: ImageGenNodeFormProps) {
     const [isUploading, setIsUploading] = useState<Record<string, boolean>>({});
     const [localPreviews, setLocalPreviews] = useState<Record<string, string>>({});
     const fileInputRef1 = useRef<HTMLInputElement>(null);
@@ -36,7 +45,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
     // UI States for CapabilityItems
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [showNegativePrompt, setShowNegativePrompt] = useState(false);
-    const [showReferenceImage, setShowReferenceImage] = useState(false);
+    const [, setShowReferenceImage] = useState(false);
     
     // Initialize showNegativePrompt based on value existence
     useEffect(() => {
@@ -85,6 +94,63 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
         defaultValue: modelCapabilities.defaultSteps ?? 25,
     });
 
+    useEffect(() => {
+        if (modelCapabilities.supportsReferenceImage) {
+            setShowReferenceImage(true);
+        }
+    }, [modelCapabilities.supportsReferenceImage]);
+
+    useEffect(() => {
+        const currentSize = form.getValues("imageSize");
+        if (modelCapabilities.supportsImageSize === false) {
+            if (currentSize) {
+                form.setValue("imageSize", "", { shouldDirty: true });
+                if (updateNodeData && selectedNodeId) {
+                    updateNodeData(selectedNodeId, { imageSize: "" });
+                }
+            }
+            return;
+        }
+
+        const availableValues = new Set(sizeOptions.map((o) => o.value));
+        const defaultSize = sizeOptions[0]?.value || IMAGEGEN_CONFIG.DEFAULT_IMAGE_SIZE;
+
+        if (!currentSize) {
+            form.setValue("imageSize", defaultSize, { shouldDirty: true });
+            if (updateNodeData && selectedNodeId) {
+                updateNodeData(selectedNodeId, { imageSize: defaultSize });
+            }
+            return;
+        }
+
+        if (!availableValues.has(currentSize)) {
+            const currentRatioName = IMAGEGEN_SIZE_NAMES[currentSize] || null;
+
+            const sameRatioCandidate = currentRatioName
+                ? (sizeOptions.find((o) => IMAGEGEN_SIZE_NAMES[o.value] === currentRatioName)?.value || null)
+                : null;
+
+            const aspectCandidate = (() => {
+                const currentAspect = getSizeAspectValue(currentSize);
+                if (currentAspect == null) return null;
+                let best: { value: string; diff: number } | null = null;
+                for (const opt of sizeOptions) {
+                    const optAspect = getSizeAspectValue(opt.value);
+                    if (optAspect == null) continue;
+                    const diff = Math.abs(optAspect - currentAspect);
+                    if (!best || diff < best.diff) best = { value: opt.value, diff };
+                }
+                return best?.value || null;
+            })();
+
+            const nextSize = sameRatioCandidate || aspectCandidate || defaultSize;
+            form.setValue("imageSize", nextSize, { shouldDirty: true });
+            if (updateNodeData && selectedNodeId) {
+                updateNodeData(selectedNodeId, { imageSize: nextSize });
+            }
+        }
+    }, [form, modelCapabilities.supportsImageSize, selectedNodeId, sizeOptions, updateNodeData]);
+
     const currentQuality = useMemo(() => {
         return hookCalculateQuality(currentSteps);
     }, [currentSteps, hookCalculateQuality]);
@@ -108,7 +174,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                 updateNodeData(selectedNodeId, { numInferenceSteps: safeSteps });
             }
         }
-    }, [stepRange.min, stepRange.max, form, selectedNodeId, updateNodeData, hookCalculateSteps]);
+    }, [currentSteps, stepRange.min, stepRange.max, form, selectedNodeId, updateNodeData, hookCalculateSteps]);
 
     const currentCfgValue = useWatch({
         control: form.control,
@@ -124,7 +190,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                 updateNodeData(selectedNodeId, { cfg: safeCfg });
             }
         }
-    }, [cfgRange.min, cfgRange.max, modelCapabilities.defaultCfg, form, selectedNodeId, updateNodeData]);
+    }, [currentCfgValue, cfgRange.min, cfgRange.max, modelCapabilities.defaultCfg, form, selectedNodeId, updateNodeData]);
 
     const currentCfgQuality = useMemo(() => {
         return hookCalculateCfgQuality(currentCfgValue);
@@ -168,7 +234,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
         const slotKey = String(slotIndex);
 
         if (!file.type.startsWith("image/")) {
-            showError("文件类型错误", "请上传图片文件 (PNG, JPG, JPEG, WEBP)");
+            showError("文件类型错误", "请上传图片文件（PNG、JPG、JPEG、WEBP）");
             return;
         }
 
@@ -271,7 +337,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                     >
                                         <FormControl>
                                             <SelectTrigger className={STYLES.INPUT} disabled={modelsLoading}>
-                                                <SelectValue placeholder={modelsLoading ? "加载模型列表..." : "选择模型"}>
+                                                <SelectValue placeholder={modelsLoading ? "正在加载模型…" : "选择一个模型"}>
                                                     {field.value ? getModelDisplayName(field.value) : "选择模型"}
                                                 </SelectValue>
                                             </SelectTrigger>
@@ -303,7 +369,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                             <div className={STYLES.EDITOR_HEADER}>
                                 <div className={STYLES.EDITOR_LABEL}>
                                     <Palette className="w-3.5 h-3.5" />
-                                    Prompt
+                                    生成描述
                                 </div>
                                 <TooltipProvider>
                                     <Tooltip>
@@ -325,7 +391,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                             <FormControl>
                                 <Textarea
                                     {...field}
-                                    placeholder="描述希望智能体生成的画面内容..."
+                                    placeholder="描述你想生成的画面，支持 {{变量}} 引用…"
                                     className={STYLES.EDITOR_AREA}
                                     spellCheck={false}
                                 />
@@ -338,7 +404,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
 
             {/* 3. 生成选项 (Capabilities List) */}
             <div className="space-y-2">
-                <div className={STYLES.SECTION_TITLE}>智能体图像生成配置</div>
+                <div className={STYLES.SECTION_TITLE}>图像生成设置</div>
                 
                 <div className={`${STYLES.CARD} p-0 overflow-hidden divide-y divide-gray-100`}>
                     
@@ -351,7 +417,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                 <CapabilityItem
                                     icon={<MessageSquareX className="w-4 h-4" />}
                                     iconColorClass="bg-red-50 text-red-600"
-                                    title="排除元素设定"
+                                    title="排除元素"
                                     description="指定画面中不希望出现的元素"
                                     isExpanded={showNegativePrompt}
                                     rightElement={
@@ -369,7 +435,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                     <div className="pt-2 pb-1 pr-4">
                                         <Textarea
                                             {...field}
-                                            placeholder="例如：模糊，低质量，变形..."
+                                            placeholder="例如：模糊、低质量、变形…"
                                             className={STYLES.TEXTAREA}
                                         />
                                     </div>
@@ -399,7 +465,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                             >
                                                 <FormControl>
                                                     <SelectTrigger className="w-[140px] h-8 text-xs bg-white border-gray-200">
-                                                        <SelectValue placeholder="选择比例" />
+                                                        <SelectValue placeholder="选择尺寸" />
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
@@ -422,17 +488,18 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                         <CapabilityItem
                             icon={<ImagePlus className="w-4 h-4" />}
                             iconColorClass="bg-orange-50 text-orange-600"
-                            title="参考底图 (Image to Image)"
-                            description="上传或引用图片作为智能体生成的基准"
-                            isExpanded={showReferenceImage}
+                            title="参考图"
+                            description="上传或引用图片作为 AI 生成的参考"
+                            isExpanded={true}
                             rightElement={
                                 <div className="flex items-center gap-3">
                                     {Object.values(isUploading).some(Boolean) && (
                                         <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
                                     )}
                                     <Switch
-                                        checked={showReferenceImage}
-                                        onCheckedChange={setShowReferenceImage}
+                                        checked={true}
+                                        disabled={true}
+                                        onCheckedChange={() => {}}
                                     />
                                 </div>
                             }
@@ -453,7 +520,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                             : "text-gray-500 hover:text-gray-700"
                                             }`}
                                     >
-                                        变量引用
+                                        引用变量
                                     </button>
                                     <button
                                         type="button"
@@ -468,7 +535,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                             : "text-gray-500 hover:text-gray-700"
                                             }`}
                                     >
-                                        静态上传
+                                        上传图片
                                     </button>
                                 </div>
 
@@ -485,7 +552,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                                         <input
                                                             {...field}
                                                             value={field.value || ""}
-                                                            placeholder="{{节点.image_url}}"
+                                                            placeholder="{{节点名.imageUrl}}"
                                                             className={STYLES.VARIABLE_INPUT}
                                                         />
                                                     )}
@@ -513,7 +580,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                                             <input
                                                                 {...field}
                                                                 value={field.value || ""}
-                                                                placeholder="{{节点.image_url}}"
+                                                        placeholder="{{节点名.imageUrl}}"
                                                                 className={STYLES.VARIABLE_INPUT}
                                                             />
                                                         )}
@@ -544,7 +611,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                                     className={STYLES.ADD_BUTTON}
                                                 >
                                                     <span>+</span>
-                                                    添加副参考图
+                                                    添加参考图
                                                 </button>
                                             ) : null;
                                         })()}
@@ -592,7 +659,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                                     className={STYLES.ADD_BUTTON}
                                                 >
                                                     <span>+</span>
-                                                    添加副参考图
+                                                    添加参考图
                                                 </button>
                                             ) : null;
                                         })()}
@@ -629,7 +696,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                     <FormField
                                         control={form.control}
                                         name="cfg"
-                                        render={({ field }) => (
+                                        render={() => (
                                             <FormItem>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <span className={STYLES.SLIDER_LABEL}>创意系数 (CFG)</span>
@@ -658,7 +725,7 @@ export function ImageGenNodeForm({ form, selectedNodeId, updateNodeData, selecte
                                     <FormField
                                         control={form.control}
                                         name="numInferenceSteps"
-                                        render={({ field }) => (
+                                        render={() => (
                                             <FormItem>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <span className={STYLES.SLIDER_LABEL}>生成质量 (Steps)</span>

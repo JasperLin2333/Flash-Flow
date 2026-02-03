@@ -1,13 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useWatch } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { TrackedSwitch } from "@/components/ui/tracked-switch";
-import { BrainCircuit, Sparkles, Thermometer, Braces, MessageSquare, Bot } from "lucide-react";
+import { BrainCircuit, Thermometer, Braces, MessageSquare, Bot } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
 import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
@@ -63,7 +62,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                 <FormItem>
                     <FormLabel className={STYLES.LABEL}>节点名称</FormLabel>
                     <FormControl>
-                    <Input {...field} className={STYLES.INPUT} placeholder="给节点起个名字" />
+                    <Input {...field} className={STYLES.INPUT} placeholder="例如：生成摘要" />
                     </FormControl>
                     <FormMessage />
                 </FormItem>
@@ -75,7 +74,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                 name="model"
                 render={({ field }) => (
                 <FormItem>
-                    <FormLabel className={STYLES.LABEL}>选择模型</FormLabel>
+                    <FormLabel className={STYLES.LABEL}>模型</FormLabel>
                     {modelsError ? (
                     <div className="flex items-center gap-2 p-2 bg-red-50 rounded-lg border border-red-100">
                         <span className="text-xs text-red-500">{modelsError}</span>
@@ -95,7 +94,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                     >
                         <FormControl>
                         <SelectTrigger className={STYLES.INPUT} disabled={modelsLoading}>
-                            <SelectValue placeholder={modelsLoading ? "加载模型列表..." : "选择模型"} />
+                            <SelectValue placeholder={modelsLoading ? "正在加载模型…" : "选择一个模型"} />
                         </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -127,7 +126,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                 <div className={`${STYLES.EDITOR_HEADER} bg-indigo-50/50`}>
                     <div className={`${STYLES.EDITOR_LABEL} text-indigo-600`}>
                         <MessageSquare className="w-3.5 h-3.5" />
-                        User Prompt (用户指令)
+                        用户指令
                     </div>
                     <TooltipProvider>
                         <Tooltip>
@@ -150,7 +149,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                     <Textarea
                       {...field}
                       value={field.value || ""}
-                      placeholder="输入发送给智能体的具体指令，支持变量引用..."
+                      placeholder="写清楚要让 AI 做什么，支持 {{变量}} 引用…"
                       className={STYLES.EDITOR_AREA + " min-h-[100px]"}
                       spellCheck={false}
                     />
@@ -171,13 +170,13 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                 <div className={STYLES.EDITOR_HEADER}>
                     <div className={STYLES.EDITOR_LABEL}>
                         <Bot className="w-3.5 h-3.5" />
-                        System Prompt (人设与指令)
+                        系统提示词（角色与规则）
                     </div>
                 </div>
                 <FormControl>
                     <Textarea
                       {...field}
-                      placeholder="设定智能体的身份角色、行为准则和任务目标。例如：你是一位资深产品经理，请帮我分析..."
+                      placeholder="设定 AI 的角色与规则。例如：你是一位资深产品经理，请帮我分析…"
                       className={STYLES.EDITOR_AREA + " min-h-[80px] text-gray-600"}
                       spellCheck={false}
                     />
@@ -205,7 +204,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                         <CapabilityItem
                             icon={<Thermometer className="w-4 h-4" />}
                             iconColorClass="bg-indigo-50 text-indigo-600"
-                            title="创意度 (Temperature)"
+                            title="创意度（温度）"
                             description={`当前值: ${currentTemp.toFixed(1)} - ${currentTemp < 0.3 ? '严谨' : currentTemp > 0.7 ? '发散' : '平衡'}`}
                             isExpanded={true} // Always show slider
                             className="bg-white" // Override hover effect since it's static
@@ -238,7 +237,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                         icon={<BrainCircuit className="w-4 h-4" />}
                         iconColorClass="bg-violet-50 text-violet-600"
                         title="对话记忆"
-                        description="让 AI 记住上下文历史对话"
+                            description="让 AI 记住对话上下文"
                         isExpanded={field.value}
                         rightElement={
                             <TrackedSwitch
@@ -258,7 +257,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                                 return (
                                     <div className="pt-2 pb-1 pr-4">
                                         <div className="flex justify-between items-center mb-2">
-                                            <span className="text-xs text-gray-500 font-medium">记忆深度 (轮数)</span>
+                                            <span className="text-xs text-gray-500 font-medium">记忆轮数</span>
                                             <span className={STYLES.SLIDER_VALUE}>{currentTurns} 轮</span>
                                         </div>
                                         <Slider
@@ -289,8 +288,8 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                     <CapabilityItem
                         icon={<Braces className="w-4 h-4" />}
                         iconColorClass="bg-amber-50 text-amber-600"
-                        title="结构化输出 (JSON)"
-                        description="强制智能体以 JSON 格式回复"
+                        title="结构化输出（JSON）"
+                        description="让 AI 以 JSON 格式输出"
                         isExpanded={field.value === 'json_object'}
                         rightElement={
                             <TrackedSwitch
@@ -302,7 +301,7 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                         }
                     >
                         <div className="p-3 bg-amber-50/50 rounded-lg border border-amber-100/50 text-[11px] text-amber-700 leading-relaxed">
-                            ⚠️ 开启此模式时，请务必在<b>系统提示词</b>中明确要求 AI <b>“以 JSON 格式输出”</b>，否则模型可能会报错或输出空内容。
+                            ⚠️ 开启后，请在<b>系统提示词</b>里明确要求 AI <b>“只输出 JSON”</b>，否则可能出现输出不完整或解析失败。
                         </div>
                     </CapabilityItem>
                 )}

@@ -1,15 +1,106 @@
 import { nanoid } from "nanoid";
-import type { AppNode, AppEdge, AppNodeData, NodeKind } from "@/types/flow";
+import type { AppNode, AppEdge, AppNodeData, NodeKind, OutputInputMappings, OutputMode, ContentSource, AttachmentSource } from "@/types/flow";
 import type { Plan, PlanNode, PlanEdge, PlanNodeData } from "@/types/plan";
+import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
+import { DEFAULT_TOOL_TYPE } from "@/lib/tools/registry";
+import { ensureBranchHandles } from "@/lib/branchHandleUtils";
 
 // Helper to extract property from data or node root
 function getProp<T>(node: PlanNode, data: PlanNodeData, key: keyof PlanNodeData): T | undefined {
     return (data?.[key] ?? (node as any)?.[key]) as T | undefined;
 }
 
+function isNonNullObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
+function normalizeOutputMode(value: unknown): OutputMode | undefined {
+    if (value === "direct" || value === "select" || value === "merge" || value === "template") return value;
+    return undefined;
+}
+
+function normalizeContentSources(raw: unknown): ContentSource[] | undefined {
+    if (!raw) return undefined;
+    if (typeof raw === "string") {
+        const v = raw.trim();
+        return v ? [{ type: "variable", value: v }] : undefined;
+    }
+    if (Array.isArray(raw)) {
+        const sources: ContentSource[] = [];
+        for (const item of raw) {
+            if (typeof item === "string") {
+                const v = item.trim();
+                if (v) sources.push({ type: "variable", value: v });
+                continue;
+            }
+            if (!isNonNullObject(item)) continue;
+            const type = item.type === "static" ? "static" : "variable";
+            const value = typeof item.value === "string" ? item.value : "";
+            const label = typeof item.label === "string" ? item.label : undefined;
+            if (value.trim()) sources.push({ type, value, label });
+        }
+        return sources.length > 0 ? sources : undefined;
+    }
+    return undefined;
+}
+
+function normalizeAttachments(raw: unknown): AttachmentSource[] | undefined {
+    if (!raw) return undefined;
+    if (typeof raw === "string") {
+        const v = raw.trim();
+        return v ? [{ type: "variable", value: v }] : undefined;
+    }
+    if (Array.isArray(raw)) {
+        const attachments: AttachmentSource[] = [];
+        for (const item of raw) {
+            if (typeof item === "string") {
+                const v = item.trim();
+                if (v) attachments.push({ type: "variable", value: v });
+                continue;
+            }
+            if (!isNonNullObject(item)) continue;
+            const type = item.type === "static" ? "static" : "variable";
+            const value = typeof item.value === "string" ? item.value : "";
+            if (value.trim()) attachments.push({ type, value });
+        }
+        return attachments.length > 0 ? attachments : undefined;
+    }
+    return undefined;
+}
+
+function normalizeOutputInputMappings(raw: unknown): OutputInputMappings | undefined {
+    if (!isNonNullObject(raw)) return undefined;
+
+    const mode = normalizeOutputMode(raw.mode);
+    const sources = normalizeContentSources(raw.sources);
+    const template = typeof raw.template === "string" ? raw.template : undefined;
+    const attachments = normalizeAttachments(raw.attachments);
+
+    const inferredMode: OutputMode | undefined =
+        mode ||
+        (typeof template === "string" && template.trim() ? "template" : sources ? "select" : undefined);
+
+    if (!inferredMode) return undefined;
+
+    const result: OutputInputMappings = { mode: inferredMode };
+    if (sources) result.sources = sources;
+    if (typeof template === "string" && template.trim()) result.template = template;
+    if (attachments) result.attachments = attachments;
+    return result;
+}
+
 function normalizeInputNode(node: PlanNode, data: PlanNodeData, label: string): AppNodeData {
     const enableFileInput = getProp<boolean>(node, data, 'enableFileInput') ?? false;
     const enableStructuredForm = getProp<boolean>(node, data, 'enableStructuredForm') ?? false;
+    const enableTextInput = getProp<boolean>(node, data, 'enableTextInput') ?? true;
+
+    const toVariableSlug = (text: string) =>
+        String(text || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "_")
+            .replace(/_+/g, "_")
+            .replace(/^_+|_+$/g, "");
 
     // Handle file config
     let fileConfig = getProp<PlanNodeData['fileConfig']>(node, data, 'fileConfig');
@@ -31,23 +122,52 @@ function normalizeInputNode(node: PlanNode, data: PlanNodeData, label: string): 
     }
 
     // Handle form fields
-    let formFields = getProp<PlanNodeData['formFields']>(node, data, 'formFields') || [];
-    if (enableStructuredForm && formFields.length === 0) {
-        formFields = [{
-            id: `field_${Date.now()}`,
-            type: 'text',
-            label: '参数',
-            required: false,
-        }];
-    }
+    const rawFormFields = getProp<PlanNodeData['formFields']>(node, data, 'formFields') || [];
+    const normalizedFormFields = (Array.isArray(rawFormFields) ? rawFormFields : [])
+        .map((f: any, idx: number) => {
+            const fieldType = String(f?.type || "text");
+            const fieldLabel = String(f?.label || `字段${idx + 1}`);
+            const baseName = String(f?.name || toVariableSlug(fieldLabel));
+            const name = baseName ? baseName : `field_${nanoid(6)}`;
+            const required = Boolean(f?.required);
+
+            if (fieldType === "select") {
+                const options = Array.isArray(f?.options) && f.options.length > 0 ? f.options.map(String) : ["选项1", "选项2"];
+                const defaultValue = typeof f?.defaultValue === "string" ? f.defaultValue : options[0];
+                return { type: "select", name, label: fieldLabel, options, required, defaultValue };
+            }
+
+            if (fieldType === "multi-select") {
+                const options = Array.isArray(f?.options) && f.options.length > 0 ? f.options.map(String) : ["选项1", "选项2"];
+                const defaultValue = Array.isArray(f?.defaultValue) ? f.defaultValue.map(String) : [];
+                return { type: "multi-select", name, label: fieldLabel, options, required, defaultValue };
+            }
+
+            return {
+                type: "text",
+                name,
+                label: fieldLabel,
+                placeholder: typeof f?.placeholder === "string" ? f.placeholder : undefined,
+                required,
+                defaultValue: typeof f?.defaultValue === "string" ? f.defaultValue : undefined,
+            };
+        })
+        .filter((f: any) => f && typeof f.name === "string" && f.name.length > 0);
+
+    const formFields =
+        enableStructuredForm && normalizedFormFields.length === 0
+            ? [{ type: "text", name: `field_${nanoid(6)}`, label: "参数", required: false, defaultValue: "" }]
+            : normalizedFormFields;
 
     return {
         label,
         status: "idle",
         text: String(getProp<string>(node, data, 'text') || ""),
-        enableTextInput: getProp<boolean>(node, data, 'enableTextInput') ?? true,
+        enableTextInput,
+        textRequired: enableTextInput ? (getProp<boolean>(node, data, 'textRequired') === true) : false,
         enableFileInput,
         enableStructuredForm,
+        fileRequired: enableFileInput ? (getProp<boolean>(node, data, 'fileRequired') === true) : false,
         fileConfig,
         formFields,
         greeting: String(getProp<string>(node, data, 'greeting') || ""),
@@ -55,38 +175,49 @@ function normalizeInputNode(node: PlanNode, data: PlanNodeData, label: string): 
 }
 
 function normalizeLLMNode(node: PlanNode, data: PlanNodeData, label: string): AppNodeData {
-    // 获取 inputMappings，如果没有则使用默认值
-    const inputMappings = getProp<Record<string, string>>(node, data, 'inputMappings') || {
-        user_input: '{{user_input}}'  // 默认引用上游的 user_input
-    };
+    const inputMappingsRaw = getProp<Record<string, string>>(node, data, 'inputMappings');
+    const inputMappings =
+        inputMappingsRaw && typeof inputMappingsRaw === "object" && !Array.isArray(inputMappingsRaw)
+            ? inputMappingsRaw
+            : undefined;
 
     return {
         label,
         status: "idle",
-        model: String(getProp<string>(node, data, 'model') || "qwen-flash"),
-        temperature: typeof getProp<number>(node, data, 'temperature') === "number" ? getProp<number>(node, data, 'temperature') : 0.7,
+        model: String(getProp<string>(node, data, 'model') || LLM_EXECUTOR_CONFIG.DEFAULT_MODEL),
+        temperature: typeof getProp<number>(node, data, 'temperature') === "number" ? getProp<number>(node, data, 'temperature') : LLM_EXECUTOR_CONFIG.DEFAULT_TEMPERATURE,
         systemPrompt: String(getProp<string>(node, data, 'systemPrompt') || ""),
-        enableMemory: getProp<boolean>(node, data, 'enableMemory') ?? false,
-        memoryMaxTurns: getProp<number>(node, data, 'memoryMaxTurns') ?? 10,
-        responseFormat: getProp<string>(node, data, 'responseFormat') as 'text' | 'json_object' | undefined,
+        enableMemory: getProp<boolean>(node, data, 'enableMemory') ?? LLM_EXECUTOR_CONFIG.DEFAULT_MEMORY_ENABLED,
+        memoryMaxTurns: getProp<number>(node, data, 'memoryMaxTurns') ?? LLM_EXECUTOR_CONFIG.DEFAULT_MEMORY_MAX_TURNS,
+        responseFormat: (getProp<string>(node, data, 'responseFormat') as 'text' | 'json_object' | undefined) ?? LLM_EXECUTOR_CONFIG.DEFAULT_RESPONSE_FORMAT,
         inputMappings,
     } as AppNodeData;
 }
 
 function normalizeRAGNode(node: PlanNode, data: PlanNodeData, label: string): AppNodeData {
     const filesRaw = getProp<PlanNodeData['files']>(node, data, 'files') || [];
-    const processedFiles = (Array.isArray(filesRaw) ? filesRaw : []).map((f) =>
+    const processFiles = (raw: unknown) =>
+        (Array.isArray(raw) ? raw : []).map((f: any) =>
         typeof f === "string"
             ? { name: f }
             : { name: String(f.name || "文件"), size: f.size, type: f.type, url: f.url }
     );
+    const processedFiles = processFiles(filesRaw);
+    const processedFiles2 = processFiles(getProp<any>(node, data, 'files2' as any) || []);
+    const processedFiles3 = processFiles(getProp<any>(node, data, 'files3' as any) || []);
+    const fileSearchStoreNameRaw = getProp<string>(node, data, 'fileSearchStoreName' as any);
+    const fileSearchStoreIdRaw = getProp<string>(node, data, 'fileSearchStoreId' as any);
     return {
         label,
         status: "idle",
         files: processedFiles,
+        files2: processedFiles2,
+        files3: processedFiles3,
         fileMode: getProp<string>(node, data, 'fileMode') as 'variable' | 'static' | undefined,
+        fileSearchStoreName: typeof fileSearchStoreNameRaw === "string" && fileSearchStoreNameRaw.trim() ? fileSearchStoreNameRaw : undefined,
+        fileSearchStoreId: typeof fileSearchStoreIdRaw === "string" && fileSearchStoreIdRaw.trim() ? fileSearchStoreIdRaw : undefined,
         maxTokensPerChunk: getProp<number>(node, data, 'maxTokensPerChunk') ?? 200,
-        maxOverlapTokens: getProp<number>(node, data, 'maxOverlapTokens') ?? 50,
+        maxOverlapTokens: getProp<number>(node, data, 'maxOverlapTokens') ?? 20,
         inputMappings: getProp<Record<string, string>>(node, data, 'inputMappings') || {},
     } as AppNodeData;
 }
@@ -95,7 +226,7 @@ function normalizeToolNode(node: PlanNode, data: PlanNodeData, label: string): A
     return {
         label,
         status: "idle",
-        toolType: String(getProp<string>(node, data, 'toolType') || "web_search"),
+        toolType: String(getProp<string>(node, data, 'toolType') || DEFAULT_TOOL_TYPE),
         inputs: getProp<Record<string, unknown>>(node, data, 'inputs') || {},
     } as AppNodeData;
 }
@@ -180,10 +311,11 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
                 data = normalizeRAGNode(rn, d, label);
                 break;
             case "branch":
+                const rawCondition = String(getProp<string>(rn, d, 'condition') || "");
                 data = {
                     label,
                     status: "idle",
-                    condition: String(getProp<string>(rn, d, 'condition') || ""),
+                    condition: rawCondition.trim() ? rawCondition : "true",
                 } as AppNodeData;
                 break;
             case "tool":
@@ -193,11 +325,15 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
                 data = normalizeImageGenNode(rn, d, label);
                 break;
             case "output":
+                const inputMappingsRaw = getProp<unknown>(rn, d, 'inputMappings');
+                const inputMappings = normalizeOutputInputMappings(inputMappingsRaw) || {
+                    mode: "select",
+                    sources: [{ type: "variable", value: "{{response}}" }],
+                };
                 data = {
                     label,
                     status: "idle",
-                    text: String(getProp<string>(rn, d, 'text') || ""),
-                    inputMappings: getProp<Record<string, string>>(rn, d, 'inputMappings') || {},
+                    inputMappings,
                 } as AppNodeData;
                 break;
             default:
@@ -298,6 +434,6 @@ export function normalizePlan(plan: Plan, prompt: string): { nodes: AppNode[]; e
         }
     }
 
-    return { nodes, edges };
+    const ensured = ensureBranchHandles(nodes, edges);
+    return { nodes, edges: ensured.edges };
 }
-

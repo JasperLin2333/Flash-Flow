@@ -17,7 +17,6 @@ export interface BaseNodeFormProps {
      * react-hook-form 表单实例
      * 使用 any 类型是因为父组件使用多态表单 schema，包含多种节点类型的字段
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     form: UseFormReturn<any>;
 }
 

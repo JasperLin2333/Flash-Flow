@@ -20,7 +20,7 @@ interface QuotaStore {
     clearQuota: () => void;
 }
 
-export const useQuotaStore = create<QuotaStore>((set, get) => ({
+export const useQuotaStore = create<QuotaStore>((set) => ({
     // Initial State
     quota: null,
     isLoading: false,
@@ -64,7 +64,7 @@ export const useQuotaStore = create<QuotaStore>((set, get) => ({
             }
 
             return false;
-        } catch (e) {
+        } catch {
             return false;
         }
     },
@@ -76,7 +76,7 @@ export const useQuotaStore = create<QuotaStore>((set, get) => ({
             if (quota) {
                 set({ quota });
             }
-        } catch (e) {
+        } catch {
             // Silently fail
         }
     },

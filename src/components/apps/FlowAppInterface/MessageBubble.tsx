@@ -1,4 +1,4 @@
-import { useState, useCallback, memo, useEffect } from "react";
+import { useState, useCallback, memo } from "react";
 import { createPortal } from "react-dom";
 import { User, Copy, Check, Eye, Download, X, Brain, ChevronDown, ChevronUp } from "lucide-react";
 import { AppIcon } from "./AppIcon";
@@ -70,7 +70,7 @@ export const MessageBubble = memo(function MessageBubble({ role, content, reason
             a.click();
             document.body.removeChild(a);
             window.URL.revokeObjectURL(blobUrl);
-        } catch (error) {
+        } catch {
             // Fallback: open in new tab
             window.open(url, "_blank");
         }

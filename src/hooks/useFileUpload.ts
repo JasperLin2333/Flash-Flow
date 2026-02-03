@@ -9,7 +9,7 @@
  * - Separate from useImageUpload which is specialized for ImageGen slots
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { fileUploadService } from "@/services/fileUploadService";
 import { validateFileType } from "@/utils/fileUtils";
 
@@ -70,8 +70,11 @@ export function useFileUpload(
     config?: FileUploadConfig
 ): UseFileUploadResult {
     const [isUploading, setIsUploading] = useState(false);
-    const mergedConfig = { ...DEFAULT_CONFIG, ...config };
-    const maxSizeBytes = mergedConfig.maxSizeMB * 1024 * 1024;
+    const mergedConfig = useMemo(() => ({ ...DEFAULT_CONFIG, ...config }), [config]);
+    const maxSizeBytes = useMemo(
+        () => mergedConfig.maxSizeMB * 1024 * 1024,
+        [mergedConfig.maxSizeMB]
+    );
 
     const validateFiles = useCallback((
         files: File[],

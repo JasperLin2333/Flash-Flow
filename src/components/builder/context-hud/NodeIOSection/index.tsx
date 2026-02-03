@@ -1,6 +1,6 @@
 "use client";
 import React, { useState } from "react";
-import { Settings, Workflow, ArrowRightLeft } from "lucide-react";
+import { ArrowRightLeft } from "lucide-react";
 import type { OutputInputMappings } from "@/types/flow";
 import type { NodeIOSectionProps } from "../types";
 import { OutputNodeConfig } from "../OutputNodeConfig";
@@ -80,17 +80,18 @@ export function NodeIOSection({
                     )}
 
                     {/* 1. 参数配置（用户手动配置，不包括 output 节点和 tool 节点） */}
-                    {!isEntryNode && nodeType !== 'output' && nodeType !== 'tool' && upstreamInputs.length > 0 && (
+                    {!isEntryNode &&
+                        nodeType !== 'output' &&
+                        nodeType !== 'tool' &&
+                        nodeType !== 'llm' &&
+                        nodeType !== 'rag' &&
+                        upstreamInputs.length > 0 && (
                         <UpstreamInputsSection
                             nodeType={nodeType}
                             nodeData={nodeData}
                             upstreamInputs={upstreamInputs}
                             onUpdateToolInputs={onUpdateToolInputs}
                             onUpdateInputMappings={onUpdateInputMappings}
-                            hiddenFields={
-                                nodeType === 'llm' ? ['user_input'] :
-                                nodeType === 'rag' ? ['query'] : []
-                            }
                         />
                     )}
 

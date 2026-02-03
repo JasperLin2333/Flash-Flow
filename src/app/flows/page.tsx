@@ -101,12 +101,12 @@ function FlowsPageContent() {
           <h1 className="text-[22px] font-semibold text-black">我的智能体</h1>
           <div className="flex items-center gap-3">
             <div className="relative">
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="查找我的智能体..." className="w-[240px] pl-8 shadow-sm" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="查找我的智能体…" className="w-[240px] pl-8 shadow-sm" />
               <SearchIcon className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
             </div>
             <Button className="bg-gray-100 text-gray-700 hover:bg-gray-200 gap-2 rounded-lg px-6 h-11 disabled:opacity-50" onClick={handleCreateFlow} disabled={isCreating}>
               {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              {isCreating ? "创建中..." : "创建新智能体"}
+              {isCreating ? "创建中…" : "创建新智能体"}
             </Button>
             <Button className="bg-black text-white hover:bg-black/90 gap-2 rounded-lg px-6 h-11" onClick={() => router.push("/")}>
               <Home className="w-4 h-4" /> 返回首页
@@ -134,7 +134,7 @@ function FlowsPageContent() {
           <div className="flex items-center justify-center py-24">
             <div className="text-center">
               <Loader2 className="w-8 h-8 animate-spin text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500 text-sm">加载中...</p>
+              <p className="text-gray-500 text-sm">加载中…</p>
             </div>
           </div>
         )}

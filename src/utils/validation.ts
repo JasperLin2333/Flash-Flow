@@ -11,6 +11,7 @@ const NODE_TYPES: readonly NodeKind[] = ["input", "llm", "rag", "output", "branc
 export const PlanRequestSchema = z.object({
     prompt: z.string().min(1, "Prompt cannot be empty").max(1000, "Prompt is too long"),
     ownerId: z.string().optional(), // We will ignore this in the backend and use the auth user instead
+    skipAutomatedValidation: z.boolean().optional(),
 });
 
 export const NodeSchema = z.object({
@@ -27,6 +28,8 @@ export const EdgeSchema = z.object({
     id: z.string(),
     source: z.string(),
     target: z.string(),
+    sourceHandle: z.string().nullable().optional(),
+    targetHandle: z.string().nullable().optional(),
 });
 
 export const FlowDataSchema = z.object({

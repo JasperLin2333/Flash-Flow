@@ -27,7 +27,7 @@ export const DEFAULT_FILE_CONFIG: FileInputConfig = {
 // ============ Types ============
 // Note: form uses 'any' for consistency with other node forms that share a common form schema
 export interface InputNodeFormProps {
-    form: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    form: any;
     selectedNodeId?: string;
     updateNodeData?: (id: string, data: Partial<InputNodeData>) => void;
 }
@@ -98,7 +98,7 @@ export function createFieldOfType(
             type: "text",
             name: currentField.name,
             label: currentField.label,
-            placeholder: "请输入...",
+            placeholder: "请输入…",
             required: currentField.required,
             defaultValue: "",
         } as TextFieldConfig;

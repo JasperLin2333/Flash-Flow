@@ -1,5 +1,30 @@
 import type { ToolExecutionResult } from "../types";
 
+function buildWebSearchContent(results: unknown[]): string {
+    const blocks: string[] = [];
+
+    results.forEach((r, idx) => {
+        if (!r || typeof r !== "object") return;
+        const rec = r as Record<string, unknown>;
+
+        const title = typeof rec.title === "string" ? rec.title.trim() : "";
+        const url = typeof rec.url === "string" ? rec.url.trim() : "";
+        const rawText =
+            (typeof rec.content === "string" ? rec.content : "") ||
+            (typeof rec.snippet === "string" ? rec.snippet : "") ||
+            (typeof rec.summary === "string" ? rec.summary : "");
+
+        const text = typeof rawText === "string" ? rawText.trim() : "";
+        const clipped = text.length > 1200 ? `${text.slice(0, 1200)}...` : text;
+
+        const header = title ? `${idx + 1}. ${title}` : `${idx + 1}.`;
+        const lines = [header, url, clipped].filter(Boolean);
+        if (lines.length > 0) blocks.push(lines.join("\n"));
+    });
+
+    return blocks.join("\n\n");
+}
+
 /**
  * Execute Web Search using Tavily API (direct HTTP call)
  */
@@ -34,13 +59,15 @@ export async function executeWebSearch(inputs: { query: string; maxResults?: num
         }
 
         const data = await response.json();
+        const results = Array.isArray((data as any)?.results) ? (data as any).results : [];
 
         return {
             success: true,
             data: {
                 query: inputs.query,
-                results: data.results || [],
-                count: (data.results || []).length,
+                content: buildWebSearchContent(results),
+                results,
+                count: results.length,
             },
         };
     } catch (error) {

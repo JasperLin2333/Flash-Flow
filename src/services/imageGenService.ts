@@ -1,6 +1,5 @@
 
 import { authService } from "./authService";
-import { ImageGenModelCapabilities } from "./imageGenModelsAPI";
 
 export interface GenerateImageParams {
     model: string;

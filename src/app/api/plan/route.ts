@@ -4,15 +4,18 @@ import { PlanRequestSchema } from "@/utils/validation";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
 import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
-import { CORE_RULES, PLAN_PROMPT, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES, FLOW_EXAMPLES, NEGATIVE_EXAMPLES } from "@/lib/prompts";
-import { WorkflowZodSchema } from "@/lib/schemas/workflow";
+import { CORE_RULES, PLAN_PROMPT, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES, FULL_EXAMPLES } from "@/lib/prompts";
 import { extractBalancedJson, validateWorkflow } from "@/lib/agent/utils";
+import { ensureInputOutputNodesAndEdges } from "@/lib/flowUtils";
+import { validateGeneratedWorkflowV1_2 } from "@/lib/agent/generatedWorkflowValidatorV1";
+import { deterministicFixWorkflowV1 } from "@/lib/agent/deterministicFixerV1";
 
 // ============ 兜底策略配置 ============
 const FALLBACK_MODEL = "gemini-3-pro-preview"; // 备选模型 (视觉+文本)
 const OFFICIAL_MODEL = "deepseek-chat"; // 官方 DeepSeek 降级
 const MAX_RETRIES = 2; // 每个模型最大重试次数
 const RETRY_DELAY_MS = 1000; // 重试延迟
+const TIMEOUT_GENERATION_MS = 60000;
 
 /** 延迟函数 */
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -20,7 +23,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 /** 判断是否应该重试（可恢复性错误） */
 function shouldRetry(error: unknown): boolean {
   const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  // 超时、速率限制、服务暂时不可用 → 重试
+  // 超时、速率限制、服务暂时不可用、JSON解析失败 → 重试
   return msg.includes("timeout") ||
     msg.includes("rate limit") ||
     msg.includes("429") ||
@@ -28,7 +31,9 @@ function shouldRetry(error: unknown): boolean {
     msg.includes("502") ||
     msg.includes("network") ||
     msg.includes("econnreset") ||
-    msg.includes("fetch failed");
+    msg.includes("fetch failed") ||
+    msg.includes("json") ||
+    msg.includes("parse");
 }
 
 /** 判断是否应该切换到备选模型 */
@@ -40,7 +45,6 @@ function shouldFallback(error: unknown): boolean {
     msg.includes("invalid model") ||
     msg.includes("unsupported");
 }
-
 
 export async function POST(req: Request) {
   // Clone request for quota operations
@@ -68,7 +72,8 @@ export async function POST(req: Request) {
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
-    const { prompt } = parseResult.data;
+    const { prompt, skipAutomatedValidation } = parseResult.data;
+    const shouldSkipAutomatedValidation = skipAutomatedValidation === true;
 
     // 2. Early return for empty prompt
     if (!prompt.trim()) {
@@ -98,9 +103,7 @@ ${VARIABLE_RULES}
 
 ${EDGE_RULES}
 
-${FLOW_EXAMPLES}
-
-${NEGATIVE_EXAMPLES}
+${FULL_EXAMPLES}
 `;
 
     const userMsg = [
@@ -144,26 +147,31 @@ ${NEGATIVE_EXAMPLES}
                 baseURL: config.baseURL
               });
 
-              const completion = await client.chat.completions.create({
-                model: currentModel,
-                temperature: 0.2,
-                messages: [
-                  { role: "system", content: system },
-                  { role: "user", content: userMsg },
-                ],
-                stream: true,
-                response_format: { type: "json_object" },
-              });
-
+              const abortController = new AbortController();
+              let timeoutId: ReturnType<typeof setTimeout> | null = null;
               let fullContent = "";
+              try {
+                timeoutId = setTimeout(() => abortController.abort(), TIMEOUT_GENERATION_MS);
+                const completion = await client.chat.completions.create({
+                  model: currentModel,
+                  temperature: 0.2,
+                  messages: [
+                    { role: "system", content: system },
+                    { role: "user", content: userMsg },
+                  ],
+                  stream: true,
+                  response_format: { type: "json_object" },
+                }, { signal: abortController.signal });
 
-              // Send progress updates to keep connection alive
-              for await (const chunk of completion) {
-                const content = chunk.choices?.[0]?.delta?.content || "";
-                if (content) {
-                  fullContent += content;
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "progress", content })}\n\n`));
+                for await (const chunk of completion) {
+                  const content = chunk.choices?.[0]?.delta?.content || "";
+                  if (content) {
+                    fullContent += content;
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "progress", content })}\n\n`));
+                  }
                 }
+              } finally {
+                if (timeoutId) clearTimeout(timeoutId);
               }
 
               // Parse the complete response
@@ -174,7 +182,7 @@ ${NEGATIVE_EXAMPLES}
               let plan: { title?: string; nodes?: unknown; edges?: unknown } = {};
               try {
                 plan = JSON.parse(jsonText) as { title?: string; nodes?: unknown; edges?: unknown };
-              } catch (parseError) {
+              } catch {
                 // JSON 解析失败，可能需要重试
                 lastError = new Error("Failed to parse LLM response as JSON");
                 if (shouldRetry(lastError) && attempt < MAX_RETRIES - 1) {
@@ -185,27 +193,49 @@ ${NEGATIVE_EXAMPLES}
               }
 
               const title = plan?.title || prompt.slice(0, 20);
-              const nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
-              const edges = Array.isArray(plan?.edges) ? plan.edges : [];
+              let nodes = Array.isArray(plan?.nodes) ? plan.nodes : [];
+              let edges = Array.isArray(plan?.edges) ? plan.edges : [];
+              let finalNodes = nodes;
 
-              // 检查逻辑有效性 (使用共享校验逻辑)
-              const validation = validateWorkflow(nodes, edges);
-
-              if (!validation.valid && !validation.softPass) {
-                lastError = new Error(`Validation failed: ${validation.errors.join("; ")}`);
-                if (attempt < MAX_RETRIES - 1) {
-                  continue; // 重试
-                }
-                break; // 切换模型
+              const reportBefore = validateGeneratedWorkflowV1_2(nodes, edges);
+              const enableReport = process.env.FLOW_VALIDATION_REPORT_ENABLED === "true";
+              const enableSafeFix = process.env.FLOW_VALIDATION_SAFE_FIX_ENABLED === "true";
+              if (enableReport && reportBefore.hardErrors.length > 0) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "validation", hardErrors: reportBefore.hardErrors, warnings: reportBefore.warnings })}\n\n`));
               }
 
-              // Use healed nodes if available
-              const finalNodes = validation.fixedNodes || nodes;
-
-              if (validation.warnings && validation.warnings.length > 0) {
-                if (process.env.NODE_ENV === 'development') {
-                  console.log("[QuickMode] Auto-healed variables:", validation.warnings);
+              if (enableSafeFix && reportBefore.hardErrors.length > 0) {
+                const includeIoInDeterministicFix = process.env.FLOW_DETERMINISTIC_FIX_INCLUDE_IO === "true";
+                const fixResult = deterministicFixWorkflowV1(nodes, edges, {
+                  includeInputOutput: includeIoInDeterministicFix,
+                  safeFixOptions: {
+                    removeInvalidEdges: process.env.FLOW_SAFE_FIX_REMOVE_INVALID_EDGES !== "false",
+                    dedupeEdges: process.env.FLOW_SAFE_FIX_DEDUPE_EDGES !== "false",
+                    ensureEdgeIds: process.env.FLOW_SAFE_FIX_ENSURE_EDGE_IDS !== "false",
+                    replaceVariableIdPrefixToLabel: process.env.FLOW_SAFE_FIX_ID_TO_LABEL !== "false",
+                  }
+                });
+                const reportAfter = validateGeneratedWorkflowV1_2(fixResult.nodes, fixResult.edges);
+                if (reportAfter.hardErrors.length < reportBefore.hardErrors.length) {
+                  nodes = fixResult.nodes;
+                  edges = fixResult.edges;
+                  finalNodes = nodes;
+                  if (enableReport) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "validation_fix", fixes: fixResult.fixes, before: reportBefore.hardErrors.length, after: reportAfter.hardErrors.length })}\n\n`));
+                  }
+                } else if (enableReport && fixResult.fixes.length > 0) {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "validation_fix", fixes: [], before: reportBefore.hardErrors.length, after: reportAfter.hardErrors.length, skipped: true })}\n\n`));
                 }
+              }
+
+              if (!shouldSkipAutomatedValidation) {
+                const ensured = ensureInputOutputNodesAndEdges(nodes, edges);
+                nodes = ensured.nodes;
+                edges = ensured.edges;
+
+                const validation = validateWorkflow(nodes, edges);
+                finalNodes = validation.fixedNodes || nodes;
+                edges = validation.fixedEdges || edges;
               }
 
               // 成功！发送结果

@@ -142,6 +142,17 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       // Merge mockData from argument and context
       const effectiveMockData = mockData || (context.mock as Record<string, unknown>);
 
+      const mockModeRaw = (effectiveMockData as any)?.__ff_mock_mode;
+      const isMockMode = mockModeRaw === true || mockModeRaw === "true" || mockModeRaw === 1 || mockModeRaw === "1";
+      if (isMockMode) {
+        const responseValue = (effectiveMockData as any)?.__ff_mock_response;
+        const reasoningValue = (effectiveMockData as any)?.__ff_mock_reasoning;
+        const response = typeof responseValue === "string" ? responseValue : "";
+        const reasoning = typeof reasoningValue === "string" ? reasoningValue : "";
+        const output: Record<string, unknown> = reasoning.trim().length > 0 ? { response, reasoning } : { response };
+        return { output, executionTime: 0 };
+      }
+
       // Quota check - always check, including debug mode
       const quotaError = await this.checkQuota((node.data as LLMNodeData).model);
       if (quotaError) {
@@ -206,12 +217,8 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
         // 4. 执行 LLM 请求
         try {
           const {
-            appendStreamingText,
             clearStreaming,
-            resetStreamingAbort,
-            appendToSegment,
-            completeSegment,
-            tryLockSource
+            resetStreamingAbort
           } = storeState;
 
           if (shouldStream) {
@@ -232,13 +239,10 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
 
           let fullResponse = "";
           let fullReasoning = "";
-          let finalUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null = null;
-
           for (let attempt = 0; attempt <= maxRetries; attempt++) {
             // Reset buffers for this attempt
             fullResponse = "";
             fullReasoning = "";
-            finalUsage = null;
 
             if (shouldStream && streamMode === 'single' && attempt > 0) {
                // On retry, clear previous partial streaming output
@@ -293,6 +297,10 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
                         throw new Error(`Stream read failed: ${errorMessage}`);
                     }
 
+                    if (!readResult) {
+                        throw new Error("Stream read failed: readResult is undefined");
+                    }
+
                     const { done, value } = readResult;
                     if (done) break;
 
@@ -306,8 +314,6 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
 
                             try {
                                 const parsed = JSON.parse(data);
-
-                                if (parsed.usage) finalUsage = parsed.usage;
 
                                 if (parsed.reasoning) {
                                     const reasoningStr = String(parsed.reasoning);
@@ -383,23 +389,13 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
           }
 
           // 7. JSON 自动探测与解析
-          // 当 responseFormat 为 json_object 或响应内容看起来像 JSON 时，尝试解析
-          let finalResponse: string | object = fullResponse;
-          const trimmed = fullResponse.trim();
-          const looksLikeJson =
-            (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-            (trimmed.startsWith('[') && trimmed.endsWith(']'));
-
-          if (llmData.responseFormat === 'json_object' || looksLikeJson) {
-            try {
-              finalResponse = JSON.parse(trimmed);
-            } catch {
-              // 解析失败，保持为字符串（静默降级）
-            }
+          const parsed = this.parseFinalResponse(fullResponse, llmData.responseFormat);
+          if (parsed.error) {
+            return { error: parsed.error, raw: fullResponse };
           }
 
           return {
-            response: finalResponse,
+            response: parsed.response,
             reasoning: fullReasoning,
           };
 
@@ -456,6 +452,69 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
     }
   }
 
+  private parseFinalResponse(
+    fullResponse: string,
+    responseFormat?: 'text' | 'json_object'
+  ): { response: unknown; error?: string } {
+    const trimmed = fullResponse.trim();
+    const forceJson = responseFormat === 'json_object';
+    if (!forceJson) {
+      return { response: fullResponse };
+    }
+
+    const candidates = this.getJsonCandidates(trimmed);
+    const parsed = this.tryParseJsonFromCandidates(candidates);
+    if (parsed.ok) {
+      return { response: parsed.value };
+    }
+
+    if (!trimmed) {
+      return { response: fullResponse, error: "模型未返回内容（期望 JSON）" };
+    }
+    return { response: fullResponse, error: "JSON 输出解析失败，请检查 System Prompt 是否要求输出 JSON" };
+  }
+
+  private getJsonCandidates(text: string): string[] {
+    const candidates: string[] = [];
+    const trimmed = text.trim();
+    if (trimmed) candidates.push(trimmed);
+
+    const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenceMatch?.[1]) candidates.push(fenceMatch[1].trim());
+
+    const firstObj = trimmed.indexOf("{");
+    const lastObj = trimmed.lastIndexOf("}");
+    if (firstObj !== -1 && lastObj !== -1 && lastObj > firstObj) {
+      candidates.push(trimmed.slice(firstObj, lastObj + 1).trim());
+    }
+
+    const firstArr = trimmed.indexOf("[");
+    const lastArr = trimmed.lastIndexOf("]");
+    if (firstArr !== -1 && lastArr !== -1 && lastArr > firstArr) {
+      candidates.push(trimmed.slice(firstArr, lastArr + 1).trim());
+    }
+
+    return Array.from(new Set(candidates)).filter(Boolean);
+  }
+
+  private tryParseJsonFromCandidates(
+    candidates: string[]
+  ): { ok: true; value: unknown } | { ok: false; error: string } {
+    if (candidates.length === 0) {
+      return { ok: false, error: "empty" };
+    }
+
+    for (const candidate of candidates) {
+      try {
+        return { ok: true, value: JSON.parse(candidate) };
+      } catch {
+        continue;
+      }
+    }
+
+    return { ok: false, error: "invalid_json" };
+  }
+
   /**
    * 检查配额（始终检查，包括调试模式）
    */
@@ -477,7 +536,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
           executionTime: 0,
         };
       }
-    } catch (e) {
+    } catch {
       return {
         output: { error: "积分检查失败，请稍后重试或联系支持" },
         executionTime: 0,
@@ -571,7 +630,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
       );
 
       return history;
-    } catch (e) {
+    } catch {
       return [];
     }
   }
@@ -596,7 +655,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
         content
       );
       await llmMemoryService.trimHistory(flowId, memoryNodeId, sessionId, maxTurns);
-    } catch (e) {
+    } catch {
       // Silently handled
     }
   }
@@ -614,7 +673,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
         const { refreshQuota } = useQuotaStore.getState();
         await refreshQuota(user.id);
       }
-    } catch (e) {
+    } catch {
       // Quota UI refresh failed - non-critical
     }
   }

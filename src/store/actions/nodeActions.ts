@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import type { AppNode, AppNodeData, NodeKind, FlowState, LLMNodeData, BranchNodeData, ImageGenNodeData, OutputNodeData, RAGNodeData } from "@/types/flow";
+import type { AppNode, AppNodeData, NodeKind, FlowState, LLMNodeData, BranchNodeData, ImageGenNodeData, OutputNodeData } from "@/types/flow";
 import { getDefaultNodeData } from "../utils/nodeDefaults";
 import { toast } from "@/hooks/use-toast";
 import { NODE_LAYOUT } from "../constants/layout";

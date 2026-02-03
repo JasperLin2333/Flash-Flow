@@ -149,7 +149,9 @@ export const getNodeSchemaTool = tool({
   label: string;           // 必填
   greeting?: string;
   enableTextInput?: boolean;  // 默认 true
+  textRequired?: boolean;     // 默认 false（仅 enableTextInput=true 时生效）
   enableFileInput?: boolean;  // 配合 fileConfig
+  fileRequired?: boolean;     // 默认 false（仅 enableFileInput=true 时生效）
   enableStructuredForm?: boolean; // 配合 formFields
   fileConfig?: { allowedTypes: string[], maxSizeMB: number, maxCount: number };
   formFields?: Array<{ type: "text"|"select"|"multi-select", name: string, label: string, ... }>;
@@ -166,6 +168,7 @@ export const getNodeSchemaTool = tool({
                 tips: [
                     "输出变量: {{Input.user_input}}, {{Input.files}}, {{Input.formData.字段名}}",
                     "enableFileInput 必须配合 fileConfig 使用",
+                    "开启文件上传时：必须启用文本输入且 textRequired=true",
                 ],
             },
             llm: {
@@ -203,7 +206,7 @@ export const getNodeSchemaTool = tool({
     mode: "direct" | "select" | "merge" | "template";
     sources?: Array<{ type: "variable"|"static", value: string }>;
     template?: string;  // mode=template 时必填
-    attachments?: Array<{ type: "variable", value: string }>;
+    attachments?: Array<{ type: "variable" | "static", value: string }>;
   };
 }`,
                 example: {
@@ -225,7 +228,7 @@ export const getNodeSchemaTool = tool({
             branch: {
                 interface: `{
   label: string;
-  condition: string;  // 条件表达式，如 "{{LLM.response}}.includes('成功')"
+  condition: string;  // 受限白名单条件表达式，如 "{{意图识别.response}} === 'REFUND'"
 }`,
                 example: {
                     id: "branch_1",
@@ -237,7 +240,9 @@ export const getNodeSchemaTool = tool({
                 },
                 tips: [
                     "输出 handle: 'true' 和 'false'",
-                    "支持: >, <, ===, .includes(), &&, ||",
+                    "前缀必须是节点 label 或节点 id（不要凭空写 Input/LLM，除非你就这么命名）",
+                    "支持: >, <, >=, <=, ===, !==, .includes(), .startsWith(), .endsWith(), &&, ||",
+                    "禁止: ==, !=, 括号, !, 三元, 正则, 以及白名单外的函数调用",
                 ],
             },
             tool: {
@@ -264,7 +269,8 @@ export const getNodeSchemaTool = tool({
                 interface: `{
   label: string;
   fileMode?: "variable" | "static";
-  inputMappings?: { query?: string, files?: string };
+  fileSearchStoreName?: string; // fileMode="static" 时必需
+  inputMappings?: { query?: string, files?: string, files2?: string, files3?: string };
   maxTokensPerChunk?: number;
   maxOverlapTokens?: number;
 }`,
@@ -280,7 +286,7 @@ export const getNodeSchemaTool = tool({
                         },
                     },
                 },
-                tips: ["输出变量: {{RAG.documents}}"],
+                tips: ["输出变量: {{RAG.documents}}", "可选输出: {{RAG.citations}}"],
             },
             imagegen: {
                 interface: `{
@@ -325,12 +331,14 @@ export const DOCUMENTATION_CORPUS = [
 - greeting: 欢迎语，显示在输入框上方
 - enableTextInput (默认 true): 启用文本输入
 - enableFileInput: 启用文件上传，需配合 fileConfig
+- fileRequired (默认 false): 文件必填，发送前至少上传 1 个文件（仅 enableFileInput=true 生效）
 - enableStructuredForm: 启用表单模式，需配合 formFields
 
 ### 文件上传配置
 \`\`\`json
 {
   "enableFileInput": true,
+  "fileRequired": true,
   "fileConfig": {
     "allowedTypes": [".pdf", ".docx", ".txt"],
     "maxSizeMB": 10,
@@ -408,10 +416,14 @@ export const DOCUMENTATION_CORPUS = [
 - condition (必填): 条件表达式
 
 ### 条件语法
-- 比较: \`{{LLM.response.score}} > 60\`
-- 包含: \`{{LLM.response}}.includes('成功')\`
-- 相等: \`{{LLM.response.status}} === 'pass'\`
-- 逻辑: \`{{LLM.score}} > 60 && {{LLM.status}} === 'ok'\`
+- 仅支持白名单表达式，并可用 \`&&\` / \`||\` 组合
+- 包含/前后缀: \`{{LLM.response}}.includes('成功')\`, \`startsWith\`, \`endsWith\`
+- 严格相等/不等: \`{{LLM.response.status}} === 'pass'\`, \`!==\`
+- 数值比较: \`{{LLM.response.score}} > 60\`, \`>=\`, \`<\`, \`<=\`
+
+### 禁止（会导致条件无效）
+- 使用 \`==\`、\`!=\`
+- 使用括号、\`!\`、三元表达式、正则或除白名单外的函数调用
 
 ### 连接规则
 - sourceHandle: "true" 连接条件为真的分支
@@ -447,8 +459,9 @@ export const DOCUMENTATION_CORPUS = [
         content: `## RAG 节点
 - label (必填): 节点名称
 - fileMode: "variable" (动态文件) 或 "static" (预设文件)
+- fileSearchStoreName: 预设知识库 (fileMode=static 时必填)
 - inputMappings.query: 查询内容
-- inputMappings.files: 文件来源 (fileMode=variable 时)
+- inputMappings.files/files2/files3: 文件来源 (fileMode=variable 时，支持最多 3 路)
 
 ### 动态文件模式
 \`\`\`json
@@ -462,7 +475,8 @@ export const DOCUMENTATION_CORPUS = [
 \`\`\`
 
 ### 输出变量
-- {{Label.documents}}: 检索到的相关文档片段`,
+- {{Label.documents}}: 检索到的相关文档片段
+- {{Label.citations}}: 可选的引用来源信息`,
     },
     // ImageGen Node Documentation
     {
@@ -498,7 +512,7 @@ export const DOCUMENTATION_CORPUS = [
 |----------|------|
 | Input | {{Label.user_input}}, {{Label.files}} |
 | LLM | {{Label.response}}, {{Label.response.field}} |
-| RAG | {{Label.documents}} |
+| RAG | {{Label.documents}}, {{Label.citations}} |
 | Tool | {{Label.results}}, {{Label.result}} |
 | ImageGen | {{Label.imageUrl}} |
 
@@ -691,7 +705,6 @@ export const suggestImprovementsTool = tool({
         const nodeTypes = nodes.map(n => n.type);
         const hasInput = nodeTypes.includes("input");
         const hasOutput = nodeTypes.includes("output");
-        const hasLLM = nodeTypes.includes("llm");
         const hasBranch = nodeTypes.includes("branch");
         const hasImageGen = nodeTypes.includes("imagegen");
         const hasRAG = nodeTypes.includes("rag");

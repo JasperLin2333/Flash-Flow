@@ -14,11 +14,14 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
     const conditionValue = form.watch("condition") as string | undefined;
 
     const validationResult = useMemo(() => {
-        return validateCondition(conditionValue || "");
+        if (!conditionValue || !conditionValue.trim()) {
+            return { valid: false, error: "请输入分支条件" };
+        }
+        return validateCondition(conditionValue);
     }, [conditionValue]);
 
     // Status icon for the capability header
-    const statusIcon = !conditionValue ? null : validationResult.valid ? (
+    const statusIcon = validationResult.valid ? (
         <CheckCircle2 className="w-4 h-4 text-green-500" />
     ) : (
         <AlertCircle className="w-4 h-4 text-red-500" />
@@ -37,7 +40,7 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
                             <Input 
                                 {...field} 
                                 className={STYLES.INPUT} 
-                                placeholder="智能体判断节点" 
+                                placeholder="例如：条件分支" 
                             />
                         </FormControl>
                         <FormMessage />
@@ -49,13 +52,13 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
 
             {/* 2. Condition Logic Section */}
             <div className="space-y-2">
-                <div className={STYLES.SECTION_TITLE}>决策逻辑配置</div>
+                <div className={STYLES.SECTION_TITLE}>分支条件</div>
                 
                 <CapabilityItem
                     icon={<GitBranch className="w-4 h-4" />}
                     iconColorClass="bg-orange-50 text-orange-600"
-                    title="智能体判断条件"
-                    description="编写判断规则，决定智能体的下一步行动"
+                    title="分支条件"
+                    description="用表达式判断走哪条分支"
                     isExpanded={true}
                     rightElement={statusIcon}
                 >
@@ -63,6 +66,14 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
                         <FormField
                             control={form.control}
                             name="condition"
+                            rules={{
+                                validate: (v) => {
+                                    const s = typeof v === "string" ? v : String(v ?? "");
+                                    if (!s.trim()) return "请输入分支条件";
+                                    const result = validateCondition(s);
+                                    return result.valid ? true : (result.error || "条件不合法");
+                                }
+                            }}
                             render={({ field }) => (
                                 <FormItem>
                                     <FormControl>
@@ -70,16 +81,16 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
                                             <div className={STYLES.EDITOR_HEADER}>
                                                 <div className={STYLES.EDITOR_LABEL}>
                                                     <Code2 className="w-3 h-3" />
-                                                    Expression
+                                                    条件表达式
                                                 </div>
                                                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-yellow-50 text-yellow-700 rounded text-[10px] font-medium border border-yellow-100/50">
-                                                    <span>JavaScript</span>
+                                                    <span>JavaScript 表达式</span>
                                                 </div>
                                             </div>
                                             <Textarea
                                                 {...field}
                                                 className={STYLES.EDITOR_AREA}
-                                                placeholder={'// Example:\nInput.text.includes("error") || \nLLM.answer.startsWith("Yes")'}
+                                                placeholder={'// 示例:\nInput.user_input.includes("error") ||\nLLM.response.startsWith("Yes")'}
                                                 spellCheck={false}
                                             />
                                         </div>
@@ -100,11 +111,11 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
                                                 </div>
                                                 <div className="space-y-1">
                                                     <p className="font-medium">
-                                                        {conditionValue ? '表达式格式正确' : '等待输入表达式...'}
+                                                        {conditionValue ? '条件可用' : '请输入条件…'}
                                                     </p>
                                                     {!conditionValue && (
                                                         <p className="text-[10px] opacity-70">
-                                                            支持使用 Input, LLM, RAG 等变量进行逻辑判断
+                                                            支持使用 Input、LLM、RAG 等变量进行判断
                                                         </p>
                                                     )}
                                                 </div>
@@ -113,7 +124,7 @@ export function BranchNodeForm({ form }: BaseNodeFormProps) {
                                             <div className="flex items-start gap-2.5">
                                                 <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5" />
                                                 <div className="space-y-1">
-                                                    <p className="font-medium">语法错误</p>
+                                                    <p className="font-medium">条件有误</p>
                                                     <p className="text-[10px] opacity-80 font-mono bg-red-100/50 px-1.5 py-0.5 rounded w-fit">
                                                         {validationResult.error}
                                                     </p>

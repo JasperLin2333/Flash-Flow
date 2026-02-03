@@ -47,7 +47,7 @@ export async function checkPointsWithClient(
             balance,
             remaining,
         };
-    } catch (e) {
+    } catch {
         return { allowed: false, required: 0, balance: 0, remaining: 0 };
     }
 }
@@ -144,7 +144,7 @@ export async function deductPointsWithClient(
         }
 
         return false;
-    } catch (e) {
+    } catch {
         return false;
     }
 }
@@ -193,26 +193,6 @@ export function pointsExceededResponse(balance: number, required: number) {
 }
 
 // ============ Helper Functions ============
-
-function getPointsCost(actionType: PointsActionType, itemKey?: string | null): number {
-    switch (actionType) {
-        case "llm":
-            return getLLMPointsCost(itemKey || undefined);
-        case "flow_generation":
-            return 6;
-        case "app_usage":
-            return 4;
-        case "image_generation":
-            return 12;
-        case "rag_search":
-            return getLLMPointsCost("gemini-3-pro-preview");
-        case "tool_usage":
-            if (itemKey === "web_search") return 5;
-            if (itemKey === "code_interpreter") return 10;
-            if (itemKey === "url_reader") return 3;
-            return 0;
-    }
-}
 
 async function getPointsCostOnServer(
     supabase: ReturnType<typeof createEdgeClient>,

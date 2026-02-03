@@ -190,7 +190,12 @@ export function handleStep(feed: FeedItem[], stepType: string, status: 'streamin
 
     if (!isUpdatingSameType && !forceUpdate) {
         updatedFeed = feed.map(item => {
-            if (item.type === 'step' && (item as StepItem).status === 'streaming') {
+            if (
+                item.type === 'step' &&
+                (item as StepItem).status === 'streaming' &&
+                (item as StepItem).stepType !== 'plan_confirm' &&
+                (item as StepItem).stepType !== 'plan_adjust'
+            ) {
                 return { ...item, status: 'completed' } as StepItem;
             }
             return item;
@@ -216,11 +221,18 @@ export function handleStep(feed: FeedItem[], stepType: string, status: 'streamin
     }
 
     if (targetIndex !== -1) {
-        return updatedFeed.map((item, index) =>
-            index === targetIndex
-                ? { ...item, status, content } as StepItem
-                : item
-        );
+        return updatedFeed.map((item, index) => {
+            if (index === targetIndex) {
+                const existingItem = item as StepItem;
+                // Append content for streaming updates, or if the new content is empty (e.g. completion event)
+                const newContent = (status === 'streaming' || !content) 
+                    ? existingItem.content + content 
+                    : content;
+                
+                return { ...item, status, content: newContent } as StepItem;
+            }
+            return item;
+        });
     }
 
     // Create new item (either first time or retry)

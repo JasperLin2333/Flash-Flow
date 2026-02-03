@@ -1,5 +1,5 @@
 "use client";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -8,13 +8,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useFlowStore } from "@/store/flowStore";
 import type { AppNode, InputNodeData, FlowState, SelectFieldConfig, MultiSelectFieldConfig, FileInputConfig } from "@/types/flow";
 import { isInputNode } from "@/types/flow";
-import { Paperclip, X, Loader2, Check, ChevronDown, Play, MousePointerClick } from "lucide-react";
-import { useState, useEffect } from "react";
-import { fileUploadService } from "@/services/fileUploadService";
+import { Paperclip, X, Loader2, Check, ChevronDown, Play } from "lucide-react";
 import { showError, showWarning } from "@/utils/errorNotify";
 import { getFileExtension } from "@/utils/fileUtils";
 import { isFieldEmpty } from "@/store/utils/inputValidation";
 import { useFileUpload } from "@/hooks/useFileUpload";
+import { DEFAULT_FILE_CONFIG } from "@/components/builder/node-forms/InputNodeForm/constants";
 
 // Type for file items - can be raw File objects or already uploaded file metadata
 type UploadedFileData = { name: string; size: number; type: string; url?: string };
@@ -80,9 +79,10 @@ export default function InputDebugDialog() {
     // We assume single input node. If targetNode is undefined, hook will just return empty/false.
     // Config: we use the config from the node data or defaults
     const rawConfig = targetNode?.data?.fileConfig;
+    const effectiveConfig = rawConfig || DEFAULT_FILE_CONFIG;
 
     // Robustly determine allowedTypes
-    let computedAllowedTypes = rawConfig?.allowedTypes || ["*/*"];
+    let computedAllowedTypes = effectiveConfig.allowedTypes || ["*/*"];
     if (!computedAllowedTypes || computedAllowedTypes.length === 0) {
         computedAllowedTypes = ["*/*"];
     } else {
@@ -98,8 +98,8 @@ export default function InputDebugDialog() {
         targetNode?.id || null,
         currentFlowId || "temp",
         {
-            maxSizeMB: rawConfig?.maxSizeMB || 100,
-            maxCount: rawConfig?.maxCount || 10,
+            maxSizeMB: rawConfig?.maxSizeMB ?? DEFAULT_FILE_CONFIG.maxSizeMB,
+            maxCount: rawConfig?.maxCount ?? DEFAULT_FILE_CONFIG.maxCount,
             allowedTypes: computedAllowedTypes
         }
     );
@@ -109,17 +109,33 @@ export default function InputDebugDialog() {
         for (const node of inputNodes) {
             const { data } = node;
 
-            // NOTE: Text Input validation is explicitly OPTIONAL per user request.
-            // const enableText = data.enableTextInput !== false;
+            const enableFile = data.enableFileInput === true;
+            const textRequired =
+                (data.enableTextInput !== false) &&
+                (data.textRequired === true);
 
             const enableForm = data.enableStructuredForm === true;
+
+            if (textRequired && isFieldEmpty(data.text)) {
+                showWarning("缺少必填文本", `请为节点 "${data.label || 'Input'}" 输入文本内容`);
+                return;
+            }
+
+            if (enableFile && data.fileRequired === true) {
+                const files = (data.files || []) as InputFileItem[];
+                if (!Array.isArray(files) || files.length === 0) {
+                    showWarning("缺少必填文件", `请为节点 "${data.label || 'Input'}" 上传至少 1 个文件`);
+                    return;
+                }
+            }
 
             // Validate Form
             if (enableForm && data.formFields) {
                 for (const field of data.formFields) {
                     if (field.required) {
                         const val = data.formData?.[field.name];
-                        if (isFieldEmpty(val)) {
+                        const defaultValue = (field as any).defaultValue as unknown;
+                        if (isFieldEmpty(val) && (defaultValue === undefined || isFieldEmpty(defaultValue))) {
                             showWarning("必填字段未填", `请为节点 "${data.label || 'Input'}" 填写: ${field.label}`);
                             return;
                         }
@@ -245,9 +261,12 @@ export default function InputDebugDialog() {
 
                     {inputNodes.map((node: AppNode) => {
                         const data = node.data as InputNodeData;
-                        const enableText = data.enableTextInput !== false;
                         const enableFile = data.enableFileInput === true;
+                        const enableText = data.enableTextInput !== false;
                         const enableForm = data.enableStructuredForm === true;
+                        const textRequired =
+                            (data.enableTextInput !== false) &&
+                            (data.textRequired === true);
 
                         const files = (data.files || []) as InputFileItem[];
                         const formData = data.formData || {};
@@ -276,7 +295,10 @@ export default function InputDebugDialog() {
                                 {enableText && (
                                     <div className="space-y-2">
                                         <Label className="text-sm font-medium text-gray-700 block">
-                                            文本内容 <span className="text-gray-400 font-normal text-xs">(可选)</span>
+                                            文本内容{" "}
+                                            <span className="text-gray-400 font-normal text-xs">
+                                                {textRequired ? "(必填)" : "(可选)"}
+                                            </span>
                                         </Label>
                                         <Textarea
                                             placeholder={isSingle ? "请输入文本数据..." : `请输入 ${data.label} 的文本...`}
@@ -294,7 +316,9 @@ export default function InputDebugDialog() {
                                         <div className="flex justify-between items-center">
                                             <Label className="text-sm font-medium text-gray-700 flex items-center gap-1">
                                                 附件上传
-                                                <span className="text-gray-400 ml-1 text-xs font-normal">(Max: {fileConfig.maxCount})</span>
+                                                <span className="text-gray-400 ml-1 text-xs font-normal">
+                                                    {data.fileRequired ? "(必填)" : "(可选)"} (Max: {fileConfig.maxCount})
+                                                </span>
                                             </Label>
                                             <div className="relative">
                                                 <input

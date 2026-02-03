@@ -6,17 +6,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useFlowStore } from "@/store/flowStore";
 import { Loader2, Paperclip, X, Play } from "lucide-react";
-import { fileUploadService } from "@/services/fileUploadService";
-import { showError, showWarning } from "@/utils/errorNotify";
+import { showWarning } from "@/utils/errorNotify";
 import { useImageGenModel } from "@/hooks/useImageGenModel";
 import type { ImageGenNodeData } from "@/types/flow";
 
 // Reuse file typing structure for local display
 type ImageGenFileItem = { id?: string; name: string; size?: number; type?: string; url?: string };
-const getFileExtension = (filename: string): string => {
-    const lastDot = filename.lastIndexOf('.');
-    return lastDot >= 0 ? filename.substring(lastDot).toLowerCase() : '';
-};
 
 import { useFileUpload } from "@/hooks/useFileUpload";
 
@@ -45,7 +40,6 @@ export default function ImageGenDebugDialog() {
 
     const currentNode = nodes.find(n => n.id === nodeId);
     const nodeData = currentNode?.data as ImageGenNodeData | undefined;
-    const nodeName = nodeData?.label || 'ImageGen';
 
     const selectedModelId = nodeData?.model || "Kwai-Kolors/Kolors";
 
@@ -93,7 +87,7 @@ export default function ImageGenDebugDialog() {
         } else if (!open) {
             setFiles([]);
         }
-    }, [open, nodeId, nodeData]); // Depend on nodeData to refresh if it changes
+    }, [open, nodeData, dialogData, setDialogData]); // Depend on nodeData to refresh if it changes
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFiles = Array.from(e.target.files || []);

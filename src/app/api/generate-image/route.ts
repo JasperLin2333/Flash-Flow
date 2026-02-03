@@ -11,7 +11,6 @@ import { isValidImageValue } from "@/store/executors/utils/validationUtils";
 import {
     MODEL_CAPABILITIES,
     DEFAULT_IMAGEGEN_CAPABILITIES,
-    type ImageGenModelCapabilities
 } from "@/services/imageGenModelsAPI";
 import { IMAGEGEN_CONFIG } from "@/store/constants/imageGenConstants";
 
@@ -242,7 +241,7 @@ export async function POST(req: NextRequest) {
                 const fileName = `${timestamp}_${randomSuffix}.png`;
 
                 // Upload to Supabase Storage
-                const { data: uploadData, error: uploadError } = await supabase.storage
+                const { error: uploadError } = await supabase.storage
                     .from(STORAGE_BUCKET)
                     .upload(fileName, imageBuffer, {
                         contentType: "image/png",

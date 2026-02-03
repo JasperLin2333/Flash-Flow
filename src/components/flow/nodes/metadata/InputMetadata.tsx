@@ -11,7 +11,7 @@ export function InputMetadata({ input }: { input: InputNodeData }) {
 
     const features: string[] = [];
     if (enableText) features.push("文本");
-    if (enableFile) features.push("文件");
+    if (enableFile) features.push(input?.fileRequired ? "文件(必填)" : "文件");
     if (enableForm) features.push(`表单(${formCount}项)`);
 
     if (features.length === 0) return null;

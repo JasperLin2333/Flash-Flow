@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { User, Settings, Pencil } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";

@@ -9,10 +9,46 @@ import { TEXT_FIELD_PRIORITY, BRANCH_METADATA_FIELDS } from "@/types/nodeOutputF
  * @returns 第一个上游节点的输出数据，如果没有则返回 null
  */
 export function getUpstreamData(context: FlowContext): unknown {
-    const entries = Object.entries(context).filter(
-        ([key]) => !key.startsWith('_')
-    );
-    return entries.length > 0 ? entries[0][1] : null;
+    const entries = Object.entries(context)
+        .filter(([key]) => !key.startsWith('_'))
+        .sort(([a], [b]) => a.localeCompare(b));
+
+    const scored = entries
+        .map(([key, value]) => ({ key, value, score: scoreUpstreamValue(value) }))
+        .filter((x) => x.score > -Infinity)
+        .sort((a, b) => (b.score - a.score) || a.key.localeCompare(b.key));
+
+    return scored.length > 0 ? scored[0].value : (entries.length > 0 ? entries[0][1] : null);
+}
+
+function scoreUpstreamValue(value: unknown): number {
+    if (!value) return -Infinity;
+    if (typeof value === "object") {
+        const obj = value as Record<string, unknown>;
+        if (obj._skipped === true) return -Infinity;
+
+        const userInput = obj.user_input;
+        if (typeof userInput === "string" && userInput.trim()) return 1000 + userInput.trim().length;
+
+        const response = obj.response;
+        if (typeof response === "string" && response.trim()) return 800 + response.trim().length;
+
+        const text = obj.text;
+        if (typeof text === "string" && text.trim()) return 700 + text.trim().length;
+
+        const query = obj.query;
+        if (typeof query === "string" && query.trim()) return 600 + query.trim().length;
+
+        const valueField = obj.value;
+        if (typeof valueField === "string" && valueField.trim()) return 500 + valueField.trim().length;
+
+        return 100;
+    }
+
+    if (typeof value === "string") return 200 + value.trim().length;
+    if (typeof value === "number") return 150;
+    if (typeof value === "boolean") return 120;
+    return 0;
 }
 
 /**
@@ -23,9 +59,9 @@ export function getUpstreamData(context: FlowContext): unknown {
  * @returns 过滤后的 [nodeId, output] 数组
  */
 export function getUpstreamEntries(context: FlowContext): [string, unknown][] {
-    return Object.entries(context).filter(
-        ([key]) => !key.startsWith('_')
-    );
+    return Object.entries(context)
+        .filter(([key]) => !key.startsWith('_'))
+        .sort(([a], [b]) => a.localeCompare(b));
 }
 
 

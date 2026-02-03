@@ -1,14 +1,12 @@
 import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { nanoid } from 'nanoid';
 import { useFlowStore } from '@/store/flowStore';
 import { chatHistoryAPI } from '@/services/chatHistoryAPI';
 import { quotaService } from '@/services/quotaService';
 import { authService } from '@/services/authService';
-import { extractOutputFromContext, extractTextFromUpstream } from '@/store/executors/contextUtils';
+import { extractOutputFromContext } from '@/store/executors/contextUtils';
 import { showWarning } from '@/utils/errorNotify';
 import { useChatSession } from './useChatSession';
-import type { AppNode } from '@/types/flow';
 import { formatFormMessage } from '@/utils/formMessageUtils';
 
 // ============ Constants ============
@@ -22,8 +20,6 @@ interface UseFlowChatProps {
 }
 
 export function useFlowChat({ flowId }: UseFlowChatProps) {
-    const searchParams = useSearchParams();
-
     // Store Actions
     const runFlow = useFlowStore((s) => s.runFlow);
     const updateNodeData = useFlowStore((s) => s.updateNodeData);
@@ -47,7 +43,6 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         setRefreshTrigger,
         loadSession,
         startNewSession,
-        sessionCacheRef,
         activeSessionIdRef,
         updateSessionCache
     } = useChatSession({ flowId });
@@ -71,12 +66,15 @@ export function useFlowChat({ flowId }: UseFlowChatProps) {
         const inputNode = inputNodes[0];
         const inputNodeData = inputNode?.data as import("@/types/flow").InputNodeData | undefined;
         const enableTextInput = inputNodeData?.enableTextInput !== false;
+        const textRequired = enableTextInput && inputNodeData?.textRequired === true;
         const enableFileInput = inputNodeData?.enableFileInput === true;
         const enableStructuredForm = inputNodeData?.enableStructuredForm === true;
 
         const hasText = input.trim().length > 0;
         const hasFiles = (files?.length ?? 0) > 0;
         const hasFormData = enableStructuredForm && inputNodeData?.formFields?.length;
+
+        if (textRequired && !hasText) return;
 
         // 统一验证：根据启用的模式判断是否可发送
         const hasValidContent =

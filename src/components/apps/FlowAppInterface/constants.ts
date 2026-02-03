@@ -1,5 +1,4 @@
 import { Bot, Zap, Globe, FileText, Link as LinkIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 // ============ Constants ============
 export const ICON_MAP = {

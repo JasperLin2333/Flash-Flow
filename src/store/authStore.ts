@@ -79,7 +79,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                     useQuotaStore.getState().clearQuota();
                 }
             });
-        } catch (e) {
+        } catch {
             set({ user: null, isAuthenticated: false, isLoading: false });
         }
     },
@@ -161,7 +161,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                 registrationEmail: null,
                 resetEmail: null,
             });
-        } catch (e) {
+        } catch {
             // Force logout even if API call fails
             set({ user: null, isAuthenticated: false, isLoading: false });
         }
@@ -250,7 +250,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                             avatar_url: null,
                         });
                     }
-                } catch (_) {}
+                } catch {}
                 return true;
             }
 

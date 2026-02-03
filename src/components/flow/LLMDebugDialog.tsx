@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useFlowStore } from "@/store/flowStore";
 import type { DebugInputs, LLMNodeData } from "@/types/flow";
 import { Loader2, Play } from "lucide-react";
@@ -20,6 +21,9 @@ export default function LLMDebugDialog() {
     const [systemPrompt, setSystemPrompt] = useState("");
     const [userInput, setUserInput] = useState("");
     const [isRunning, setIsRunning] = useState(false);
+    const [useMockOutput, setUseMockOutput] = useState(false);
+    const [mockResponse, setMockResponse] = useState("");
+    const [mockReasoning, setMockReasoning] = useState("");
 
     const currentNode = nodes.find(n => n.id === nodeId);
     const nodeData = currentNode?.data as LLMNodeData | undefined;
@@ -35,6 +39,9 @@ export default function LLMDebugDialog() {
             setSystemPrompt("");
             setUserInput("");
             setIsRunning(false);
+            setUseMockOutput(false);
+            setMockResponse("");
+            setMockReasoning("");
         }
     }, [open, nodeId, nodeData]);
 
@@ -51,6 +58,12 @@ export default function LLMDebugDialog() {
                 value: userInput
             }
         };
+
+        if (useMockOutput) {
+            debugInputs.__ff_mock_mode = { type: "text", value: "true" };
+            debugInputs.__ff_mock_response = { type: "text", value: mockResponse };
+            debugInputs.__ff_mock_reasoning = { type: "text", value: mockReasoning };
+        }
 
         setDialogData(debugInputs);
         await confirmDialogRun();
@@ -92,6 +105,45 @@ export default function LLMDebugDialog() {
                             className="min-h-[100px] text-sm resize-none focus-visible:ring-1 focus-visible:ring-black border-gray-200 rounded-lg p-3"
                             disabled={isRunning}
                         />
+                    </div>
+
+                    <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-4 space-y-4">
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="space-y-0.5">
+                                <div className="text-sm font-medium text-gray-900">使用 Mock 输出</div>
+                                <div className="text-xs text-gray-500">不调用服务端，不扣积分；用于验证下游链路与变量引用</div>
+                            </div>
+                            <Switch
+                                checked={useMockOutput}
+                                onCheckedChange={setUseMockOutput}
+                                disabled={isRunning}
+                            />
+                        </div>
+
+                        {useMockOutput && (
+                            <div className="space-y-3">
+                                <div className="space-y-2">
+                                    <Label className="text-sm font-medium text-gray-700 block">Mock Response</Label>
+                                    <Textarea
+                                        placeholder="请输入模拟的 LLM response（将写入输出.response）"
+                                        value={mockResponse}
+                                        onChange={(e) => setMockResponse(e.target.value)}
+                                        className="min-h-[100px] text-sm resize-none focus-visible:ring-1 focus-visible:ring-black border-gray-200 rounded-lg p-3 bg-white"
+                                        disabled={isRunning}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-sm font-medium text-gray-700 block">Mock Reasoning (可选)</Label>
+                                    <Textarea
+                                        placeholder="请输入模拟的 reasoning（将写入输出.reasoning）"
+                                        value={mockReasoning}
+                                        onChange={(e) => setMockReasoning(e.target.value)}
+                                        className="min-h-[80px] text-sm resize-none focus-visible:ring-1 focus-visible:ring-black border-gray-200 rounded-lg p-3 bg-white"
+                                        disabled={isRunning}
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 

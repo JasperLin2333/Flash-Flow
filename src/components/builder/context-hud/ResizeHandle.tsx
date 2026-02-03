@@ -22,7 +22,7 @@ interface ResizeHandleProps {
  * 使用方式：放置在面板左侧边缘，用户可以向左拖拽来增加面板宽度
  */
 export function ResizeHandle({
-    width,
+    width: _width,
     minWidth = 280,
     maxWidth = 800,
     onWidthChange,

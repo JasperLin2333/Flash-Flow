@@ -9,7 +9,7 @@ import type { FlowRecord } from "@/types/flow";
 import { Pencil, MoreVertical, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { formatUpdateTime, getNodeCount, formatRelativeTime } from "./flowCardUtils";
+import { getNodeCount, formatRelativeTime } from "./flowCardUtils";
 import { EditFlowDialog } from "./EditFlowDialog";
 import { AvatarDialog } from "./AvatarDialog";
 import { IconDisplay } from "./IconDisplay";
@@ -40,7 +40,7 @@ const BUTTON_STYLES = {
  * 流程操作下拉菜单
  */
 function FlowMenu({
-  flow,
+  flow: _flow,
   onEdit,
   onDelete,
 }: {

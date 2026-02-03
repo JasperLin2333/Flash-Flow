@@ -246,12 +246,19 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
             }
 
             const searchResult = await response.json();
+            const normalizedDocuments = Array.isArray(searchResult?.documents)
+                ? searchResult.documents.map(String)
+                : typeof searchResult?.documents === "string"
+                    ? [searchResult.documents]
+                    : typeof searchResult?.text === "string" && searchResult.text.trim()
+                        ? [searchResult.text]
+                        : [];
 
             return {
                 query,
-                documents: searchResult.documents,
+                documents: normalizedDocuments,
                 citations: searchResult.citations,
-                documentCount: searchResult.documents?.length || 0,
+                documentCount: normalizedDocuments.length,
                 mode
             };
         } catch (error) {
@@ -289,7 +296,7 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
                     executionTime: 0,
                 };
             }
-        } catch (e) {
+        } catch {
             return {
                 output: { error: "积分检查失败，请稍后重试或联系支持" },
                 executionTime: 0,
@@ -308,7 +315,7 @@ export class RAGNodeExecutor extends BaseNodeExecutor {
                 const { refreshQuota } = useQuotaStore.getState();
                 await refreshQuota(user.id);
             }
-        } catch (e) {
+        } catch {
             // Quota UI refresh failed - non-critical
         }
     }

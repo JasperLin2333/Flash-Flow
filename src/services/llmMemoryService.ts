@@ -44,7 +44,7 @@ export const llmMemoryService = {
                 role: record.role as 'user' | 'assistant',
                 content: record.content,
             }));
-        } catch (e) {
+        } catch {
             return [];
         }
     },
@@ -81,7 +81,7 @@ export const llmMemoryService = {
             if (error) {
                 // Silently fail
             }
-        } catch (e) {
+        } catch {
             // Silently fail
         }
     },
@@ -114,7 +114,7 @@ export const llmMemoryService = {
             if (error) {
                 // Silently fail
             }
-        } catch (e) {
+        } catch {
             // Silently fail
         }
     },
@@ -162,7 +162,7 @@ export const llmMemoryService = {
                         .in("id", idsToDelete);
                 }
             }
-        } catch (e) {
+        } catch {
             // Silently fail
         }
     },

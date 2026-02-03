@@ -107,7 +107,6 @@ export function UpstreamInputsSection({
         }
 
         // 其他类型使用 textarea
-        const inputType = fieldType === 'number' ? 'number' : 'text';
         return (
             <textarea
                 value={configuredValue}

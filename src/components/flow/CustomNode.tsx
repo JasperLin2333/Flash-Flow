@@ -1,17 +1,16 @@
 "use client";
-import React, { useCallback, useMemo } from "react";
+import React, { useMemo } from "react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { User, Brain, Download, Search, Clock, CheckCircle2, Loader2, AlertCircle, Play, Wrench, GitBranch, Image } from "lucide-react";
-import type { LLMNodeData, RAGNodeData, InputNodeData, ExecutionStatus, AppNode, FlowState } from "@/types/flow";
+import { MessageSquare, Brain, Send, Search, Clock, CheckCircle2, Loader2, AlertCircle, Play, Wrench, GitBranch, Image as ImageIcon } from "lucide-react";
+import type { LLMNodeData, RAGNodeData, InputNodeData, ExecutionStatus, FlowState } from "@/types/flow";
+import { DEFAULT_TOOL_TYPE, TOOL_REGISTRY, type ToolType } from "@/lib/tools/registry";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFlowStore } from "@/store/flowStore";
 import { useShallow } from "zustand/shallow";
-import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
-import { isOutputNodeConfigured } from "@/store/utils/outputNodeUtils";
-import { HANDLE_STYLE, METADATA_LABEL_STYLE, METADATA_VALUE_STYLE } from "./constants";
+import { HANDLE_STYLE } from "./constants";
 
 import {
   LLMMetadata,
@@ -23,24 +22,25 @@ import {
   ImageGenMetadata
 } from "./nodes/metadata";
 import { handleNodeTest } from "@/store/utils/nodeTestUtils";
-import { createHoverTracker, track } from "@/lib/trackingService";
+import { createHoverTracker } from "@/lib/trackingService";
 
 // ============ Constants ============
 const ICON: Record<string, React.ReactNode> = {
-  input: <User className="w-4 h-4 text-foreground" />,
+  input: <MessageSquare className="w-4 h-4 text-foreground" />,
   llm: <Brain className="w-4 h-4 text-foreground" />,
-  output: <Download className="w-4 h-4 text-foreground" />,
+  output: <Send className="w-4 h-4 text-foreground" />,
   rag: <Search className="w-4 h-4 text-foreground" />,
   tool: <Wrench className="w-4 h-4 text-foreground" />,
   branch: <GitBranch className="w-4 h-4 text-foreground" />,
-  imagegen: <Image className="w-4 h-4 text-foreground" />,
+  imagegen: <ImageIcon className="w-4 h-4 text-foreground" />,
 };
 
-const STATUS_ICON: Record<ExecutionStatus, React.ReactNode> = {
+const STATUS_ICON: Record<ExecutionStatus | "skipped", React.ReactNode> = {
   idle: <div className="w-2 h-2 rounded-full bg-muted-foreground/30" />,
   running: <Loader2 className="w-3 h-3 text-foreground animate-spin" />,
   completed: <CheckCircle2 className="w-3 h-3 text-foreground" />,
   error: <AlertCircle className="w-3 h-3 text-destructive" />,
+  skipped: <div className="w-2 h-2 rounded-full bg-slate-400" />,
 };
 
 const HIDE_DEBUG_NODE_TYPES: string[] = [];  // All node types now support testing
@@ -51,6 +51,7 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   const input = data as InputNodeData;
   const status = (data.status as ExecutionStatus) || "idle";
   const executionTime = data.executionTime as number | undefined;
+  const toolType = (type === "tool" ? ((data as { toolType?: unknown })?.toolType as string | undefined) : undefined) as ToolType | undefined;
 
   // PERFORMANCE FIX: Use useShallow for batched store subscriptions
   // NOTE: edges and nodes are NOT subscribed here to avoid re-renders on every node/edge change
@@ -74,8 +75,24 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   // Check if this node is currently running
   const isNodeRunning = runningNodeIds.has(id as string);
 
+  const skipReason = useMemo(() => {
+    const nodeOutput = flowContext[id as string] as Record<string, unknown> | undefined;
+    if (!nodeOutput || typeof nodeOutput !== "object") return null;
+    if (nodeOutput._skipped !== true) return null;
+    return typeof nodeOutput._reason === "string" ? nodeOutput._reason : "skipped";
+  }, [flowContext, id]);
+
+  const isNodeSkipped = !!skipReason;
+
+  const toolHeaderIcon = useMemo(() => {
+    if (type !== "tool") return null;
+    const effectiveToolType = toolType && toolType in TOOL_REGISTRY ? toolType : DEFAULT_TOOL_TYPE;
+    const Icon = TOOL_REGISTRY[effectiveToolType]?.icon || Wrench;
+    return <Icon className="w-4 h-4 text-foreground" />;
+  }, [type, toolType]);
+
   // Branch node: get conditionResult from flowContext for visual feedback
-  const branchConditionResult = React.useMemo(() => {
+  const branchConditionResult = useMemo(() => {
     if (type !== 'branch' || status !== 'completed') return null;
     const nodeOutput = flowContext[id as string] as Record<string, unknown> | undefined;
     if (!nodeOutput) return null;
@@ -137,11 +154,14 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
   // Determine status styles
   const getStatusStyles = () => {
     if (isNodeRunning) return "ring-2 ring-blue-400 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]";
+    if (isNodeSkipped) return "ring-2 ring-slate-300 border-slate-300 shadow-[0_0_15px_rgba(148,163,184,0.25)]";
     if (status === "error") return "ring-2 ring-red-400 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)]";
     if (status === "completed") return "ring-2 ring-green-400 border-green-400 shadow-[0_0_15px_rgba(34,197,94,0.3)]";
     if (selected) return "ring-2 ring-black border-transparent shadow-xl scale-[1.02]";
     return "hover:border-gray-300 hover:shadow-lg hover:-translate-y-0.5";
   };
+
+  const effectiveStatus: ExecutionStatus | "skipped" = isNodeSkipped ? "skipped" : status;
 
   return (
     <Card
@@ -168,7 +188,7 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
             status === "error" ? "bg-red-50 border-red-100" :
             "bg-white border-gray-200"
           )}>
-            {ICON[type || "llm"]}
+            {type === "tool" ? toolHeaderIcon : ICON[type || "llm"]}
           </div>
           <span className="text-sm font-bold text-gray-900 tracking-tight">{(data?.label as string) || type}</span>
         </div>
@@ -193,13 +213,18 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  {isNodeRunning ? "运行中..." : "测试"}
+                  {isNodeRunning ? "运行中…" : "试运行"}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
+          {isNodeSkipped && (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">
+              跳过
+            </span>
+          )}
           <div className="flex items-center justify-center w-5 h-5">
-            {STATUS_ICON[status]}
+            {STATUS_ICON[effectiveStatus]}
           </div>
         </div>
       </div>

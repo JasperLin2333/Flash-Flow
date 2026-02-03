@@ -3,8 +3,14 @@ import type { Plan } from "@/types/plan";
 import { calculateOptimalLayout } from "../utils/layoutAlgorithm";
 import { quotaService } from "@/services/quotaService";
 import { authService } from "@/services/authService";
-import { trackAgentStart, trackAgentComplete, trackCopilotPlanConfirm, trackCopilotPlanAdjust } from "@/lib/trackingService";
-import { useQuotaStore } from "@/store/quotaStore";
+import {
+    trackAgentStart,
+    trackAgentComplete,
+    trackCopilotPlanConfirm,
+    trackCopilotPlanAdjust,
+    trackAgentFailNetwork,
+    runQuickDiagnostic
+} from "@/lib/trackingService";
 import type { SSEEvent, FeedItem } from "@/types/flow";
 import {
     handleThinkingStart,
@@ -12,7 +18,6 @@ import {
     handleThinkingEnd,
     handleToolCall,
     handleToolResult,
-    handleSuggestion,
     handleStep,
     handleClarification,
     handlePlan,
@@ -37,33 +42,25 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
             return;
         }
 
-        // UX OPTIMIZATION: Show "Analysis" step immediately to prevent "Loading..." gap
-        // FIX: Move this to the TOP to prevent flash of old content during async checks
-        // When preserveFeed is true (e.g., after confirmPlan or adjustPlan), keep existing feed content
         const existingFeed = options?.preserveFeed ? get().copilotFeed : [];
+        const shouldPreserveFeed = Boolean(options?.preserveFeed);
 
-        // Determine the next step ID and type based on context
-        const isAdjustment = options?.preserveFeed && existingFeed.some((f: FeedItem) => f.type === 'plan');
-        const nextStepId = isAdjustment ? `adjustment-thinking-${Date.now()}` : `init-analysis-${Date.now()}`;
-
-        const initialFeedItem: FeedItem = {
-            id: nextStepId,
-            type: 'step',
-            stepType: 'analysis', // Always use 'analysis' to match backend Phase 1 output
-            status: 'streaming',
-            content: isAdjustment ? '正在根据您的反馈优化方案...' : '',
-            timestamp: Date.now()
-        };
-
-        const newFeed = options?.preserveFeed
-            ? [...existingFeed, initialFeedItem]
-            : [initialFeedItem];
+        const newFeed = shouldPreserveFeed
+            ? existingFeed
+            : ([{
+                id: `init-analysis-${Date.now()}`,
+                type: 'step',
+                stepType: 'analysis',
+                status: 'streaming',
+                content: '',
+                timestamp: Date.now()
+            } as FeedItem]);
 
         // IMMEDIATE STATE RESET: Clear old data instantly
         set({
             copilotStatus: "thinking",
             copilotMode: "agent",
-            copilotStep: isAdjustment ? get().copilotStep + 1 : 1, // Increment step for adjustments
+            copilotStep: shouldPreserveFeed ? get().copilotStep + 1 : 1,
             copilotFeed: newFeed,
             currentCopilotPrompt: prompt,
             error: null // Clear any previous errors
@@ -81,15 +78,15 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
             if (!user) {
                 set({
                     copilotStatus: "idle",
-                    error: "请先登录以生成 Flow"
+                    error: "请先登录后再生成工作流"
                 });
-                throw new Error("请先登录以生成 Flow");
+                throw new Error("请先登录后再生成工作流");
             }
 
             const requiredPoints = quotaService.getPointsCost("flow_generation");
             const pointsCheck = await quotaService.checkPoints(user.id, requiredPoints);
             if (!pointsCheck.allowed) {
-                const errorMsg = `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。请联系管理员增加积分。`;
+                const errorMsg = `积分不足：余额 ${pointsCheck.balance}，本次需要 ${pointsCheck.required}。如需提升额度，请联系管理员。`;
                 set({
                     copilotStatus: "idle",
                     error: errorMsg
@@ -105,9 +102,9 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
 
             set({
                 copilotStatus: "idle",
-                error: "配额检查失败，请稍后重试"
+                error: "配额检查失败，请稍后再试"
             });
-            throw new Error("配额检查失败，请稍后重试");
+            throw new Error("配额检查失败，请稍后再试");
         }
 
         // PERSISTENCE: Mark that copilot is running
@@ -117,16 +114,18 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
 
         try {
             const ownerId = user!.id;
+            const enableValidateWorkflow = process.env.NEXT_PUBLIC_FLOW_VALIDATE_WORKFLOW_ENABLED === "true";
+            const skipAutomatedValidation = !enableValidateWorkflow;
 
             // ========== 调用 Agent API ==========
             const resp = await fetch("/api/agent/plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt, ownerId, enableClarification: options?.enableClarification }),
+                body: JSON.stringify({ prompt, ownerId, enableClarification: options?.enableClarification, skipAutomatedValidation }),
             });
 
             if (!resp.body) {
-                throw new Error("No response body");
+                throw new Error("服务返回异常，请稍后再试");
             }
 
             const reader = resp.body.getReader();
@@ -190,13 +189,40 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
                                     //     break;
 
                                     case "step":
-                                        if (parsed.stepType && parsed.content) {
-                                            newFeed = handleStep(
-                                                newFeed,
-                                                parsed.stepType,
-                                                parsed.status as 'streaming' | 'completed' || 'streaming',
-                                                parsed.content
+                                        if (parsed.stepType && (parsed.content !== undefined || parsed.status === 'completed')) {
+                                            const planAdjustActive = newFeed.some(item =>
+                                                item.type === 'step' &&
+                                                (item as any).stepType === 'plan_adjust' &&
+                                                (item as any).status === 'streaming'
                                             );
+
+                                            if (planAdjustActive && parsed.stepType !== "error") {
+                                                if (parsed.status === "streaming" && parsed.content) {
+                                                    newFeed = handleStep(
+                                                        newFeed,
+                                                        "plan_adjust",
+                                                        "streaming",
+                                                        parsed.content,
+                                                        true
+                                                    );
+                                                }
+                                            } else {
+                                                newFeed = handleStep(
+                                                    newFeed,
+                                                    parsed.stepType,
+                                                    parsed.status as 'streaming' | 'completed' || 'streaming',
+                                                    parsed.content || ""
+                                                );
+                                            }
+
+                                            if (parsed.stepType === "verification" && parsed.status === "completed") {
+                                                const hasResultPrep = newFeed.some(item =>
+                                                    item.type === "step" && (item as any).stepType === "result_prep"
+                                                );
+                                                if (!hasResultPrep) {
+                                                    newFeed = handleStep(newFeed, "result_prep", "streaming", "");
+                                                }
+                                            }
                                         }
                                         break;
 
@@ -217,16 +243,30 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
 
                                     case "plan":
                                         if (parsed.steps && parsed.userPrompt) {
+                                            const hasPlanAdjust = newFeed.some(item =>
+                                                item.type === 'step' &&
+                                                (item as any).stepType === 'plan_adjust' &&
+                                                (item as any).status === 'streaming'
+                                            );
+                                            if (hasPlanAdjust) {
+                                                newFeed = handleStep(newFeed, "plan_adjust", "completed", "", true);
+                                            }
+
+                                            // Only pause for confirmation if clarification/planning mode is enabled
+                                            if (options?.enableClarification) {
+                                                newFeed = handleStep(newFeed, "plan_confirm", "streaming", "");
+                                                set({ copilotStatus: "awaiting_plan_confirm" });
+                                            }
+
                                             newFeed = handlePlan(newFeed, parsed.userPrompt, parsed.steps, {
                                                 refinedIntent: parsed.refinedIntent,
                                                 workflowNodes: parsed.workflowNodes,
                                                 useCases: parsed.useCases,
                                                 howToUse: parsed.howToUse
                                             });
-                                            // Set status to awaiting_plan_confirm so UI shows plan preview card
-                                            set({ copilotStatus: "awaiting_plan_confirm" });
                                         }
                                         break;
+
                                 }
 
                                 return { copilotFeed: newFeed, copilotStep: newStep };
@@ -280,30 +320,39 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
 
             const title = plan.title || prompt.slice(0, 30) || "Generated Flow";
 
-            // ========== Phase 4b: Auto Validation ==========
-            const validation = validateFlowStructure(nodes, edges);
+            const shouldSkipAutomatedValidation = true;
+            if (!shouldSkipAutomatedValidation) {
+                // ========== Phase 4b: Auto Validation ==========
+                const validation = validateFlowStructure(nodes, edges);
 
-            // Add validation step to feed
-            set((state: { copilotFeed: FeedItem[] }) => ({
-                copilotFeed: handleStep(
-                    state.copilotFeed,
-                    "validation",
-                    validation.valid ? "completed" : "error",
-                    validation.valid
-                        ? "✅ 逻辑校验通过"
-                        : `⚠️ 验证发现问题:\n${validation.errors.join("\n")}${validation.warnings.length > 0 ? "\n警告: " + validation.warnings.join(", ") : ""}`,
-                    true // Force update existing validation step from backend
-                )
-            }));
+                // Add validation step to feed
+                set((state: { copilotFeed: FeedItem[] }) => ({
+                    copilotFeed: handleStep(
+                        state.copilotFeed,
+                        "validation",
+                        validation.valid ? "completed" : "error",
+                        validation.valid
+                            ? "✅ 逻辑校验通过"
+                            : `⚠️ 验证发现问题:\n${validation.errors.join("\n")}${validation.warnings.length > 0 ? "\n警告: " + validation.warnings.join(", ") : ""}`,
+                        true // Force update existing validation step from backend
+                    )
+                }));
 
-            // Log validation results for debugging
-            if (!validation.valid) {
-                console.warn("[Agent] Flow validation failed:", validation.errors);
+                // CRITICAL FIX: If validation fails, do NOT mark as completed and do NOT update the flow nodes/edges.
+                // This prevents "Enter Workflow" button from showing on invalid flows.
+                if (!validation.valid) {
+                    console.warn("[Agent] Flow validation failed, blocking completion:", validation.errors);
+                    set({ copilotStatus: "thinking" }); // Keep thinking status so overlay stays open but button is hidden
+                    // Note: We could use a new status 'error' but thinking with error in feed is also clear
+                    return;
+                }
+
+                // Log validation warnings for debugging
+                if (validation.warnings.length > 0) {
+                    console.info("[Agent] Flow validation warnings:", validation.warnings);
+                }
+                // ========== End Auto Validation ==========
             }
-            if (validation.warnings.length > 0) {
-                console.info("[Agent] Flow validation warnings:", validation.warnings);
-            }
-            // ========== End Auto Validation ==========
 
             // Reset execution state
             get().resetExecution();
@@ -312,49 +361,65 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
             const optimizedNodes = calculateOptimalLayout(nodes, edges);
 
             // CRITICAL FIX: Batch all state updates into ONE set() call to prevent flicker
-            // Before: 3 separate set() calls caused rapid re-renders and UI flicker
-            // After: Single atomic batch update
-            set({
-                nodes: optimizedNodes,
-                edges,
-                flowTitle: title,
-                currentFlowId: null  // Reset to ensure NEW flow is created
+            set((state: { copilotFeed: FeedItem[] }) => {
+                const hasStreamingResultPrep = state.copilotFeed.some(item =>
+                    item.type === "step" &&
+                    (item as any).stepType === "result_prep" &&
+                    (item as any).status === "streaming"
+                );
+
+                return {
+                    nodes: optimizedNodes,
+                    edges,
+                    flowTitle: title,
+                    currentFlowId: null,
+                    copilotStatus: "completed",
+                    copilotFeed: hasStreamingResultPrep
+                        ? handleStep(state.copilotFeed, "result_prep", "completed", "", true)
+                        : state.copilotFeed
+                };
             });
 
             // Flush save to get flowId immediately
             await get().flushSave();
-
-            // Refresh quota UI
-            try {
-                if (user) {
-                    const { refreshQuota } = useQuotaStore.getState();
-                    await refreshQuota(user.id);
-                }
-            } catch {
-                // Quota UI refresh failed - non-critical
-            }
-
-            set({ copilotStatus: "completed" });
 
             // 埋点：Agent 完成
             trackAgentComplete(get().copilotFeed.length, 0);
         } catch (error) {
             // Bug Fix #4 (Enhanced): Do NOT clear copilotFeed to prevent "Blank Canvas" crash.
             // Instead, mark status as completed (to keep overlay open) and add error step.
-            
+
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error("Agent Copilot Error:", error);
 
+            // 自动化网络诊断：如果是网络错误或超时，尝试收集环境信息
+            if (errorMessage.includes("fetch") || errorMessage.includes("timeout") || errorMessage.includes("Network")) {
+                runQuickDiagnostic().then(metrics => {
+                    trackAgentFailNetwork(errorMessage, metrics);
+                });
+            }
+
             // Add error step to feed so user sees what happened
-            set((state: { copilotFeed: FeedItem[] }) => ({
-                copilotStatus: "completed", // Keep overlay open so user can see error
-                copilotFeed: handleStep(
-                    state.copilotFeed,
-                    "error",
-                    "error",
-                    `❌ 生成过程中发生错误:\n${errorMessage}\n\n请尝试重试或修改提示词。`
-                )
-            }));
+            set((state: { copilotFeed: FeedItem[] }) => {
+                const hasStreamingResultPrep = state.copilotFeed.some(item =>
+                    item.type === "step" &&
+                    (item as any).stepType === "result_prep" &&
+                    (item as any).status === "streaming"
+                );
+                const feedAfterPrep = hasStreamingResultPrep
+                    ? handleStep(state.copilotFeed, "result_prep", "completed", "", true)
+                    : state.copilotFeed;
+
+                return {
+                    copilotStatus: "completed", // Keep overlay open so user can see error
+                    copilotFeed: handleStep(
+                        feedAfterPrep,
+                        "error",
+                        "error",
+                        `❌ 生成过程中发生错误:\n${errorMessage}\n\n请尝试重试或修改提示词。`
+                    )
+                };
+            });
         } finally {
             if (typeof window !== 'undefined') {
                 sessionStorage.removeItem('flash-flow:copilot-operation');
@@ -379,19 +444,51 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
 
         // Update plan status to confirmed
         set((state: { copilotFeed: FeedItem[] }) => ({
-            copilotFeed: updatePlanStatus(state.copilotFeed, 'confirmed'),
+            copilotFeed: handleStep(
+                handleStep(
+                    updatePlanStatus(state.copilotFeed, 'confirmed'),
+                    "plan_confirm",
+                    "completed",
+                    "",
+                    true
+                ),
+                "mapping",
+                "streaming",
+                "",
+                true
+            ),
             copilotStatus: 'thinking'
         }));
 
         // Continue with the original prompt (agent will see plan was confirmed)
         if (currentCopilotPrompt) {
+            // Find the confirmed plan to inject as context
+            const planItem = copilotFeed.find((f: FeedItem) => f.type === 'plan') as import('@/types/flow').PlanItem | undefined;
+
+            let contextInjection = "";
+            if (planItem) {
+                const nodesSummary = planItem.workflowNodes?.map(n => `- [${n.type}] ${n.label}: ${n.description}`).join('\n') || planItem.steps.join('\n');
+
+                contextInjection = `
+<approved_plan>
+## User Intent
+${planItem.refinedIntent || "N/A"}
+
+## Approved Workflow Structure
+${nodesSummary}
+
+## Use Cases
+${planItem.useCases?.join('\n') || "N/A"}
+</approved_plan>
+`;
+            }
+
             // In a full implementation, we would call the backend to continue generation
-            // For now, we restart with a signal that plan is confirmed
-            const confirmedPrompt = `[PLAN_CONFIRMED]\n${currentCopilotPrompt}`;
+            // For now, we restart with a signal that plan is confirmed + context
+            const confirmedPrompt = `[PLAN_CONFIRMED]${contextInjection}\n\n${currentCopilotPrompt}`;
 
             // 埋点：确认计划
-            const planItem = copilotFeed.find((f: FeedItem) => f.type === 'plan');
-            trackCopilotPlanConfirm(planItem ? (planItem as import('@/types/flow').PlanItem).steps.length : 0);
+            trackCopilotPlanConfirm(planItem ? planItem.steps.length : 0);
 
             await get().startAgentCopilot(confirmedPrompt, { enableClarification: false, force: true, preserveFeed: true });
         }
@@ -405,7 +502,19 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
 
         // Update plan status to adjusting
         set((state: { copilotFeed: FeedItem[] }) => ({
-            copilotFeed: updatePlanStatus(state.copilotFeed, 'adjusting'),
+            copilotFeed: handleStep(
+                handleStep(
+                    updatePlanStatus(state.copilotFeed, 'adjusting'),
+                    "plan_confirm",
+                    "completed",
+                    "",
+                    true
+                ),
+                "plan_adjust",
+                "streaming",
+                "",
+                true
+            ),
             copilotStatus: 'thinking'
         }));
 

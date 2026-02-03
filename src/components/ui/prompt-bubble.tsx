@@ -3,13 +3,12 @@ import { Send, Paperclip, BookOpen, X, File as FileIcon, Image as ImageIcon, Fil
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/hooks/use-toast";
-import type { InputNodeData, FormFieldConfig } from "@/types/flow";
+import type { InputNodeData } from "@/types/flow";
 import { NodeForm } from "../run/NodeForm";
 
 interface PromptBubbleProps {
@@ -46,6 +45,9 @@ const getFileIcon = (fileName: string) => {
   return FileIcon;
 };
 
+const EMPTY_FORM_FIELDS: NonNullable<InputNodeData["formFields"]> = [];
+const DEFAULT_FILE_CONFIG = { allowedTypes: ["*/*"], maxSizeMB: 100, maxCount: 10 } as const;
+
 export default function PromptBubble(props: PromptBubbleProps) {
   const {
     value,
@@ -72,11 +74,13 @@ export default function PromptBubble(props: PromptBubbleProps) {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   // Determine enabled features from Input node data
-  const enableTextInput = inputNodeData?.enableTextInput !== false; // Default: true
   const enableFileInput = inputNodeData?.enableFileInput === true;
+  const enableTextInput = (inputNodeData?.enableTextInput !== false);
+  const textRequired = enableTextInput && (inputNodeData?.textRequired === true);
   const enableStructuredForm = inputNodeData?.enableStructuredForm === true;
-  const formFields = inputNodeData?.formFields || [];
-  const fileConfig = inputNodeData?.fileConfig || { allowedTypes: ["*/*"], maxSizeMB: 100, maxCount: 10 };
+  const fileRequired = enableFileInput && inputNodeData?.fileRequired === true;
+  const formFields = useMemo(() => inputNodeData?.formFields ?? EMPTY_FORM_FIELDS, [inputNodeData?.formFields]);
+  const fileConfig = useMemo(() => inputNodeData?.fileConfig ?? DEFAULT_FILE_CONFIG, [inputNodeData?.fileConfig]);
 
   // 使用 ref 存储回调，避免作为 useEffect 依赖导致无限循环
   const onFormDataChangeRef = useRef(onFormDataChange);
@@ -115,18 +119,27 @@ export default function PromptBubble(props: PromptBubbleProps) {
       return val !== undefined && val !== null && String(val).trim() !== '';
     }) : true;
 
+  const allRequiredFilesSelected = !fileRequired || selectedFiles.length > 0;
+  const allRequiredTextFilled = !textRequired || value.trim().length > 0;
+
   // 发送按钮是否可用（必填字段已填）
-  const canSend = !hasRequiredFields || allRequiredFilled;
+  const canSend = (!hasRequiredFields || allRequiredFilled) && allRequiredFilesSelected && allRequiredTextFilled;
 
   // 根据启用的模式判断是否有有效内容
-  const hasValidContent =
-    (enableTextInput && value.trim().length > 0) ||
-    (enableFileInput && selectedFiles.length > 0) ||
-    (enableStructuredForm && isFormFilled);
+  const hasText = value.trim().length > 0;
+  const hasValidContent = textRequired
+    ? hasText
+    : (
+      (enableTextInput && hasText) ||
+      (enableFileInput && selectedFiles.length > 0) ||
+      (enableStructuredForm && isFormFilled)
+    );
   const canSubmit = !disabled && canSend && hasValidContent;
 
   // 需要高亮提示配置按钮（有必填字段但未填完）
   const needsFormAttention = hasRequiredFields && !allRequiredFilled;
+  const needsFileAttention = fileRequired && selectedFiles.length === 0;
+  const needsTextAttention = textRequired && value.trim().length === 0;
 
   // 根据配置组合生成友好的 placeholder 提示语
   const getPlaceholder = (): string => {
@@ -135,6 +148,9 @@ export default function PromptBubble(props: PromptBubbleProps) {
     }
     if (!enableTextInput && enableFileInput) {
       return "📎 点击左下角上传您的文件即可开始~";
+    }
+    if (!enableTextInput && fileRequired) {
+      return "📎 点击左下角上传文件后即可开始~";
     }
     if (!enableTextInput && enableStructuredForm) {
       return "📖 点击左下角填写表单后即可开始~";
@@ -145,7 +161,23 @@ export default function PromptBubble(props: PromptBubbleProps) {
     return placeholder;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = useCallback(() => {
+    if (needsTextAttention) {
+      toast({
+        title: "缺少必填文本",
+        description: "请输入文本内容后再发送",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (needsFileAttention) {
+      toast({
+        title: "缺少必填文件",
+        description: "请先上传至少 1 个文件",
+        variant: "destructive",
+      });
+      return;
+    }
     if (canSubmit) {
       onSubmit();
 
@@ -159,7 +191,7 @@ export default function PromptBubble(props: PromptBubbleProps) {
       setFormData(resetFormData);
       onFormDataChange?.(resetFormData);
     }
-  };
+  }, [canSubmit, formFields, needsFileAttention, needsTextAttention, onFormDataChange, onSubmit]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -350,7 +382,12 @@ export default function PromptBubble(props: PromptBubbleProps) {
                     variant="ghost"
                     size="icon"
                     onClick={() => fileInputRef.current?.click()}
-                    className="h-8 w-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                    className={cn(
+                      "h-8 w-8 rounded-lg transition-all duration-200",
+                      needsFileAttention
+                        ? "text-white bg-black hover:bg-black/90 ring-2 ring-gray-300 ring-offset-1 animate-pulse"
+                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                    )}
                   >
                     <Paperclip className="w-4 h-4" />
                   </Button>
@@ -358,6 +395,11 @@ export default function PromptBubble(props: PromptBubbleProps) {
                 <TooltipContent side="top" className="w-fit p-3 space-y-1.5">
                   <p className="font-semibold text-sm">上传附件</p>
                   <div className="text-xs space-y-1 text-gray-200">
+                    {fileRequired && (
+                      <p className="text-gray-200">
+                        <span className="text-gray-400">校验：</span>必填（至少 1 个文件）
+                      </p>
+                    )}
                     {(() => {
                       const validTypes = [...new Set(
                         fileConfig.allowedTypes

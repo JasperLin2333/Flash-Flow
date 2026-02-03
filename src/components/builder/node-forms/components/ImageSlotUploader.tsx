@@ -87,7 +87,7 @@ export function ImageSlotUploader({
                     </div>
                     <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-gray-700 truncate">
-                            {isUploading ? "上传中..." : "参考图已上传"}
+                            {isUploading ? "上传中…" : "参考图已上传"}
                         </p>
                     </div>
                     {/* Delete Button */}

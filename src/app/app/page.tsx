@@ -174,7 +174,6 @@ function AppContent() {
                 onToggle={setSidebarOpen}
                 currentFlowId={flowId || undefined}
                 onRefreshTrigger={refreshTrigger}
-                onNewConversation={startNewSession}
                 onLoadChat={loadSession}
             />
 
@@ -203,7 +202,7 @@ function AppContent() {
 function LoadingScreen() {
     return (
         <div className="h-screen w-full bg-white flex items-center justify-center">
-            <div className="text-gray-400">加载中...</div>
+            <div className="text-gray-400">加载中…</div>
         </div>
     );
 }

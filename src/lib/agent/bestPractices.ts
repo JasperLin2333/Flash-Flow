@@ -23,134 +23,135 @@ export type ScenarioType =
 
 export const BEST_PRACTICES: Record<ScenarioType, BestPractice> = {
     "翻译": {
-        description: "多语言翻译工作流，将文本从一种语言翻译为另一种语言",
+        description: "把一段文字翻译成另一种语言的流程",
         tips: [
-            "使用 temperature=0.3 提高翻译一致性和准确性",
-            "在 systemPrompt 中明确指定源语言和目标语言",
-            "对于专业术语，在 systemPrompt 中提供术语表或领域说明",
-            "考虑添加人工审核节点以保证翻译质量"
+            "把“创意程度（temperature）”调低（如 0.3），翻译更稳定、更准确",
+            "在“系统提示词（systemPrompt）”里写清楚源语言和目标语言",
+            "遇到行业术语，先给出术语表或领域背景（写在系统提示词里）",
+            "对重要内容，建议加一步“人工确认/审核”"
         ],
         recommendedNodes: ["input", "llm", "output"],
         commonMistakes: [
-            "temperature 设置过高（>0.5）导致翻译不稳定",
-            "未明确指定目标语言",
-            "未处理长文本分段问题"
+            "创意程度（temperature）过高（>0.5）导致译文风格漂移",
+            "没有明确目标语言，输出不一致",
+            "长文本不分段，容易漏译或断句不自然"
         ],
         suggestedImprovements: [
-            "添加 Branch 节点实现人工审核流程",
-            "使用 JSON 模式输出结构化翻译结果（原文 + 译文）"
+            "增加分支节点：重要内容走“人工确认”，普通内容自动通过",
+            "用结构化输出（如 JSON）同时返回“原文 + 译文”，便于后续处理"
         ]
     },
 
     "内容生成": {
-        description: "AI 辅助的内容创作工作流，包括文章、文案、摘要等",
+        description: "生成文章、文案、摘要等内容的流程",
         tips: [
-            "temperature=0.7-0.9 适合创意写作",
-            "temperature=0.3-0.5 适合结构化内容（如摘要、报告）",
-            "使用详细的 systemPrompt 指定写作风格、字数要求",
-            "考虑使用 JSON 模式输出结构化内容（标题、正文、摘要等）"
+            "创意写作：把创意程度（temperature）调高（如 0.7–0.9），更有想法",
+            "结构化内容（摘要/报告）：把创意程度调低（如 0.3–0.5），更稳更准",
+            "在系统提示词里写清楚风格、字数、格式要求（越具体越好）",
+            "需要“标题/要点/正文”等固定结构时，用结构化输出（如 JSON）更省心"
         ],
         recommendedNodes: ["input", "llm", "output"],
         commonMistakes: [
-            "systemPrompt 过于简单，缺少风格和格式要求",
-            "未指定输出长度限制",
-            "创意内容使用过低的 temperature"
+            "系统提示词太泛，没写清楚风格和格式",
+            "没给字数/长度上限，输出容易跑题或过长",
+            "创意内容把创意程度调得太低，结果太“平”"
         ],
         suggestedImprovements: [
-            "添加 Tool 节点（web_search）获取最新信息作为素材",
-            "使用多个 LLM 节点实现「生成-润色」两阶段流程"
+            "增加联网搜索工具，先找资料再写，内容更“新”",
+            "拆成两步：先生成草稿，再润色/改写，提高质量和一致性"
         ]
     },
 
     "图片生成": {
-        description: "AI 图片生成工作流，根据文字描述生成图像",
+        description: "根据文字描述生成图片的流程",
         tips: [
-            "提供详细的正向提示词（prompt），描述主体、风格、光线等",
-            "使用负面提示词（negativePrompt）排除不想要的元素",
-            "Kolors 模型适合唯美风格，Qwen 模型适合写实风格",
-            "cfg 值 7-9 平衡提示词遵循度和创意性"
+            "把提示词写具体：主体、风格、镜头、光线、构图（越清楚越接近预期）",
+            "用负面提示词（negativePrompt）明确“不想要什么”，减少翻车",
+            "选模型时先对齐风格：写实/插画/唯美等",
+            "cfg（提示词遵循度）建议 7–9：既听话又不过度死板"
         ],
         recommendedNodes: ["input", "imagegen", "output"],
         commonMistakes: [
-            "未使用 negativePrompt 导致生成效果不可控",
-            "提示词过于简单，缺少风格描述",
-            "Output 节点未配置 attachments 导致图片无法显示"
+            "不写负面提示词，结果容易出现不想要的元素",
+            "提示词太短，没写风格/场景/光线，效果随机",
+            "输出节点没带图片附件，导致页面看不到图"
         ],
         suggestedImprovements: [
-            "添加 LLM 节点优化用户输入为高质量提示词",
-            "在 Output 节点的 attachments 中正确引用 {{ImageGen.imageUrl}}"
+            "加一步“提示词优化”：先把用户描述改写成更可控的提示词",
+            "在输出节点把生成的图片链接作为附件输出，便于展示和下载"
         ]
     },
 
     "知识问答": {
-        description: "基于知识库的问答工作流，结合 RAG 检索增强生成",
+        description: "基于知识库资料进行问答的流程（先检索，再回答）",
         tips: [
-            "RAG 节点的 maxTokensPerChunk 建议 500-1000",
-            "在 LLM 节点的 systemPrompt 中明确指示「只根据检索内容回答」",
-            "启用 Input 节点的 enableFileInput 支持用户上传文档"
+            "知识库检索（RAG）建议把分段大小调到 500–1000，命中率更好",
+            "在系统提示词里强调：只根据检索到的资料回答，避免编造",
+            "如果要让用户上传资料，记得开启“文件上传”输入"
         ],
         recommendedNodes: ["input", "rag", "llm", "output"],
         commonMistakes: [
-            "未配置 RAG 节点的 inputMappings.query",
-            "LLM 节点未引用 {{RAG.documents}} 导致检索结果被忽略",
-            "fileMode 配置错误（variable vs static）"
+            "检索节点没收到查询内容（query）",
+            "回答节点没用上检索结果，导致答非所问",
+            "文件来源配置错，导致找不到资料"
         ],
         suggestedImprovements: [
-            "添加 Branch 节点判断检索结果是否为空，空则提示用户重新提问"
+            "加一个分支：如果没检索到资料，就提示用户换关键词或补充信息"
         ]
     },
 
     "条件判断": {
-        description: "包含分支逻辑的工作流，根据条件执行不同路径",
+        description: "根据条件走不同路径的流程（分支）",
         tips: [
-            "Branch 节点的 condition 使用清晰的比较表达式",
-            "复杂条件建议让 LLM 用 JSON 模式输出结构化判断结果",
-            "确保 true 和 false 两个分支都有正确的边连接"
+            "条件表达式尽量写清楚、可读（能一眼看懂）",
+            "Branch 条件只能用白名单语法（includes/startsWith/endsWith/===/!==/>/< 等）",
+            "条件复杂时，先让 AI 输出结构化判断结果（如 JSON 的 true/false），再走分支",
+            "确保“是/否”两条分支都连上后续步骤，避免漏路"
         ],
         recommendedNodes: ["input", "llm", "branch", "llm", "output"],
         commonMistakes: [
-            "condition 表达式语法错误",
-            "缺少 sourceHandle 导致边连接错误",
-            "只连接了 true 分支，忘记 false 分支"
+            "条件表达式写错，导致无法判断",
+            "分支线没标清“是/否”，导致走错路",
+            "只连了“是”的分支，忘了“否”的分支"
         ],
         suggestedImprovements: [
-            "使用 LLM JSON 模式输出 {\"result\": true/false} 而非自由文本判断"
+            "先输出 {\"result\": true/false} 这类结构化结果，再用它做分支判断"
         ]
     },
 
     "数据处理": {
-        description: "数据转换、计算、格式化等处理工作流",
+        description: "做计算、转换、格式化等数据处理的流程",
         tips: [
-            "使用 Tool 节点的 code_interpreter 处理复杂计算",
-            "JSON 模式输出便于后续节点引用特定字段",
-            "考虑使用 calculator 工具处理简单数学运算"
+            "复杂计算/清洗数据，优先用代码执行工具（更可靠）",
+            "需要后续步骤引用特定字段时，用结构化输出（如 JSON）更清晰",
+            "简单四则运算，用计算工具更直接"
         ],
         recommendedNodes: ["input", "tool", "llm", "output"],
         commonMistakes: [
-            "未正确配置 Tool 节点的 inputs 参数",
-            "复杂数据处理应使用 Tool 而非 LLM"
+            "工具节点参数没填对，导致执行失败",
+            "把复杂数据处理交给纯文本生成，结果不稳定"
         ],
         suggestedImprovements: [
-            "对于多步骤处理，拆分为多个 Tool/LLM 节点"
+            "多步处理拆开做：每一步都可验证，出错也更好排查"
         ]
     },
 
     "综合": {
-        description: "复杂的多功能工作流，组合多种能力",
+        description: "组合多种能力的复杂流程",
         tips: [
-            "先明确核心流程，再添加辅助功能",
-            "使用 Branch 节点处理错误和边界情况",
-            "建议总节点数控制在 10 个以内"
+            "先把主流程跑通，再加辅助功能",
+            "用分支处理异常和边界情况（空输入、失败重试等）",
+            "节点尽量少而清晰（建议 10 个以内）"
         ],
         recommendedNodes: ["input", "llm", "branch", "tool", "output"],
         commonMistakes: [
-            "节点过多导致流程混乱",
-            "变量引用链过长容易出错",
-            "缺少错误处理分支"
+            "节点堆太多，流程难理解也难维护",
+            "引用链太长，容易引用错字段",
+            "没有异常处理分支，出错时用户无反馈"
         ],
         suggestedImprovements: [
-            "添加人工审核节点",
-            "添加错误处理分支"
+            "关键环节加人工确认",
+            "补齐错误处理分支（失败提示、重试或降级）"
         ]
     }
 };

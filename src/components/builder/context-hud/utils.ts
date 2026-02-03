@@ -150,6 +150,52 @@ export function flattenObjectToVariables(
     return vars;
 }
 
+export function flattenToolNodeOutput(
+    output: Record<string, unknown>,
+    nodeLabel: string,
+    nodeId: string,
+    toolType?: string
+): UpstreamVariable[] {
+    if (toolType === "web_search") {
+        const vars: UpstreamVariable[] = [];
+
+        const contentRaw = output.content;
+        const content = typeof contentRaw === "string" ? contentRaw : "";
+        if (content.trim().length > 0) {
+            vars.push({
+                nodeLabel,
+                nodeId,
+                field: "content",
+                value: content.length > 80 ? `${content.slice(0, 80)}...` : content,
+            });
+        } else {
+            const results = output.results;
+            if (Array.isArray(results)) {
+                vars.push({
+                    nodeLabel,
+                    nodeId,
+                    field: "results",
+                    value: `搜索结果 (${results.length} 项)`,
+                });
+            }
+        }
+
+        const countRaw = output.count;
+        if (typeof countRaw === "number") {
+            vars.push({
+                nodeLabel,
+                nodeId,
+                field: "count",
+                value: String(countRaw),
+            });
+        }
+
+        return vars;
+    }
+
+    return flattenObjectToVariables(output, nodeLabel, nodeId);
+}
+
 /**
  * Input 节点专用的简化展开函数
  * 只生成简洁的变量列表，不递归展开嵌套属性

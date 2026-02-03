@@ -1,6 +1,5 @@
 "use client";
 import React, { useState, useMemo } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ArrowDownToLine, Copy, Check, Search, Database } from "lucide-react";

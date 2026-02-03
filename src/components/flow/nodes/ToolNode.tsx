@@ -9,7 +9,7 @@ import { useShallow } from "zustand/shallow";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TOOL_REGISTRY, DEFAULT_TOOL_TYPE, type ToolType } from "@/lib/tools/registry";
-import type { ToolNodeData, AppNode } from "@/types/flow";
+import type { ToolNodeData } from "@/types/flow";
 import { isToolNodeParametersConfigured } from "@/store/utils/debugDialogUtils";
 import { HANDLE_STYLE } from "../constants";
 
@@ -85,7 +85,7 @@ const ToolNode = ({ id, data, selected }: NodeProps) => {
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent side="top">
-                            {isNodeRunning ? "运行中..." : "测试"}
+                            {isNodeRunning ? "运行中…" : "试运行"}
                         </TooltipContent>
                     </Tooltip>
                 </TooltipProvider>

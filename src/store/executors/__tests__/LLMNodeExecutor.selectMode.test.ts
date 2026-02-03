@@ -115,7 +115,7 @@ describe("LLMNodeExecutor Select Mode Race Condition", () => {
       nodeAbortControllers: new Map(),
     };
     
-    // @ts-ignore
+    // @ts-expect-error test store mock typing
     import("@/store/flowStore").then(mod => mod.__setFlowStoreState(state));
     flowStoreState = state;
 
@@ -126,9 +126,14 @@ describe("LLMNodeExecutor Select Mode Race Condition", () => {
     // 2. Node A runs, locks, streams, then fails.
     const executorA = new LLMNodeExecutor();
     
-    // Mock fetch for A
+    // Mock fetch for A - handle up to 3 attempts (1 initial + 2 retries)
     const readA = vi.fn()
+        // Attempt 1
         .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('data: {"content": "PartA"}\n\n') })
+        .mockRejectedValueOnce(new Error("FailA"))
+        // Attempt 2
+        .mockRejectedValueOnce(new Error("FailA"))
+        // Attempt 3
         .mockRejectedValueOnce(new Error("FailA"));
         
     vi.stubGlobal("fetch", vi.fn(async () => ({
@@ -148,7 +153,7 @@ describe("LLMNodeExecutor Select Mode Race Condition", () => {
     
     // 3. Simulate Node B trying to write
     const executorB = new LLMNodeExecutor();
-    // @ts-ignore access private method
+    // @ts-expect-error access private method for test
     executorB.flushBuffer("PartB", "select", "nodeB", flowStoreState);
     
     // Assert: Node B should NOT be able to write because _streamingAborted is true
@@ -209,7 +214,7 @@ describe("LLMNodeExecutor Select Mode Race Condition", () => {
       completeSegment: vi.fn(),
     };
 
-    // @ts-ignore
+    // @ts-expect-error test store mock typing
     import("@/store/flowStore").then(mod => mod.__setFlowStoreState(state));
     flowStoreState = state;
 
@@ -277,7 +282,7 @@ describe("LLMNodeExecutor Select Mode Race Condition", () => {
       nodeAbortControllers: new Map(),
     };
 
-    // @ts-ignore
+    // @ts-expect-error test store mock typing
     import("@/store/flowStore").then(mod => mod.__setFlowStoreState(state));
     flowStoreState = state;
 

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest"
+    "test": "vitest",
+    "test:network": "npx tsx scripts/check-speed.ts"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.4",

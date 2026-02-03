@@ -54,20 +54,32 @@ function BuilderContent() {
     // WHY: flowId becomes available asynchronously after save completes
     const currentFlowId = useFlowStore((s) => s.currentFlowId);
 
-    // CRITICAL FIX: Reset store when entering in "new flow" mode (no URL params)
-    // WHY: Prevents redirecting to previous flow ID if store wasn't cleared
+    // 🔥 终极修复：强化状态清理逻辑
+    // WHY: 防止路由参数累积和状态污染
     useEffect(() => {
         const flowIdParam = searchParams.get('flowId');
         const initialPrompt = searchParams.get('initialPrompt');
-        const isCopilotActive = copilotStatus !== "idle";
+        const mode = searchParams.get('mode');
+        const enableClarification = searchParams.get('enableClarification');
         
-        // If no flowId and no prompt, we are in "new blank flow" mode.
-        // We MUST clear the store, otherwise the next useEffect will see the old currentFlowId
-        // and redirect us back to the previous flow (causing an Abort loop if we just navigated here).
-        if (!flowIdParam && !initialPrompt && !isGeneratingInitial && !isCopilotActive) {
-             useFlowStore.setState(INITIAL_FLOW_STATE);
+        // 只有在纯浏览模式下才清理（没有任何参数）
+        if (!flowIdParam && !initialPrompt && !mode && !enableClarification) {
+            useFlowStore.setState(INITIAL_FLOW_STATE);
+            loadedFlowIdRef.current = null;
+            hasGeneratedRef.current = false;
+            return;
         }
-    }, [searchParams, copilotStatus, isGeneratingInitial]);
+        
+        // 生成模式下只清理特定状态，保留必要参数
+        if (initialPrompt) {
+            useFlowStore.setState({
+                currentFlowId: null,
+                executionStatus: "idle",
+                flowContext: {}
+            });
+            loadedFlowIdRef.current = null;
+        }
+    }, [searchParams]);
 
     // CRITICAL FIX: Load flow from URL if flowId is present
     // FIX (Bug 2 & 4): Enhanced with URL sync and generation state recovery
@@ -123,7 +135,13 @@ function BuilderContent() {
         // SCENARIO 2: User has flowId in URL (either from link or after generation)
         if (flowId && !isGeneratingInitial) {
             // FIX: Skip if already loaded this flow or currently loading
-            if (loadedFlowIdRef.current === flowId || isLoadingFlowRef.current) {
+            // Also check if store already has this flowId (prevent reload after generation)
+            const currentStoreId = useFlowStore.getState().currentFlowId;
+            if (loadedFlowIdRef.current === flowId || isLoadingFlowRef.current || currentStoreId === flowId) {
+                // If it's a store match, make sure we mark it as loaded so other checks pass
+                if (currentStoreId === flowId) {
+                    loadedFlowIdRef.current = flowId;
+                }
                 return;
             }
 
@@ -190,19 +208,39 @@ function BuilderContent() {
         }
     }, [searchParams, setCopilotBackdrop, startCopilot, router, isGeneratingInitial]);
 
-    // CRITICAL FIX (Bug 2): Auto-sync URL when flowId becomes available
-    // WHY: After copilot/save completes, currentFlowId is set asynchronously
-    // We need to update URL to include flowId for proper refresh behavior
+    // 🔥 终极修复：添加生成期间保护的URL同步
+    // WHY: 防止生成过程中过早的URL同步导致跳转异常
     useEffect(() => {
         const flowIdParam = searchParams.get('flowId');
+        const initialPrompt = searchParams.get('initialPrompt');
+        const mode = searchParams.get('mode');
+        const enableClarification = searchParams.get('enableClarification');
+        const isAgentMode = mode === 'agent' || enableClarification === 'true';
 
-        // TIMING: Only update URL if we have a flowId but URL doesn't have it yet
-        // FIX: Only sync if URL has NO flowId. If URL already has an ID, trust it (prevents race condition during navigation)
-        if (currentFlowId && !flowIdParam) {
-            // DEFENSIVE: Avoid infinite loop - only update if actually different
-            router.replace(`/builder?flowId=${currentFlowId}`, { scroll: false });
+        // 生成期间不执行URL同步（包括Agent模式）
+        if (initialPrompt || copilotStatus === "thinking" || isGeneratingInitial) {
+            return;
         }
-    }, [currentFlowId, searchParams, router]);
+
+        // Agent模式下保持原有参数
+        if (isAgentMode && (mode || enableClarification)) {
+            return;
+        }
+
+        if (currentFlowId) {
+            // Case 1: URL has no ID -> Sync immediately (New blank flow -> Saved)
+            if (!flowIdParam) {
+                router.replace(`/builder?flowId=${currentFlowId}`, { scroll: false });
+            }
+            // Case 2: URL has ID but mismatch -> Sync if it's a new generation
+            // If currentFlowId changed internally (e.g. Copilot generation) and wasn't just loaded from URL
+            else if (flowIdParam !== currentFlowId && currentFlowId !== loadedFlowIdRef.current) {
+                // Mark as loaded to prevent the load-effect from re-fetching
+                loadedFlowIdRef.current = currentFlowId;
+                router.replace(`/builder?flowId=${currentFlowId}`, { scroll: false });
+            }
+        }
+    }, [currentFlowId, searchParams, router, copilotStatus, isGeneratingInitial]);
 
     // If generating initial flow from prompt, show minimal UI with only copilot overlay
     if (isGeneratingInitial) {
