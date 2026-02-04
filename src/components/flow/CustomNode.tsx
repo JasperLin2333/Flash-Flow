@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { trackNodeDoubleClick } from "@/lib/trackingService";
 import { MessageSquare, Brain, Send, Search, Clock, CheckCircle2, Loader2, AlertCircle, Play, Wrench, GitBranch, Image as ImageIcon } from "lucide-react";
 import type { LLMNodeData, RAGNodeData, InputNodeData, ExecutionStatus, FlowState } from "@/types/flow";
 import { DEFAULT_TOOL_TYPE, TOOL_REGISTRY, type ToolType } from "@/lib/tools/registry";
@@ -163,11 +164,17 @@ const CustomNode = ({ id, data, type, selected }: NodeProps) => {
 
   const effectiveStatus: ExecutionStatus | "skipped" = isNodeSkipped ? "skipped" : status;
 
+  const handleDoubleClick = () => {
+    trackNodeDoubleClick(id, type);
+    // 这里可以添加双击的具体逻辑
+  };
+
   return (
     <Card
       tabIndex={0}
       onMouseEnter={hoverTracker.onEnter}
       onMouseLeave={hoverTracker.onLeave}
+      onDoubleClick={handleDoubleClick}
       className={cn(
         "group relative min-w-[240px] border bg-white transition-all duration-200 outline-none",
         "border-gray-200 shadow-sm",

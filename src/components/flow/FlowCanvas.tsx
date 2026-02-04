@@ -1,12 +1,17 @@
 "use client";
-import { useCallback, useMemo, memo, useEffect } from "react";
-import { ReactFlow, Background, BackgroundVariant, useReactFlow, SelectionMode, PanOnScrollMode } from "@xyflow/react";
+import { useCallback, useMemo, memo, useEffect, useState } from "react";
+import { ReactFlow, Background, BackgroundVariant, useReactFlow, SelectionMode, PanOnScrollMode, type Node } from "@xyflow/react";
 import { useFlowStore } from "@/store/flowStore";
 import { 
   trackNodeSelect, 
   trackKeyboardShortcut, 
   trackCanvasMove, 
-  trackSelectionChange
+  trackSelectionChange,
+  trackCanvasClick,
+  trackCanvasContextMenu,
+  trackNodeDragStart,
+  trackNodeDragEnd,
+  trackNodeContextMenu
 } from "@/lib/trackingService";
 import CustomNode from "./CustomNode";
 // NOTE: ToolNode is deprecated, all node types now use unified CustomNode
@@ -55,6 +60,9 @@ function FlowCanvasComponent() {
   const copyNode = useFlowStore((s) => s.copyNode);
   const pasteNode = useFlowStore((s) => s.pasteNode);
   const { screenToFlowPosition } = useReactFlow();
+  
+  // 拖拽状态跟踪
+  const [dragStartPos, setDragStartPos] = useState<Record<string, { x: number; y: number }>>({});
 
   // 键盘快捷键处理：Cmd/Ctrl+C 复制，Cmd/Ctrl+V 粘贴
   useEffect(() => {
@@ -114,6 +122,58 @@ function FlowCanvasComponent() {
     [screenToFlowPosition, addNode]
   );
 
+  // 节点拖拽开始
+  const handleNodeDragStart = useCallback((_: React.MouseEvent, node: Node) => {
+    const pos = { x: node.position.x, y: node.position.y };
+    setDragStartPos(prev => ({ ...prev, [node.id]: pos }));
+    trackNodeDragStart(node.id, node.type || 'unknown');
+  }, []);
+
+  // 节点拖拽结束
+  const handleNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
+    const startPos = dragStartPos[node.id];
+    if (startPos) {
+      trackNodeDragEnd(
+        node.id, 
+        node.type || 'unknown',
+        startPos,
+        { x: node.position.x, y: node.position.y }
+      );
+      setDragStartPos(prev => {
+        const newPositions = { ...prev };
+        delete newPositions[node.id];
+        return newPositions;
+      });
+    }
+  }, [dragStartPos]);
+
+  // 画布点击（空白区域）
+  const handlePaneClick = useCallback((event: React.MouseEvent | MouseEvent) => {
+    // 检查是否点击的是空白区域（不是节点）
+    if (event.target === event.currentTarget) {
+      trackCanvasClick();
+    }
+    setSelectedNode(null);
+  }, [setSelectedNode]);
+
+  // 画布右键菜单
+  const handlePaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
+    event.preventDefault();
+    const rect = (event.currentTarget as Element).getBoundingClientRect();
+    trackCanvasContextMenu({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    });
+    // 这里可以添加画布右键菜单的逻辑
+  }, []);
+
+  // 节点右键菜单
+  const handleNodeContextMenu = useCallback((event: React.MouseEvent | MouseEvent, node: Node) => {
+    event.preventDefault();
+    trackNodeContextMenu(node.id, node.type || 'unknown');
+    // 这里可以添加节点右键菜单的逻辑
+  }, []);
+
   // FIX (Bug 3): Memoize defaultEdgeOptions to prevent object recreation
   // WHY: New object on every render causes ReactFlow to update all edges unnecessarily
   const defaultEdgeOptions = useMemo(
@@ -142,7 +202,11 @@ function FlowCanvasComponent() {
           // 埋点：节点选中
           trackNodeSelect(node.id, node.type || 'unknown');
         }}
-        onPaneClick={() => setSelectedNode(null)}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDragStop={handleNodeDragStop}
+        onNodeContextMenu={handleNodeContextMenu}
+        onPaneClick={handlePaneClick}
+        onPaneContextMenu={handlePaneContextMenu}
         onMoveEnd={(_, viewport) => {
           // 埋点：画布移动/缩放（trackingService 内部有 5% 采样逻辑）
           trackCanvasMove(viewport.x, viewport.y, viewport.zoom);

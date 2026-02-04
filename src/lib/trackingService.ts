@@ -12,12 +12,21 @@ import { supabase } from './supabase';
 
 // ============ Config ============
 const DEBUG_MODE = process.env.NODE_ENV === 'development';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const BATCH_SIZE = 10;
 const FLUSH_INTERVAL_MS = 5000;
 
-// 高频事件采样率（5%）
+// 生产环境安全配置
+const PROD_CONFIG = {
+  batch_size: 20,  // 生产环境增大批次减少请求
+  flush_interval: 10000,  // 延长上报间隔
+  sample_rate: 0.1,  // 增加采样率减少数据量
+};
+
+// 高频事件采样率配置
 const HIGH_FREQ_EVENTS = ['canvas_pan', 'canvas_zoom', 'node_hover', 'edge_hover'];
-const SAMPLE_RATE = 0.05;
+// 开发环境 5%，生产环境 10%（更保守）
+const SAMPLE_RATE = IS_PRODUCTION ? PROD_CONFIG.sample_rate : 0.05;
 
 // ============ Types ============
 interface TrackingEvent {
@@ -78,18 +87,26 @@ export function track(eventName: string, eventData: Record<string, unknown> = {}
         created_at: new Date().toISOString(),
     };
 
+    // 生产环境不输出调试日志
     if (DEBUG_MODE) {
         console.log('[Track]', eventName, eventData);
+    } else if (IS_PRODUCTION) {
+        // 生产环境只记录错误，不记录具体事件数据
+        // 避免敏感信息泄露
     }
 
     eventQueue.push(event);
 
+    // 使用环境特定的配置
+    const batchSize = IS_PRODUCTION ? PROD_CONFIG.batch_size : BATCH_SIZE;
+    const flushInterval = IS_PRODUCTION ? PROD_CONFIG.flush_interval : FLUSH_INTERVAL_MS;
+
     // 达到批量阈值立即刷新
-    if (eventQueue.length >= BATCH_SIZE) {
+    if (eventQueue.length >= batchSize) {
         flushEvents();
     } else if (!flushTimer) {
         // 启动定时刷新
-        flushTimer = setTimeout(flushEvents, FLUSH_INTERVAL_MS);
+        flushTimer = setTimeout(flushEvents, flushInterval);
     }
 }
 
@@ -244,6 +261,94 @@ export const trackCopilotPlanAdjust = () =>
 
 export const trackKeyboardShortcut = (shortcutKey: string, action: string) =>
     track('keyboard_shortcut', { shortcut_key: shortcutKey, action });
+
+// ============ 补充的画布交互埋点 ============
+
+// 节点悬停（配合 createHoverTracker 使用）
+export const trackNodeHover = (nodeId: string, nodeType: string, duration: number) =>
+    track('node_hover', { node_id: nodeId, node_type: nodeType, duration });
+
+// 连线悬停
+export const trackEdgeHover = (edgeId: string, source: string, target: string, duration: number) =>
+    track('edge_hover', { edge_id: edgeId, source, target, duration });
+
+// 节点双击
+export const trackNodeDoubleClick = (nodeId: string, nodeType: string) =>
+    track('node_double_click', { node_id: nodeId, node_type: nodeType });
+
+// 画布点击（空白区域）
+export const trackCanvasClick = () =>
+    track('canvas_click', {});
+
+// 节点拖拽开始
+export const trackNodeDragStart = (nodeId: string, nodeType: string) =>
+    track('node_drag_start', { node_id: nodeId, node_type: nodeType });
+
+// 节点拖拽结束
+export const trackNodeDragEnd = (nodeId: string, nodeType: string, startPos: { x: number; y: number }, endPos: { x: number; y: number }) =>
+    track('node_drag_end', { 
+        node_id: nodeId, 
+        node_type: nodeType,
+        start_x: Math.round(startPos.x),
+        start_y: Math.round(startPos.y),
+        end_x: Math.round(endPos.x),
+        end_y: Math.round(endPos.y),
+        distance: Math.round(Math.sqrt(Math.pow(endPos.x - startPos.x, 2) + Math.pow(endPos.y - startPos.y, 2)))
+    });
+
+// 画布右键菜单
+export const trackCanvasContextMenu = (position: { x: number; y: number }) =>
+    track('canvas_context_menu', { x: Math.round(position.x), y: Math.round(position.y) });
+
+// 节点右键菜单
+export const trackNodeContextMenu = (nodeId: string, nodeType: string) =>
+    track('node_context_menu', { node_id: nodeId, node_type: nodeType });
+
+// 多选操作
+export const trackMultiSelect = (nodeIds: string[], edgeIds: string[]) =>
+    track('multi_select', { 
+        node_count: nodeIds.length, 
+        edge_count: edgeIds.length,
+        node_ids: nodeIds,
+        edge_ids: edgeIds
+    });
+
+// 节点复制粘贴
+export const trackNodeCopy = (nodeIds: string[], nodeTypes: string[]) =>
+    track('node_copy', { node_ids: nodeIds, node_types: nodeTypes });
+
+export const trackNodePaste = (nodeCount: number) =>
+    track('node_paste', { node_count: nodeCount });
+
+// 节点对齐操作
+export const trackNodeAlign = (alignment: string, nodeCount: number) =>
+    track('node_align', { alignment, node_count: nodeCount });
+
+// 节点分布操作
+export const trackNodeDistribute = (distribution: string, nodeCount: number) =>
+    track('node_distribute', { distribution, node_count: nodeCount });
+
+// 自动布局使用
+export const trackAutoLayout = (algorithm: string, nodeCount: number) =>
+    track('auto_layout', { algorithm, node_count: nodeCount });
+
+// 导入/导出操作
+export const trackFlowImport = (source: string, nodeCount: number, edgeCount: number) =>
+    track('flow_import', { source, node_count: nodeCount, edge_count: edgeCount });
+
+export const trackFlowExport = (format: string, nodeCount: number, edgeCount: number) =>
+    track('flow_export', { format, node_count: nodeCount, edge_count: edgeCount });
+
+// 搜索功能使用
+export const trackNodeSearch = (queryLength: number, resultCount: number) =>
+    track('node_search', { query_length: queryLength, result_count: resultCount });
+
+// 撤销/重做操作
+export const trackUndo = (actionType: string) =>
+    track('undo', { action_type: actionType });
+
+export const trackRedo = (actionType: string) =>
+    track('redo', { action_type: actionType });
 
 // ============ Network Diagnostics ============
 export const trackNetworkDiagnostic = (data: Record<string, unknown>) =>

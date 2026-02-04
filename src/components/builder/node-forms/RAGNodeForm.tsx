@@ -228,10 +228,23 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
         })
         .catch((error) => {
           console.error('Failed to auto-create file search store:', error);
-          updateNodeData(selectedNodeId, {
-            uploadStatus: 'error',
-            uploadError: error instanceof Error ? error.message : String(error)
-          });
+          
+          // 检测地理位置限制错误，提供友好的用户提示
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const isLocationError = errorMessage.includes('User location is not supported') || 
+                                 errorMessage.includes('FAILED_PRECONDITION');
+          
+          if (isLocationError) {
+            updateNodeData(selectedNodeId, {
+              uploadStatus: 'error',
+              uploadError: '当前地区暂不支持知识库功能。请使用"引用变量"模式，或通过VPN切换到支持地区后重试。'
+            });
+          } else {
+            updateNodeData(selectedNodeId, {
+              uploadStatus: 'error',
+              uploadError: errorMessage
+            });
+          }
         });
     }
   }, [selectedNodeId, ragData.fileSearchStoreName, updateNodeData]);
@@ -416,7 +429,7 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
             icon={<Database className="w-4 h-4" />}
             iconColorClass="bg-blue-50 text-blue-600"
             title="参考文档"
-            description={hasStore ? "上传或引用要检索的文档" : "正在准备知识库…"}
+            description={hasStore ? "上传或引用要检索的文档" : (ragData.uploadError?.includes('地区') ? "地区限制提示" : "正在准备知识库…")}
             isExpanded={true} // Always expanded as it's the core function
             rightElement={
                 <div className="flex items-center gap-2">
@@ -809,9 +822,21 @@ export function RAGNodeForm({ form, selectedNodeId, updateNodeData, selectedNode
 
                             {/* Error Message */}
                             {ragData.uploadError && (
-                                <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-3 flex items-start gap-2 animate-in slide-in-from-top-1">
-                                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                                    <span>{ragData.uploadError}</span>
+                                <div className="text-xs bg-red-50 border border-red-100 rounded-lg p-3 flex flex-col gap-2 animate-in slide-in-from-top-1">
+                                    <div className="flex items-start gap-2">
+                                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-600" />
+                                        <span className="text-red-600">{ragData.uploadError}</span>
+                                    </div>
+                                    {ragData.uploadError.includes('地区') && (
+                                        <div className="mt-2 pt-2 border-t border-red-100/50 text-red-500">
+                                            <div className="font-medium mb-1">💡 解决方案：</div>
+                                            <ul className="list-disc list-inside space-y-1 text-xs">
+                                                <li>使用上方的"引用变量"模式替代</li>
+                                                <li>通过VPN连接到美国/欧洲等支持地区</li>
+                                                <li>使用Input节点上传文件后引用</li>
+                                            </ul>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

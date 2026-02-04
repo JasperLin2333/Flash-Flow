@@ -314,7 +314,15 @@ function BuilderContent() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 rounded-full hover:bg-black/5 text-gray-600 hover:text-black transition-colors"
-                            onClick={() => router.back()}
+                            onClick={() => {
+                                // 🔥 智能返回：优先返回首页，避免空白页面
+                                const referrer = typeof window !== 'undefined' ? document.referrer : '';
+                                if (referrer.includes(window.location.origin + '/') && !referrer.includes('/builder')) {
+                                    router.push('/');
+                                } else {
+                                    router.back();
+                                }
+                            }}
                         >
                             <ArrowLeft className="w-4 h-4" />
                         </Button>
