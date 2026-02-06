@@ -1,0 +1,253 @@
+{
+  "title": "通用AI助手工作流",
+  "goal": "",
+  "tags": [
+    "node:input",
+    "node:branch",
+    "node:llm",
+    "node:tool",
+    "node:rag",
+    "node:output"
+  ],
+  "workflow": {
+    "title": "通用AI助手工作流",
+    "nodes": [
+      {
+        "id": "input",
+        "data": {
+          "label": "用户问题输入",
+          "status": "idle",
+          "greeting": "您好！我是您的AI助手，请问有什么可以帮助您的？",
+          "fileConfig": {
+            "maxCount": 10,
+            "maxSizeMB": 50,
+            "allowedTypes": [
+              "image/*",
+              ".pdf",
+              ".doc",
+              ".docx",
+              ".txt",
+              ".md",
+              ".csv",
+              ".xlsx"
+            ]
+          },
+          "formFields": [],
+          "fileRequired": false,
+          "textRequired": true,
+          "enableFileInput": true,
+          "enableTextInput": true,
+          "enableStructuredForm": false
+        },
+        "type": "input",
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 50,
+          "y": 250
+        }
+      },
+      {
+        "id": "branch",
+        "data": {
+          "label": "问题类型判断",
+          "status": "idle",
+          "condition": "{{用户问题输入.user_input}}.includes('搜索') || {{用户问题输入.user_input}}.includes('最新') || {{用户问题输入.user_input}}.includes('文件')"
+        },
+        "type": "branch",
+        "measured": {
+          "width": 268,
+          "height": 170
+        },
+        "position": {
+          "x": 490,
+          "y": 250
+        },
+        "selected": false
+      },
+      {
+        "id": "llm_simple",
+        "data": {
+          "label": "智能回答生成",
+          "model": "qwen-flash",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.7,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "你是一个AI助手，请直接回答用户的问题，保持简洁准确。",
+          "inputMappings": {
+            "user_input": "{{用户问题输入.user_input}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "text"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 1370,
+          "y": 50
+        }
+      },
+      {
+        "id": "tool_search",
+        "data": {
+          "label": "网络搜索",
+          "inputs": {
+            "query": "{{用户问题输入.user_input}}",
+            "maxResults": 3
+          },
+          "status": "idle",
+          "toolType": "web_search"
+        },
+        "type": "tool",
+        "dragging": false,
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 930,
+          "y": 250
+        },
+        "selected": false
+      },
+      {
+        "id": "rag_query",
+        "data": {
+          "files": [],
+          "label": "知识库查询",
+          "files2": [],
+          "files3": [],
+          "status": "idle",
+          "fileMode": "variable",
+          "uploadStatus": "idle",
+          "inputMappings": {
+            "files": "{{用户问题输入.files}}",
+            "query": "{{用户问题输入.user_input}}"
+          },
+          "maxOverlapTokens": 20,
+          "fileSearchStoreId": "store-rag_quer-1770308415722",
+          "maxTokensPerChunk": 200,
+          "fileSearchStoreName": "fileSearchStores/storeragquer1770308415722-daa9q6i6mx7y"
+        },
+        "type": "rag",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 930,
+          "y": 450
+        },
+        "selected": true
+      },
+      {
+        "id": "llm_complex",
+        "data": {
+          "label": "综合分析与回答",
+          "model": "deepseek-chat",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.3,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "结合网络搜索结果和知识库内容，为用户提供深度分析回答。网络搜索结果：{{网络搜索.results}}，知识库内容：{{知识库查询.documents}}",
+          "inputMappings": {
+            "user_input": "{{用户问题输入.user_input}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "text"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 1370,
+          "y": 250
+        }
+      },
+      {
+        "id": "output",
+        "data": {
+          "label": "最终回答输出",
+          "status": "idle",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{智能回答生成.response}}"
+              },
+              {
+                "type": "variable",
+                "value": "{{综合分析与回答.response}}"
+              }
+            ]
+          }
+        },
+        "type": "output",
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 1810,
+          "y": 50
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-input-branch-zj7u",
+        "source": "input",
+        "target": "branch"
+      },
+      {
+        "id": "e-branch-llm_simple-4ofh",
+        "source": "branch",
+        "target": "llm_simple",
+        "sourceHandle": "true"
+      },
+      {
+        "id": "e-branch-tool_search-TOVM",
+        "source": "branch",
+        "target": "tool_search",
+        "sourceHandle": "false"
+      },
+      {
+        "id": "e-branch-rag_query-fjz_",
+        "source": "branch",
+        "target": "rag_query",
+        "sourceHandle": "false"
+      },
+      {
+        "id": "e-tool_search-llm_complex-fpvq",
+        "source": "tool_search",
+        "target": "llm_complex"
+      },
+      {
+        "id": "e-rag_query-llm_complex-ovzA",
+        "source": "rag_query",
+        "target": "llm_complex"
+      },
+      {
+        "id": "e-llm_simple-output-jawg",
+        "source": "llm_simple",
+        "target": "output"
+      },
+      {
+        "id": "e-llm_complex-output-FjlW",
+        "source": "llm_complex",
+        "target": "output"
+      }
+    ]
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "title": "日程冲突检测",
+  "goal": "用户输入多个日程事件，识别冲突并给出调整建议。",
+  "tags": [
+    "效率",
+    "日程",
+    "规划"
+  ],
+  "workflow": {
+    "title": "日程冲突检测与智能调整助手",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_schedule",
+        "type": "Input",
+        "data": {
+          "label": "日程输入",
+          "greeting": "请描述您的多个日程安排（例如：周一上午10点开会，下午2点见客户）。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "llm_analyze",
+        "type": "LLM",
+        "data": {
+          "label": "冲突分析",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一个专业的日程管理助手。请严格按以下JSON格式输出分析结果。\n分析步骤：\n1. 从用户输入中提取所有日程事件，包括事件名称、日期、开始时间、结束时间。\n2. 识别所有时间上存在冲突的事件对。\n3. 为每个冲突事件对提供1-2条具体的调整建议（如调整时间、合并会议、线上替代等）。\n4. 生成一个简要的总结。\n\n输出格式：\n{\n  \"events\": [\n    {\"name\": \"事件A\", \"date\": \"YYYY-MM-DD\", \"start\": \"HH:MM\", \"end\": \"HH:MM\"}\n  ],\n  \"conflicts\": [\n    {\"event1\": \"事件A名称\", \"event2\": \"事件B名称\", \"reason\": \"冲突原因\"}\n  ],\n  \"suggestions\": [\n    {\"conflict_pair\": \"事件A vs 事件B\", \"advice\": \"具体调整建议\"}\n  ],\n  \"summary\": \"总结文本\"\n}",
+          "temperature": 0.2,
+          "responseFormat": "json_object",
+          "inputMappings": {
+            "user_input": "{{日程输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "output_result",
+        "type": "Output",
+        "data": {
+          "label": "结果输出",
+          "inputMappings": {
+            "mode": "template",
+            "template": "## 📅 日程分析报告\n\n**已识别的事件：**\n{{#each 冲突分析.response.events}}\n- **{{this.name}}**：{{this.date}} {{this.start}} - {{this.end}}\n{{/each}}\n\n**⏰ 检测到的冲突：**\n{{#each 冲突分析.response.conflicts}}\n- **{{this.event1}}** 与 **{{this.event2}}** 时间重叠（{{this.reason}}）\n{{/each}}\n\n**💡 调整建议：**\n{{#each 冲突分析.response.suggestions}}\n- **{{this.conflict_pair}}**：{{this.advice}}\n{{/each}}\n\n**📋 总结：**\n{{冲突分析.response.summary}}"
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：用户输入多个日程事件，识别冲突并给出调整建议。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_schedule",
+        "target": "llm_analyze",
+        "sourceHandle": null,
+        "id": "edge_input_schedule_llm_analyze_0"
+      },
+      {
+        "source": "llm_analyze",
+        "target": "output_result",
+        "sourceHandle": null,
+        "id": "edge_llm_analyze_output_result_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_schedule",
+        "id": "edge_auto_input_input_schedule_2"
+      },
+      {
+        "source": "output_result",
+        "target": "auto_output",
+        "id": "edge_output_result_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

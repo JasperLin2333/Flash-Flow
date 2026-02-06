@@ -1,0 +1,154 @@
+{
+  "title": "每日工作复盘",
+  "goal": "引导用户填写今日工作内容并生成复盘总结与改进建议。",
+  "tags": [
+    "效率",
+    "复盘",
+    "办公"
+  ],
+  "workflow": {
+    "title": "工作日报复盘与改进建议生成器",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_work_report",
+        "type": "Input",
+        "data": {
+          "label": "工作日报输入",
+          "greeting": "请填写您今日的工作内容，以便为您生成复盘总结和改进建议。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": true,
+          "formFields": [
+            {
+              "type": "text",
+              "name": "completed_tasks",
+              "label": "已完成的工作",
+              "placeholder": "例如：完成了项目A的需求评审，编写了模块B的代码",
+              "required": true
+            },
+            {
+              "type": "text",
+              "name": "pending_issues",
+              "label": "遇到的问题或待办事项",
+              "placeholder": "例如：模块C的接口联调遇到阻塞，需要明天跟进",
+              "required": false
+            },
+            {
+              "type": "select",
+              "name": "mood",
+              "label": "今日工作心情",
+              "options": [
+                "高效充实",
+                "平稳推进",
+                "略有压力",
+                "遇到挑战"
+              ],
+              "required": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "llm_analyzer",
+        "type": "LLM",
+        "data": {
+          "label": "工作分析助手",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位专业的工作效率教练。请根据用户提供的今日工作内容，生成一份结构化的复盘总结与改进建议。输出必须为纯文本，包含以下三个部分，每部分用'##'标题分隔：\n1. ## 今日工作复盘总结\n2. ## 可优化的环节\n3. ## 明日行动建议\n请确保建议具体、可操作，并适应用户描述的工作心情。",
+          "temperature": 0.7,
+          "responseFormat": "text",
+          "inputMappings": {
+            "user_input": "用户今日已完成的工作：{{工作日报输入.completed_tasks}}。遇到的问题：{{工作日报输入.pending_issues}}。工作心情：{{工作日报输入.mood}}。请基于以上信息进行分析。"
+          }
+        }
+      },
+      {
+        "id": "output_report",
+        "type": "Output",
+        "data": {
+          "label": "复盘报告输出",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{工作分析助手.response}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：引导用户填写今日工作内容并生成复盘总结与改进建议。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_work_report",
+        "target": "llm_analyzer",
+        "sourceHandle": null,
+        "id": "edge_input_work_report_llm_analyzer_0"
+      },
+      {
+        "source": "llm_analyzer",
+        "target": "output_report",
+        "sourceHandle": null,
+        "id": "edge_llm_analyzer_output_report_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_work_report",
+        "id": "edge_auto_input_input_work_report_2"
+      },
+      {
+        "source": "output_report",
+        "target": "auto_output",
+        "id": "edge_output_report_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

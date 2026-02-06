@@ -61,7 +61,7 @@ function BuilderContent() {
         const initialPrompt = searchParams.get('initialPrompt');
         const mode = searchParams.get('mode');
         const enableClarification = searchParams.get('enableClarification');
-        
+
         // 只有在纯浏览模式下才清理（没有任何参数）
         if (!flowIdParam && !initialPrompt && !mode && !enableClarification) {
             useFlowStore.setState(INITIAL_FLOW_STATE);
@@ -69,7 +69,7 @@ function BuilderContent() {
             hasGeneratedRef.current = false;
             return;
         }
-        
+
         // 生成模式下只清理特定状态，保留必要参数
         if (initialPrompt) {
             useFlowStore.setState({
@@ -89,46 +89,90 @@ function BuilderContent() {
 
         // SCENARIO 1: User navigated from homepage with a prompt to generate
         if (initialPrompt && initialPrompt.trim() && !hasGeneratedRef.current) {
-            const mode = searchParams.get("mode");
-            const enableClarification = searchParams.get("enableClarification") === "true";
-
             hasGeneratedRef.current = true;
             setIsGeneratingInitial(true);
-            // Persist to sessionStorage so refresh can restore state
-            // FIX: Use scoped key to distinguish modes
-            const operationMode = (mode === 'agent' || enableClarification) ? 'generating-agent' : 'generating-quick';
-            sessionStorage.setItem('flash-flow:copilot-operation', operationMode);
-            setCopilotBackdrop("blank");
 
-            // Use Agent API if:
-            // 1. mode=agent (thinking chain) OR
-            // 2. enableClarification=true (needs clarification flow)
-            const promise = (mode === "agent" || enableClarification)
-                ? useFlowStore.getState().startAgentCopilot(initialPrompt, { enableClarification })
-                : startCopilot(initialPrompt);
+            // Wrap in async IIFE to allow await
+            (async () => {
+                const mode = searchParams.get("mode");
+                let enableClarification = searchParams.get("enableClarification") === "true";
+                const shouldPreheatAgent = mode === "agent" || enableClarification;
 
+                if (shouldPreheatAgent) {
+                    useFlowStore.setState({
+                        copilotStatus: "thinking",
+                        copilotMode: "agent",
+                        copilotStep: 1,
+                        copilotFeed: [{
+                            id: `init-analysis-${Date.now()}`,
+                            type: 'step',
+                            stepType: 'analysis',
+                            status: 'streaming',
+                            content: '',
+                            timestamp: Date.now()
+                        }],
+                        currentCopilotPrompt: initialPrompt,
+                        error: null
+                    });
+                }
 
-            promise
-                .then(() => {
+                // ========== Intent Router: Determine if we need planning mode ==========
+                // ONLY for agent mode: call /api/intent-router to auto-detect
+                if (mode === "agent" && !enableClarification) {
+                    try {
+                        const routerResp = await fetch("/api/intent-router", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ prompt: initialPrompt }),
+                        });
+
+                        if (routerResp.ok) {
+                            const routerResult = await routerResp.json();
+                            // PLAN_MODE = vague request, need clarification
+                            // DIRECT_MODE = clear request, skip confirmation
+                            enableClarification = routerResult.mode === "PLAN_MODE";
+                            console.log(`[Builder] Intent detected: ${routerResult.mode} (confidence: ${routerResult.confidence})`);
+                        }
+                    } catch (err) {
+                        console.warn("[Builder] Intent router failed, defaulting to planning mode:", err);
+                        enableClarification = true; // Default to planning mode on error
+                    }
+                }
+
+                // Persist to sessionStorage so refresh can restore state
+                // FIX: Use scoped key to distinguish modes
+                const operationMode = (mode === 'agent' || enableClarification) ? 'generating-agent' : 'generating-quick';
+                sessionStorage.setItem('flash-flow:copilot-operation', operationMode);
+                setCopilotBackdrop("blank");
+
+                // Use Agent API if:
+                // 1. mode=agent (thinking chain) OR
+                // 2. enableClarification=true (needs clarification flow)
+                try {
+                    if (mode === "agent" || enableClarification) {
+                        await useFlowStore.getState().startAgentCopilot(initialPrompt, {
+                            enableClarification,
+                            force: shouldPreheatAgent,
+                            preserveFeed: shouldPreheatAgent
+                        });
+                    } else {
+                        await startCopilot(initialPrompt);
+                    }
+
                     // ✅ BUG FIX #2: Fixed malformed URL (removed spaces)
-                    // BEFORE: `/ builder ? flowId = ${...} ` caused 404
-                    // AFTER: `/builder?flowId=${...}` proper URL format
                     const currentFlowId = useFlowStore.getState().currentFlowId;
                     if (currentFlowId) {
-                        // ✅ OPTIMIZATION: Mark this ID as loaded to prevent redundant fetch on URL update
                         loadedFlowIdRef.current = currentFlowId;
                         router.replace(`/builder?flowId=${currentFlowId}`);
                     }
-                })
-                .catch((error) => {
+                } catch (error) {
                     console.error('Flow generation failed:', error);
                     setLoadError('生成流程失败，请重试');
-                })
-                .finally(() => {
-                    // Clear generation state from sessionStorage
+                } finally {
                     sessionStorage.removeItem('flash-flow:copilot-operation');
                     setIsGeneratingInitial(false);
-                });
+                }
+            })();
             return;
         }
 

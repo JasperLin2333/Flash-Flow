@@ -1,0 +1,121 @@
+{
+  "title": "会议纪要整理",
+  "goal": "把会议录音文本整理成结构化纪要，并输出待办列表。",
+  "tags": [
+    "办公",
+    "会议",
+    "总结"
+  ],
+  "workflow": {
+    "title": "会议录音文本结构化纪要生成器",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_meeting_text",
+        "type": "Input",
+        "data": {
+          "label": "会议录音文本输入",
+          "greeting": "请粘贴或输入您的会议录音转文字内容",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "llm_summarizer",
+        "type": "LLM",
+        "data": {
+          "label": "纪要生成器",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一个专业的会议纪要整理助手。请根据用户提供的会议录音文本，生成一份结构清晰、重点突出的会议纪要。\n\n请严格按照以下JSON格式输出，不要包含任何其他解释性文字：\n{\n  \"meeting_title\": \"会议主题\",\n  \"date\": \"会议日期（如用户未提供，请合理推断或留空）\",\n  \"participants\": [\"参会人1\", \"参会人2\"],\n  \"key_points\": [\"要点1\", \"要点2\", \"要点3\"],\n  \"decisions\": [\"决定1\", \"决定2\"],\n  \"action_items\": [\n    {\n      \"task\": \"具体任务描述\",\n      \"owner\": \"负责人\",\n      \"deadline\": \"截止时间\"\n    }\n  ]\n}",
+          "temperature": 0.2,
+          "responseFormat": "json_object",
+          "inputMappings": {
+            "user_input": "{{会议录音文本输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "output_structured_minutes",
+        "type": "Output",
+        "data": {
+          "label": "结构化纪要输出",
+          "inputMappings": {
+            "mode": "template",
+            "template": "# 会议纪要\n\n**会议主题：** {{纪要生成器.response.meeting_title}}\n**会议日期：** {{纪要生成器.response.date}}\n**参会人员：** {{纪要生成器.response.participants}}\n\n## 核心要点\n{{#each 纪要生成器.response.key_points}}\n- {{this}}\n{{/each}}\n\n## 会议决议\n{{#each 纪要生成器.response.decisions}}\n- {{this}}\n{{/each}}\n\n## 待办事项（Action Items）\n{{#each 纪要生成器.response.action_items}}\n- **任务：** {{this.task}}\n  **负责人：** {{this.owner}}\n  **截止时间：** {{this.deadline}}\n{{/each}}"
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：把会议录音文本整理成结构化纪要，并输出待办列表。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_meeting_text",
+        "target": "llm_summarizer",
+        "sourceHandle": null,
+        "id": "edge_input_meeting_text_llm_summarizer_0"
+      },
+      {
+        "source": "llm_summarizer",
+        "target": "output_structured_minutes",
+        "sourceHandle": null,
+        "id": "edge_llm_summarizer_output_structured_minutes_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_meeting_text",
+        "id": "edge_auto_input_input_meeting_text_2"
+      },
+      {
+        "source": "output_structured_minutes",
+        "target": "auto_output",
+        "id": "edge_output_structured_minutes_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

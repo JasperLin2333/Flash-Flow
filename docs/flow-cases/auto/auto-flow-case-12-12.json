@@ -1,0 +1,154 @@
+{
+  "title": "编程学习路线",
+  "goal": "根据用户目标和基础，生成分阶段编程学习路线。",
+  "tags": [
+    "学习",
+    "编程",
+    "规划"
+  ],
+  "workflow": {
+    "title": "编程学习路线规划师",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_learning_plan",
+        "type": "Input",
+        "data": {
+          "label": "学习目标输入",
+          "greeting": "请告诉我您的编程学习目标和基础，我将为您生成一份分阶段的学习路线。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": true,
+          "formFields": [
+            {
+              "type": "text",
+              "name": "goal",
+              "label": "学习目标",
+              "placeholder": "例如：开发一个个人网站、学习数据分析、掌握Python自动化",
+              "required": true
+            },
+            {
+              "type": "select",
+              "name": "level",
+              "label": "当前基础",
+              "options": [
+                "零基础",
+                "了解一些概念",
+                "有少量代码经验",
+                "熟悉一门其他语言"
+              ],
+              "required": true
+            },
+            {
+              "type": "text",
+              "name": "time_per_week",
+              "label": "每周可用学习时间（小时）",
+              "placeholder": "例如：10",
+              "required": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "llm_plan_generator",
+        "type": "LLM",
+        "data": {
+          "label": "学习路线生成器",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位经验丰富的编程导师。请根据用户提供的学习目标、当前基础和每周可用时间，生成一份详细、可行、分阶段的学习路线。路线应包含清晰的阶段划分（如入门、核心、实战）、每个阶段的核心知识点、推荐的学习资源（如免费课程、文档链接）以及预估的时间投入。请以友好、鼓励的语气输出，并考虑用户的基础，从易到难安排。",
+          "temperature": 0.7,
+          "responseFormat": "text",
+          "inputMappings": {
+            "user_input": "目标：{{学习目标输入.goal}}，基础：{{学习目标输入.level}}，每周可用时间：{{学习目标输入.time_per_week}}小时。请为我规划学习路线。"
+          }
+        }
+      },
+      {
+        "id": "output_learning_plan",
+        "type": "Output",
+        "data": {
+          "label": "学习路线输出",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{学习路线生成器.response}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：根据用户目标和基础，生成分阶段编程学习路线。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_learning_plan",
+        "target": "llm_plan_generator",
+        "sourceHandle": null,
+        "id": "edge_input_learning_plan_llm_plan_generator_0"
+      },
+      {
+        "source": "llm_plan_generator",
+        "target": "output_learning_plan",
+        "sourceHandle": null,
+        "id": "edge_llm_plan_generator_output_learning_plan_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_learning_plan",
+        "id": "edge_auto_input_input_learning_plan_2"
+      },
+      {
+        "source": "output_learning_plan",
+        "target": "auto_output",
+        "id": "edge_output_learning_plan_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

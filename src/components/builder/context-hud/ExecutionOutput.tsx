@@ -20,6 +20,8 @@ export function ExecutionOutput({ executionOutput }: ExecutionOutputProps) {
     const hasImageUrl = typeof data.imageUrl === "string" && data.imageUrl.trim();
     const imageUrl = data.imageUrl as string;
     const status = data.status as string || 'completed'; // Default to completed if we have output
+    const debug = data.debug as unknown[] | undefined;
+    const hasDebug = Array.isArray(debug) && debug.length > 0;
 
     // Handle download
     const handleDownload = async () => {
@@ -107,6 +109,20 @@ export function ExecutionOutput({ executionOutput }: ExecutionOutputProps) {
                                 </div>
                                 <div className="text-[11px] font-mono text-amber-800/80 leading-relaxed whitespace-pre-wrap break-all">
                                     {data.reasoning as string}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Debug (Tool/Skill) */}
+                        {hasDebug && (
+                            <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-inner">
+                                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-800/50 border-b border-slate-700/50">
+                                    <span className="text-[10px] text-slate-500 font-mono">DEBUG</span>
+                                </div>
+                                <div className="p-4 max-h-64 overflow-auto custom-scrollbar-dark">
+                                    <pre className="text-[11px] font-mono text-slate-300 whitespace-pre-wrap break-all">
+                                        {JSON.stringify(debug, null, 2)}
+                                    </pre>
                                 </div>
                             </div>
                         )}

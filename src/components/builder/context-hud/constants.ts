@@ -16,6 +16,8 @@ export const formSchema = z.object({
     memoryMaxTurns: z.number().min(1).max(20).optional(),
     responseFormat: z.enum(['text', 'json_object']).optional(), // JSON输出模式
     inputMappings: z.record(z.string(), z.string()).optional(), // 输入映射
+    enableSkills: z.boolean().optional(),
+    skillIds: z.array(z.string()).optional(),
     // Input node specific fields
     enableTextInput: z.boolean().optional(),
     textRequired: z.boolean().optional(),

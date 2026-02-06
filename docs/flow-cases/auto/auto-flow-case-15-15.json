@@ -1,0 +1,149 @@
+{
+  "title": "个人预算管理",
+  "goal": "用户输入月收入/支出，输出预算分配与节省建议。",
+  "tags": [
+    "个人",
+    "理财",
+    "预算"
+  ],
+  "workflow": {
+    "title": "个人月度预算分析与优化建议",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_1",
+        "type": "Input",
+        "data": {
+          "label": "预算输入",
+          "greeting": "请输入您的月度收入和支出详情，我将为您分析并提供预算优化建议。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": true,
+          "formFields": [
+            {
+              "type": "text",
+              "name": "monthly_income",
+              "label": "月收入（元）",
+              "placeholder": "例如：10000",
+              "required": true
+            },
+            {
+              "type": "text",
+              "name": "monthly_expenses",
+              "label": "月支出（元）",
+              "placeholder": "例如：8000",
+              "required": true
+            },
+            {
+              "type": "select",
+              "name": "financial_goal",
+              "label": "主要财务目标",
+              "options": [
+                "增加储蓄",
+                "减少债务",
+                "投资理财",
+                "大额消费规划"
+              ],
+              "required": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "LLM",
+        "data": {
+          "label": "预算分析",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位专业的个人理财顾问。请根据用户提供的月度收入、支出和财务目标，进行以下分析：\n1. 计算月度结余（收入-支出）。\n2. 评估当前支出占收入的比例是否健康（建议支出占比低于70%）。\n3. 基于用户的财务目标，提供具体的预算分配建议（例如：生活必需、储蓄、投资、娱乐等类别及建议金额或比例）。\n4. 提供2-3条可操作的节省建议。\n\n请以清晰、友好的语气输出，适合普通用户理解。使用以下JSON格式输出分析结果：\n{\n  \"monthly_surplus\": 计算出的结余金额,\n  \"expense_ratio_health\": \"健康\" 或 \"偏高\",\n  \"budget_allocation\": {\n    \"necessities\": \"建议金额与比例\",\n    \"savings\": \"建议金额与比例\",\n    \"investment\": \"建议金额与比例\",\n    \"leisure\": \"建议金额与比例\"\n  },\n  \"saving_tips\": [\"建议1\", \"建议2\", \"建议3\"],\n  \"final_advice\": \"一段总结性的鼓励和建议\"\n}",
+          "temperature": 0.3,
+          "responseFormat": "json_object",
+          "inputMappings": {
+            "user_input": "用户月收入为 {{预算输入.monthly_income}} 元，月支出为 {{预算输入.monthly_expenses}} 元，主要财务目标是 {{预算输入.financial_goal}}。请基于以上信息进行分析和建议。"
+          }
+        }
+      },
+      {
+        "id": "output_1",
+        "type": "Output",
+        "data": {
+          "label": "预算报告",
+          "inputMappings": {
+            "mode": "template",
+            "template": "## 您的月度预算分析报告\n\n**基本信息**\n- 月收入：{{预算输入.monthly_income}} 元\n- 月支出：{{预算输入.monthly_expenses}} 元\n- 财务目标：{{预算输入.financial_goal}}\n\n**核心分析**\n- 月度结余：{{预算分析.response.monthly_surplus}} 元\n- 支出健康度：{{预算分析.response.expense_ratio_health}}\n\n**预算分配建议**\n- 生活必需：{{预算分析.response.budget_allocation.necessities}}\n- 储蓄：{{预算分析.response.budget_allocation.savings}}\n- 投资：{{预算分析.response.budget_allocation.investment}}\n- 休闲娱乐：{{预算分析.response.budget_allocation.leisure}}\n\n**实用节省小贴士**\n1. {{预算分析.response.saving_tips[0]}}\n2. {{预算分析.response.saving_tips[1]}}\n3. {{预算分析.response.saving_tips[2]}}\n\n**总结与鼓励**\n{{预算分析.response.final_advice}}"
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：用户输入月收入/支出，输出预算分配与节省建议。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_1",
+        "target": "llm_1",
+        "sourceHandle": null,
+        "id": "edge_input_1_llm_1_0"
+      },
+      {
+        "source": "llm_1",
+        "target": "output_1",
+        "sourceHandle": null,
+        "id": "edge_llm_1_output_1_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_1",
+        "id": "edge_auto_input_input_1_2"
+      },
+      {
+        "source": "output_1",
+        "target": "auto_output",
+        "id": "edge_output_1_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1_1",
+        "source": "auto_input",
+        "target": "llm_1_1"
+      },
+      {
+        "id": "edge_llm_1_1_auto_output",
+        "source": "llm_1_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

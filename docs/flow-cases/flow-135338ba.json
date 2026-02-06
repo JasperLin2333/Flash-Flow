@@ -1,0 +1,237 @@
+{
+  "title": "智能旅游助手",
+  "goal": "",
+  "tags": [
+    "node:input",
+    "node:llm",
+    "node:tool",
+    "node:output"
+  ],
+  "workflow": {
+    "title": "智能旅游助手",
+    "nodes": [
+      {
+        "id": "input",
+        "data": {
+          "label": "旅行需求输入",
+          "status": "idle",
+          "greeting": "请输入目的地和天数，例如：重庆 3天",
+          "fileConfig": {
+            "maxCount": 10,
+            "maxSizeMB": 50,
+            "allowedTypes": [
+              "image/*",
+              ".pdf",
+              ".doc",
+              ".docx",
+              ".txt",
+              ".md",
+              ".csv",
+              ".xlsx"
+            ]
+          },
+          "formFields": [],
+          "fileRequired": false,
+          "textRequired": true,
+          "enableFileInput": true,
+          "enableTextInput": true,
+          "enableStructuredForm": false
+        },
+        "type": "input",
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 50,
+          "y": 50
+        }
+      },
+      {
+        "id": "llm_parser",
+        "data": {
+          "label": "需求解析器",
+          "model": "qwen-flash",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.1,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "# 任务\n智能解析用户输入的旅游需求，提取标准化目的地名称和天数。\n\n# 输出格式\n必须输出JSON格式：{\"destination\": \"目的地名称\", \"days\": 天数}\n\n# 要求\n1. 目的地名称要标准化（如：重庆、北京、上海）\n2. 天数必须是整数\n3. 只输出JSON，不要任何额外文字",
+          "inputMappings": {
+            "user_input": "{{旅行需求输入.user_input}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "json_object"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 490,
+          "y": 50
+        }
+      },
+      {
+        "id": "tool_food",
+        "data": {
+          "label": "美食搜索",
+          "inputs": {
+            "query": "{{需求解析器.response.destination}} 必吃美食 餐厅推荐",
+            "maxResults": 5
+          },
+          "status": "idle",
+          "toolType": "web_search"
+        },
+        "type": "tool",
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 930,
+          "y": 50
+        }
+      },
+      {
+        "id": "tool_sight",
+        "data": {
+          "label": "景点搜索",
+          "inputs": {
+            "query": "{{需求解析器.response.destination}} 热门景点 游玩攻略",
+            "maxResults": 5
+          },
+          "status": "idle",
+          "toolType": "web_search"
+        },
+        "type": "tool",
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 930,
+          "y": 250
+        }
+      },
+      {
+        "id": "llm_route",
+        "data": {
+          "label": "路线规划师",
+          "model": "deepseek-chat",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.3,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "# 角色\n资深旅游路线规划师\n\n# 任务\n结合美食和景点信息，规划不走回头路的特种兵旅行路线。\n\n# 输入信息\n1. 目的地和天数\n2. 当地美食推荐\n3. 热门景点信息\n\n# 要求\n1. 规划高效路线，避免走回头路\n2. 合理安排每日游览顺序\n3. 考虑地理位置和交通便利性\n4. 输出每日行程框架和路线顺序",
+          "inputMappings": {
+            "user_input": "目的地：{{需求解析器.response.destination}}，天数：{{需求解析器.response.days}}天\n\n美食信息：{{美食搜索.results}}\n\n景点信息：{{景点搜索.results}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "text"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 1370,
+          "y": 50
+        }
+      },
+      {
+        "id": "llm_detail",
+        "data": {
+          "label": "行程细化器",
+          "model": "deepseek-chat",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.2,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "# 角色\n专业行程安排师\n\n# 任务\n将路线框架细化为详细的每日时间表。\n\n# 要求\n1. 填充具体时间安排（精确到小时）\n2. 建议交通方式和预计时间\n3. 安排用餐时间和餐厅建议\n4. 考虑景点开放时间和最佳游览时段\n5. 输出完整的每日时间表，格式清晰易读",
+          "inputMappings": {
+            "user_input": "{{路线规划师.response}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "text"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 1810,
+          "y": 50
+        }
+      },
+      {
+        "id": "output",
+        "data": {
+          "label": "旅游计划输出",
+          "status": "idle",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{行程细化器.response}}"
+              }
+            ]
+          }
+        },
+        "type": "output",
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 2250,
+          "y": 50
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-input-llm_parser-RXo6",
+        "source": "input",
+        "target": "llm_parser"
+      },
+      {
+        "id": "e-llm_parser-tool_food-lAPj",
+        "source": "llm_parser",
+        "target": "tool_food"
+      },
+      {
+        "id": "e-llm_parser-tool_sight-x6dD",
+        "source": "llm_parser",
+        "target": "tool_sight"
+      },
+      {
+        "id": "e-tool_food-llm_route-ZWaQ",
+        "source": "tool_food",
+        "target": "llm_route"
+      },
+      {
+        "id": "e-tool_sight-llm_route-IcAd",
+        "source": "tool_sight",
+        "target": "llm_route"
+      },
+      {
+        "id": "e-llm_route-llm_detail-Raix",
+        "source": "llm_route",
+        "target": "llm_detail"
+      },
+      {
+        "id": "e-llm_detail-output-FB-e",
+        "source": "llm_detail",
+        "target": "output"
+      }
+    ]
+  }
+}

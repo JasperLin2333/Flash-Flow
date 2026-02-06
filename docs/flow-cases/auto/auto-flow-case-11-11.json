@@ -1,0 +1,121 @@
+{
+  "title": "课程笔记整理",
+  "goal": "将课堂笔记整理成结构化提纲和复习要点。",
+  "tags": [
+    "学习",
+    "笔记",
+    "整理"
+  ],
+  "workflow": {
+    "title": "课堂笔记智能整理与复习要点生成",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_1",
+        "type": "Input",
+        "data": {
+          "label": "课堂笔记输入",
+          "greeting": "请粘贴或输入您的课堂笔记内容",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "LLM",
+        "data": {
+          "label": "笔记分析器",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一个专业的课程助教，擅长将杂乱的课堂笔记整理成清晰的结构化提纲和复习要点。请分析用户提供的笔记，提取核心主题、关键概念、重要结论和待解决的问题。输出必须为严格的JSON格式，包含以下两个字段：\n1. \"outline\": 一个字符串，代表整理后的结构化提纲，使用清晰的标题和层级（如Markdown格式）。\n2. \"key_points\": 一个字符串数组，列出最重要的复习要点，每个要点应简洁明了。",
+          "temperature": 0.2,
+          "responseFormat": "json_object",
+          "inputMappings": {
+            "user_input": "{{课堂笔记输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "output_1",
+        "type": "Output",
+        "data": {
+          "label": "复习材料输出",
+          "inputMappings": {
+            "mode": "template",
+            "template": "## 结构化提纲\n{{笔记分析器.response.outline}}\n\n## 核心复习要点\n{{#each 笔记分析器.response.key_points}}\n- {{this}}\n{{/each}}"
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：将课堂笔记整理成结构化提纲和复习要点。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_1",
+        "target": "llm_1",
+        "sourceHandle": null,
+        "id": "edge_input_1_llm_1_0"
+      },
+      {
+        "source": "llm_1",
+        "target": "output_1",
+        "sourceHandle": null,
+        "id": "edge_llm_1_output_1_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_1",
+        "id": "edge_auto_input_input_1_2"
+      },
+      {
+        "source": "output_1",
+        "target": "auto_output",
+        "id": "edge_output_1_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1_1",
+        "source": "auto_input",
+        "target": "llm_1_1"
+      },
+      {
+        "id": "edge_llm_1_1_auto_output",
+        "source": "llm_1_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

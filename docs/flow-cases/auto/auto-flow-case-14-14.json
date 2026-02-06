@@ -1,0 +1,121 @@
+{
+  "title": "面试模拟问答",
+  "goal": "根据岗位生成面试问题清单和参考回答框架。",
+  "tags": [
+    "求职",
+    "面试",
+    "训练"
+  ],
+  "workflow": {
+    "title": "智能面试问题生成器",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_job_info",
+        "type": "Input",
+        "data": {
+          "label": "岗位信息输入",
+          "greeting": "请输入您需要面试的岗位名称和具体要求，我将为您生成面试问题清单和参考回答框架。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "llm_question_generator",
+        "type": "LLM",
+        "data": {
+          "label": "面试问题生成器",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位资深人力资源专家，擅长为不同岗位设计结构化面试问题。请根据用户提供的岗位信息，生成一份全面的面试问题清单，并为每个问题提供一个参考回答框架（即回答的思路和要点，而非标准答案）。\n\n输出格式必须是严格的JSON对象，包含以下两个字段：\n1. \"questions\": 一个数组，每个元素是一个对象，包含 \"category\"（问题类别，如：专业技能、行为面试、情景模拟等）、\"question\"（具体问题文本）和 \"answer_framework\"（参考回答框架）。\n2. \"summary\": 一段总结性文字，说明这份问题清单的设计思路和考察重点。",
+          "temperature": 0.7,
+          "responseFormat": "json_object",
+          "inputMappings": {
+            "user_input": "{{岗位信息输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "output_interview_guide",
+        "type": "Output",
+        "data": {
+          "label": "面试指南输出",
+          "inputMappings": {
+            "mode": "template",
+            "template": "根据您提供的岗位信息，我已为您生成以下面试问题清单和参考回答框架：\n\n## 面试问题清单\n{{面试问题生成器.response.summary}}\n\n以下是详细问题：\n{{#each 面试问题生成器.response.questions}}\n### {{this.category}}\n**问题：** {{this.question}}\n**回答框架：** {{this.answer_framework}}\n\n{{/each}}\n\n---\n*提示：以上回答框架仅供参考，旨在帮助面试官评估候选人的思维方式和能力匹配度，请根据实际情况灵活调整。*"
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：根据岗位生成面试问题清单和参考回答框架。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_job_info",
+        "target": "llm_question_generator",
+        "sourceHandle": null,
+        "id": "edge_input_job_info_llm_question_generator_0"
+      },
+      {
+        "source": "llm_question_generator",
+        "target": "output_interview_guide",
+        "sourceHandle": null,
+        "id": "edge_llm_question_generator_output_interview_guide_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_job_info",
+        "id": "edge_auto_input_input_job_info_2"
+      },
+      {
+        "source": "output_interview_guide",
+        "target": "auto_output",
+        "id": "edge_output_interview_guide_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

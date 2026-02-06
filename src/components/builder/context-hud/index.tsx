@@ -96,6 +96,8 @@ export default function ContextHUD() {
             text: "",
             enableMemory: false,
             memoryMaxTurns: 10,
+            enableSkills: false,
+            skillIds: [],
             greeting: "",  // 招呼语默认值
             condition: "",  // Branch 节点条件默认值
         },
@@ -135,6 +137,8 @@ export default function ContextHUD() {
             // LLM Memory fields
             enableMemory: type === "llm" && has("enableMemory") ? (d as Record<string, unknown>).enableMemory as boolean : false,
             memoryMaxTurns: type === "llm" && has("memoryMaxTurns") ? (d as Record<string, unknown>).memoryMaxTurns as number : 10,
+            enableSkills: type === "llm" && has("enableSkills") ? (d as Record<string, unknown>).enableSkills as boolean : false,
+            skillIds: type === "llm" && has("skillIds") ? ((d as Record<string, unknown>).skillIds as string[] | undefined) || [] : [],
             // LLM JSON output mode
             responseFormat: type === "llm" ? (has("responseFormat") ? (d as Record<string, unknown>).responseFormat as 'text' | 'json_object' : 'text') : undefined,
             inputMappings: type === "llm"

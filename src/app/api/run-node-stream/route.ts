@@ -1,9 +1,14 @@
-import OpenAI from "openai";
-export const runtime = 'edge';
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+export const runtime = "nodejs";
+
+import { createOpenAI } from "@ai-sdk/openai";
+import { streamText } from "ai";
+import type { CoreMessage } from "ai";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
 import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
+import { createSkillTool } from "@/lib/skills/skillTool";
+import { formatSkillIndex } from "@/lib/skills/skillRegistry";
+import { getSkillModelAllowlist, isSkillModelAllowed } from "@/lib/skills/skillGuard";
 
 /**
  * Streaming LLM API Endpoint
@@ -21,7 +26,16 @@ export async function POST(req: Request) {
         }
 
         const body = await reqClone.json();
-        const { model, systemPrompt, input, temperature, conversationHistory, responseFormat } = body;
+        const {
+            model,
+            systemPrompt,
+            input,
+            temperature,
+            conversationHistory,
+            responseFormat,
+            enableSkills,
+            skillIds,
+        } = body;
 
         if (!model) {
             return new Response(
@@ -35,9 +49,8 @@ export async function POST(req: Request) {
             return pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
         }
 
-        // Construct messages with proper typing
-        const messages: ChatCompletionMessageParam[] = [];
-        if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+        // Construct messages with proper typing (without system prompt)
+        const messages: CoreMessage[] = [];
 
         // Add conversation history if provided (for memory feature)
         // Security: Limit history size to prevent memory exhaustion
@@ -52,7 +65,7 @@ export async function POST(req: Request) {
         }
 
         if (input) {
-            if (typeof input === 'string') {
+            if (typeof input === "string") {
                 messages.push({ role: "user", content: input });
             } else {
                 messages.push({ role: "user", content: JSON.stringify(input) });
@@ -75,50 +88,150 @@ export async function POST(req: Request) {
             );
         }
 
-        // Create streaming response
         const encoder = new TextEncoder();
-
+        const allowedModels = getSkillModelAllowlist();
         const stream = new ReadableStream({
             async start(controller) {
                 try {
-                    const client = new OpenAI({
+                    const provider = createOpenAI({
                         apiKey,
                         baseURL: config.baseURL,
                     });
 
-                    const completion = await client.chat.completions.create({
-                        model: model,
-                        temperature: typeof temperature === "number" ? temperature : 0.7,
+                    const useSkills = enableSkills === true;
+                    const modelAllowed = isSkillModelAllowed(model, allowedModels);
+
+                    if (useSkills && !modelAllowed) {
+                        controller.enqueue(
+                            encoder.encode(`data: ${JSON.stringify({ error: "当前模型未在技能白名单中，无法启用技能。" })}\n\n`)
+                        );
+                        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                        controller.close();
+                        return;
+                    }
+                    const allowlist = Array.isArray(skillIds) ? skillIds.filter(Boolean) : [];
+                    const skillSetup = useSkills ? await createSkillTool({ scope: "runtime", allowlist }) : null;
+                    const hasSkills = Boolean(skillSetup && skillSetup.skills.length > 0);
+                    const skillInstructions = useSkills && hasSkills && skillSetup
+                        ? [
+                            formatSkillIndex(skillSetup.skills),
+                            "你必须至少调用一次 `skill` 工具读取技能说明，并严格遵循技能要求的输出格式。",
+                            "如果选择了多个技能，请优先选择最匹配的技能；必要时可多次调用。",
+                        ].join("\n")
+                        : "";
+                    const effectiveSystem = [systemPrompt || "", skillInstructions].filter(Boolean).join("\n\n");
+
+                    const tools = useSkills && hasSkills && skillSetup ? { skill: skillSetup.skillTool } : undefined;
+                    const prepareStep =
+                        useSkills && hasSkills && allowlist.length > 0
+                            ? ({ steps }: { steps: Array<unknown> }) => {
+                                if (steps.length === 0) {
+                                    return { toolChoice: { type: "tool", toolName: "skill" } as const };
+                                }
+                                return {};
+                            }
+                            : undefined;
+                    const stopWhen =
+                        useSkills && hasSkills
+                            ? ({ steps }: { steps: Array<{ toolCalls?: Array<unknown> }> }) => {
+                                const hadToolCall = steps.some(step => (step.toolCalls?.length ?? 0) > 0);
+                                const last = steps[steps.length - 1];
+                                const lastToolCalls = last?.toolCalls?.length ?? 0;
+                                if (!hadToolCall) {
+                                    return steps.length >= 1;
+                                }
+                                return steps.length >= 2 && lastToolCalls === 0;
+                            }
+                            : undefined;
+
+                    const debugEvents: Array<Record<string, unknown>> = [];
+
+                    const result = streamText({
+                        model: provider.chat(model),
+                        system: effectiveSystem || undefined,
                         messages,
-                        stream: true,
-                        // Add new parameters
-                        response_format: responseFormat === 'json_object' ? { type: 'json_object' } : undefined,
-                        stream_options: { include_usage: true }
+                        temperature: typeof temperature === "number" ? temperature : 0.7,
+                        tools,
+                        prepareStep,
+                        stopWhen,
+                        providerOptions:
+                            responseFormat === "json_object"
+                                ? ({ openai: { response_format: { type: "json_object" } } } as any)
+                                : undefined,
                     });
 
-                    for await (const chunk of completion) {
-                        const delta = chunk.choices?.[0]?.delta;
-                        const content = delta?.content || "";
-                        const reasoning = (delta as any)?.reasoning_content || "";
-                        const usage = (chunk as any).usage || null;
-
-                        if (content || reasoning || usage) {
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content, reasoning, usage })}\n\n`));
+                    for await (const part of result.fullStream) {
+                        if (part.type === "text-delta" && part.text) {
+                            controller.enqueue(
+                                encoder.encode(`data: ${JSON.stringify({ content: part.text })}\n\n`)
+                            );
+                        } else if (part.type === "reasoning-delta") {
+                            const reasoningChunk = (part as { delta?: string; text?: string }).delta || (part as { text?: string }).text || "";
+                            if (!reasoningChunk) continue;
+                            controller.enqueue(
+                                encoder.encode(`data: ${JSON.stringify({ reasoning: reasoningChunk })}\n\n`)
+                            );
+                        } else if (part.type === "tool-input-available") {
+                            debugEvents.push({
+                                type: "tool-input",
+                                toolName: part.toolName,
+                                input: part.input,
+                            });
+                            controller.enqueue(
+                                encoder.encode(`data: ${JSON.stringify({ debug: { type: "tool-input", toolName: part.toolName, input: part.input } })}\n\n`)
+                            );
+                        } else if (part.type === "tool-output-available") {
+                            debugEvents.push({
+                                type: "tool-output",
+                                toolCallId: part.toolCallId,
+                                output: part.output,
+                            });
+                            controller.enqueue(
+                                encoder.encode(`data: ${JSON.stringify({ debug: { type: "tool-output", toolCallId: part.toolCallId, output: part.output } })}\n\n`)
+                            );
+                        } else if (part.type === "tool-output-error") {
+                            debugEvents.push({
+                                type: "tool-error",
+                                toolCallId: part.toolCallId,
+                                error: part.errorText,
+                            });
+                            controller.enqueue(
+                                encoder.encode(`data: ${JSON.stringify({ debug: { type: "tool-error", toolCallId: part.toolCallId, error: part.errorText } })}\n\n`)
+                            );
                         }
                     }
 
+                    const usage = await result.totalUsage;
+                    const finishReason = await result.finishReason;
+                    const steps = await result.steps;
+                    const toolCallCount = steps.reduce((sum, step) => sum + (step.toolCalls?.length ?? 0), 0);
+                    const toolResultCount = steps.reduce((sum, step) => sum + (step.toolResults?.length ?? 0), 0);
                     await deductPointsOnServer(req, user.id, "llm", model, "LLM 使用");
 
-                    // Signal stream end
+                    const debugSummary = {
+                        model,
+                        provider,
+                        useSkills,
+                        hasSkills,
+                        allowlist,
+                        finishReason,
+                        steps: steps.length,
+                        toolCallCount,
+                        toolResultCount,
+                        events: debugEvents,
+                    };
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ debugSummary })}\n\n`));
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ usage })}\n\n`));
                     controller.enqueue(encoder.encode("data: [DONE]\n\n"));
                     controller.close();
                 } catch (error) {
-                    if (process.env.NODE_ENV === 'development') {
+                    if (process.env.NODE_ENV === "development") {
                         console.error("Streaming error:", error);
                     }
                     controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : "Streaming failed" })}\n\n`)
                     );
+                    controller.enqueue(encoder.encode("data: [DONE]\n\n"));
                     controller.close();
                 }
             },

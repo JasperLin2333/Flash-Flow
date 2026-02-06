@@ -15,6 +15,8 @@ export function getDefaultNodeData(type: NodeKind): Partial<AppNodeData> {
             systemPrompt: "",
             enableMemory: false,
             memoryMaxTurns: LLM_EXECUTOR_CONFIG.DEFAULT_MEMORY_MAX_TURNS,
+            enableSkills: false,
+            skillIds: [],
             responseFormat: "text",
             inputMappings: { user_input: "{{user_input}}" },
             status: "idle"

@@ -1,0 +1,121 @@
+{
+  "title": "论文阅读摘要",
+  "goal": "输入论文摘要或正文，输出关键贡献与方法概要。",
+  "tags": [
+    "学习",
+    "科研",
+    "总结"
+  ],
+  "workflow": {
+    "title": "论文贡献与方法摘要生成器",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_paper",
+        "type": "Input",
+        "data": {
+          "label": "论文输入",
+          "greeting": "请输入论文的摘要或正文，我将为您提取关键贡献与方法概要。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "llm_analyzer",
+        "type": "LLM",
+        "data": {
+          "label": "论文分析",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位专业的学术论文审稿人。请仔细分析用户提供的论文文本（摘要或正文），并严格按照以下JSON格式输出分析结果。\n\n输出格式：\n{\n  \"contributions\": [\"贡献点1\", \"贡献点2\", \"贡献点3\"],\n  \"method_summary\": \"对论文核心方法的简明扼要概述，用通俗易懂的语言，不超过200字。\"\n}\n\n要求：\n1. 贡献点（contributions）应提炼出最核心、最具创新性的3-5点。\n2. 方法概要（method_summary）应让非专业读者也能理解论文是如何解决问题的。",
+          "temperature": 0.2,
+          "responseFormat": "json_object",
+          "inputMappings": {
+            "user_input": "{{论文输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "output_summary",
+        "type": "Output",
+        "data": {
+          "label": "结果输出",
+          "inputMappings": {
+            "mode": "template",
+            "template": "## 📄 论文分析报告\n\n### 🎯 核心贡献\n{{#each 论文分析.response.contributions}}\n- {{this}}\n{{/each}}\n\n### 🔬 方法概要\n{{论文分析.response.method_summary}}\n\n---\n*分析完成，希望对您有帮助！*"
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：输入论文摘要或正文，输出关键贡献与方法概要。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_paper",
+        "target": "llm_analyzer",
+        "sourceHandle": null,
+        "id": "edge_input_paper_llm_analyzer_0"
+      },
+      {
+        "source": "llm_analyzer",
+        "target": "output_summary",
+        "sourceHandle": null,
+        "id": "edge_llm_analyzer_output_summary_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_paper",
+        "id": "edge_auto_input_input_paper_2"
+      },
+      {
+        "source": "output_summary",
+        "target": "auto_output",
+        "id": "edge_output_summary_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

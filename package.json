@@ -8,7 +8,11 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest",
-    "test:network": "npx tsx scripts/check-speed.ts"
+    "test:network": "npx tsx scripts/check-speed.ts",
+    "seed:agent-docs": "npx tsx scripts/seed-agent-docs.ts",
+    "seed:flow-cases": "npx tsx scripts/seed-flow-cases.ts",
+    "export:flow-cases": "npx tsx scripts/export-flow-cases.ts",
+    "gen:flow-cases": "npx tsx scripts/gen-flow-cases.ts"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.4",
@@ -36,7 +40,7 @@
     "@types/dagre": "^0.7.53",
     "@types/uuid": "^10.0.0",
     "@xyflow/react": "^12.9.3",
-    "ai": "^5.0.106",
+    "ai": "^6.0.71",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dagre": "^0.8.5",

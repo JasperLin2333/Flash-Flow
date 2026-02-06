@@ -179,12 +179,12 @@ export function handleStep(feed: FeedItem[], stepType: string, status: 'streamin
     // 1. Auto-complete any PREVIOUS streaming steps if this is a NEW step type
     // This ensures that when we move from "Analysis" -> "Strategy", the "Analysis" loading stops.
     let updatedFeed = feed;
-    
+
     // Only perform this check if we are NOT updating an existing step of the same type
-    const isUpdatingSameType = feed.some(item => 
-        item.type === 'step' && 
-        (item as StepItem).stepType === stepType && 
-        (item as StepItem).status !== 'completed' && 
+    const isUpdatingSameType = feed.some(item =>
+        item.type === 'step' &&
+        (item as StepItem).stepType === stepType &&
+        (item as StepItem).status !== 'completed' &&
         (item as StepItem).status !== 'error'
     );
 
@@ -225,10 +225,10 @@ export function handleStep(feed: FeedItem[], stepType: string, status: 'streamin
             if (index === targetIndex) {
                 const existingItem = item as StepItem;
                 // Append content for streaming updates, or if the new content is empty (e.g. completion event)
-                const newContent = (status === 'streaming' || !content) 
-                    ? existingItem.content + content 
+                const newContent = (status === 'streaming' || !content)
+                    ? existingItem.content + content
                     : content;
-                
+
                 return { ...item, status, content: newContent } as StepItem;
             }
             return item;
@@ -277,6 +277,7 @@ export function handlePlan(
         workflowNodes?: { type: string; label: string; description: string }[];
         useCases?: string[];
         howToUse?: string[];
+        verificationQuestions?: string[];
     }
 ): FeedItem[] {
     return [
@@ -292,7 +293,8 @@ export function handlePlan(
             refinedIntent: extras?.refinedIntent,
             workflowNodes: extras?.workflowNodes,
             useCases: extras?.useCases,
-            howToUse: extras?.howToUse
+            howToUse: extras?.howToUse,
+            verificationQuestions: extras?.verificationQuestions
         } as PlanItem
     ];
 }

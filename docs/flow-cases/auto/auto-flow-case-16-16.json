@@ -1,0 +1,121 @@
+{
+  "title": "购物清单排序",
+  "goal": "根据预算和优先级对购物清单进行排序。",
+  "tags": [
+    "生活",
+    "购物",
+    "清单"
+  ],
+  "workflow": {
+    "title": "智能购物清单预算排序助手",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入1"
+        }
+      },
+      {
+        "id": "input_1",
+        "type": "Input",
+        "data": {
+          "label": "用户输入",
+          "greeting": "请输入您的购物清单、总预算和优先级要求（如：价格、必要性、品牌）。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "LLM",
+        "data": {
+          "label": "清单分析与排序",
+          "model": "deepseek-chat",
+          "systemPrompt": "你是一个专业的购物顾问。请根据用户提供的总预算和优先级要求，对其购物清单中的项目进行智能排序。\n\n步骤：\n1. 从用户输入中提取购物清单（物品列表）、总预算金额和优先级关键词（如'价格'、'必要性'、'品牌'等）。\n2. 为清单中的每个物品估算一个合理的参考价格。\n3. 根据用户指定的优先级，结合预算约束，对所有物品进行排序。\n4. 输出一个清晰的JSON对象，包含以下字段：\n   - `sorted_list`: 一个数组，按推荐购买顺序排列物品名称。\n   - `reasoning`: 简要说明排序逻辑。\n   - `estimated_total`: 根据估算价格计算出的排序后清单总价。\n   - `budget_status`: 字符串，说明估算总价与预算的关系（如'在预算内'、'超出预算X元'）。\n\n请确保输出为纯JSON格式。",
+          "temperature": 0.2,
+          "responseFormat": "json_object",
+          "inputMappings": {
+            "user_input": "{{用户输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "output_1",
+        "type": "Output",
+        "data": {
+          "label": "排序结果",
+          "inputMappings": {
+            "mode": "template",
+            "template": "根据您的预算和优先级要求，我已为您优化了购物顺序：\n\n**推荐购买顺序：**\n{{清单分析与排序.response.sorted_list}}\n\n**排序逻辑：**\n{{清单分析与排序.response.reasoning}}\n\n**预算分析：**\n- 估算总价：{{清单分析与排序.response.estimated_total}}元\n- 状态：{{清单分析与排序.response.budget_status}}\n\n建议您按照此顺序进行采购，以更高效地利用预算。"
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入1.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：根据预算和优先级对购物清单进行排序。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_1",
+        "target": "llm_1",
+        "sourceHandle": null,
+        "id": "edge_input_1_llm_1_0"
+      },
+      {
+        "source": "llm_1",
+        "target": "output_1",
+        "sourceHandle": null,
+        "id": "edge_llm_1_output_1_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_1",
+        "id": "edge_auto_input_input_1_2"
+      },
+      {
+        "source": "output_1",
+        "target": "auto_output",
+        "id": "edge_output_1_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1_1",
+        "source": "auto_input",
+        "target": "llm_1_1"
+      },
+      {
+        "id": "edge_llm_1_1_auto_output",
+        "source": "llm_1_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

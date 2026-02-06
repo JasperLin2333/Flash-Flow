@@ -1,35 +1,43 @@
-import OpenAI from "openai";
-export const runtime = 'edge';
+export const runtime = "nodejs";
+
+import { createOpenAI } from "@ai-sdk/openai";
+import { streamText } from "ai";
 
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/authEdge";
 import { checkPointsOnServer, deductPointsOnServer, pointsExceededResponse } from "@/lib/quotaEdge";
 import { PROVIDER_CONFIG, getProviderForModel } from "@/lib/llmProvider";
-import { CORE_RULES, NODE_REFERENCE, VARIABLE_RULES, EDGE_RULES } from "@/lib/prompts";
+import { CORE_RULES, VARIABLE_RULES, EDGE_RULES } from "@/lib/prompts";
 import { FULL_EXAMPLES } from "@/lib/prompts/examples";
 import { detectIntentFromPrompt, BEST_PRACTICES } from "@/lib/agent/bestPractices";
 import { extractBalancedJson, validateWorkflow } from "@/lib/agent/utils";
 import { StreamXmlParser } from "@/lib/agent/streamUtils";
 import { validateGeneratedWorkflowV1_2 } from "@/lib/agent/generatedWorkflowValidatorV1";
 import { deterministicFixWorkflowV1 } from "@/lib/agent/deterministicFixerV1";
+import { createSkillTool } from "@/lib/skills/skillTool";
+import { getNodeReferenceForPrompt } from "@/lib/agent/nodeReferenceRag";
+import { getFlowCaseFewShots } from "@/lib/agent/flowCaseRag";
+import { formatSkillIndex, listSkillDefinitions } from "@/lib/skills/skillRegistry";
+import { getDefaultSkillIds, routeAgentSkills } from "@/lib/agent/skillRouting";
+import { generateClarificationQuestions } from "@/lib/agent/intentRecognition";
 
 // 🔧 根本性修复：校验并修正AI生成的节点配置
 function validateAndFixGeneratedNodes(nodes: any[]): any[] {
     return nodes.map(node => {
         if (!node || !node.type) return node;
-        
+
         // 深拷贝节点数据以避免修改原始对象
         const fixedNode = JSON.parse(JSON.stringify(node));
-        
+
         // 修复Input节点配置问题
         if (node.type === 'input' && node.data) {
             const data = node.data;
-            
+
             // 检查单一文本输入场景：只有文本对话开启，其他输入方式都关闭
-            const isSingleTextInput = 
-                data.enableTextInput !== false && 
-                data.enableFileInput !== true && 
+            const isSingleTextInput =
+                data.enableTextInput !== false &&
+                data.enableFileInput !== true &&
                 data.enableStructuredForm !== true;
-            
+
             if (isSingleTextInput) {
                 // 在单一文本输入场景下，必须设置textRequired=true
                 if (data.textRequired !== true) {
@@ -38,17 +46,17 @@ function validateAndFixGeneratedNodes(nodes: any[]): any[] {
                 }
             }
         }
-        
+
         // 🔧 重点修复：Output节点模板语法问题
         if (node.type === 'output' && node.data && node.data.inputMappings) {
             const mappings = node.data.inputMappings;
-            
+
             // 检查template模式中的非法语法
             if (mappings.mode === 'template' && mappings.template) {
                 let template = mappings.template;
                 let hasIllegalSyntax = false;
                 let fixApplied = false;
-                
+
                 // 检测并移除Handlebars逻辑标签
                 const illegalPatterns = [
                     // 循环语法
@@ -64,7 +72,7 @@ function validateAndFixGeneratedNodes(nodes: any[]): any[] {
                     { pattern: /\{\{\/unless\}\}/gi, name: 'unless 条件结束' },
                     { pattern: /\{\{else\}\}/gi, name: 'else 分支' }
                 ];
-                
+
                 for (const { pattern, name } of illegalPatterns) {
                     if (pattern.test(template)) {
                         hasIllegalSyntax = true;
@@ -74,19 +82,19 @@ function validateAndFixGeneratedNodes(nodes: any[]): any[] {
                         template = template.replace(pattern, '');
                     }
                 }
-                
+
                 // 清理残留的不完整标签
                 const residualPatterns = [
                     /\{\{[a-zA-Z]*\}\}/g,  // 不完整的标签
                     /\{\{\s*\}\}/g         // 空标签
                 ];
-                
+
                 for (const pattern of residualPatterns) {
                     if (pattern.test(template)) {
                         template = template.replace(pattern, '');
                     }
                 }
-                
+
                 if (fixApplied) {
                     // 如果模板被清理后为空或基本无效，建议改为direct模式
                     const cleanedTemplate = template.trim();
@@ -104,7 +112,7 @@ function validateAndFixGeneratedNodes(nodes: any[]): any[] {
                 }
             }
         }
-        
+
         return fixedNode;
     });
 }
@@ -152,6 +160,9 @@ function extractTagBlock(text: string, startTag: string, endTag: string) {
 }
 
 function parsePlanSections(planText: string) {
+    // DEBUG: Log raw plan text
+    console.log('[parsePlanSections] Raw planText:', planText);
+
     const lines = planText.split("\n").map(l => l.trim());
     const findSectionRange = (title: string) => {
         const header = `## ${title}`;
@@ -197,12 +208,27 @@ function parsePlanSections(planText: string) {
         .map(l => l.replace(/^\d+\.\s*/, "").replace(/^-\s*/, "").trim())
         .filter(Boolean);
 
+    // Parse verification questions - accept both bullet points and numbered lists
+    const rawVerificationLines = pickLines("验证问题");
+    console.log('[parsePlanSections] rawVerificationLines:', rawVerificationLines);
+
+    const verificationQuestions = rawVerificationLines
+        .filter(l => {
+            // Accept: "- question", "* question", "1. question", "2. question", etc.
+            return l.startsWith("- ") || l.startsWith("* ") || /^\d+\.\s/.test(l);
+        })
+        .map(l => l.replace(/^[-*]\s*/, "").replace(/^\d+\.\s*/, "").trim())
+        .filter(Boolean);
+
     const steps = planText
         .split("\n")
         .map(l => l.trim())
         .filter(Boolean);
 
-    return { refinedIntent, workflowNodes, useCases, howToUse, steps };
+    // DEBUG: Log parsed plan sections
+    console.log('[parsePlanSections] verificationQuestions:', verificationQuestions);
+
+    return { refinedIntent, workflowNodes, useCases, howToUse, verificationQuestions, steps };
 }
 
 function ensureInputOutputNodesAndEdges(rawNodes: unknown[], rawEdges: unknown[]) {
@@ -415,6 +441,15 @@ ${'{直接一句话描述核心目标，禁止使用"我理解"、"用户想要"
 1. ${'{步骤1}'}
 2. ${'{步骤2}'}
 3. ${'{步骤3}'}
+
+## 验证问题
+根据你对用户需求的理解，提出 2-3 个问题来确认你的方案是否正确。问题应该：
+1. 确认你对使用场景的理解是否正确（例如："这个工作流是用于 XXX 场景吗？"）
+2. 询问是否需要增加某些节点（例如："你需要先搜索网络/知识库吗？"）
+3. 确认输出格式或特殊需求（例如："你需要严格的 JSON 格式输出吗？"）
+- ${'{问题1}'}
+- ${'{问题2}'}
+- ${'{问题3（可选）}'}
 </plan>
 
 ## ⚡️ 规则
@@ -422,10 +457,11 @@ ${'{直接一句话描述核心目标，禁止使用"我理解"、"用户想要"
 - <plan> 内容给用户看：用短句、说人话，尽量不出现术语（如 JSON、参数、Handlebars、NodeID）
 - **不要**提及"下一步"
 - 节点必须带 [type:xxx] 标记，支持: input, llm, rag, tool, imagegen, branch, output
+- **必须**包含"验证问题"部分，提出 2-3 个具体问题
 `;
 
 // Phase 2: Generation - Compile approved plan into JSON
-const GENERATION_PROMPT = `你是 Flash Flow Agent，一个专业的工作流设计AI。
+const GENERATION_PROMPT_BASE = `你是 Flash Flow Agent，一个专业的工作流设计AI。
 
 ## 🎯 任务
 你会收到用户输入，其中包含 **<approved_plan>**（用户已确认的方案）与原始补充需求。
@@ -494,19 +530,24 @@ const GENERATION_PROMPT = `你是 Flash Flow Agent，一个专业的工作流设
 - 不要输出 <plan> 标签（plan 已在上一阶段完成）
 - 任何 <step> 内容里都禁止输出 JSON 或 \`\`\` 代码块；JSON 仅允许在最后一段输出且必须是唯一输出
 - 最后一段 JSON 后不要输出任何额外文本
+`;
+
+function buildGenerationPrompt(nodeReference: string) {
+    return `${GENERATION_PROMPT_BASE}
 
 ${CORE_RULES}
 
-${NODE_REFERENCE}
+${nodeReference}
 
 ${VARIABLE_RULES}
 
 ${EDGE_RULES}
 
 ${FULL_EXAMPLES}`;
+}
 
 // Direct mode (no confirmation needed) - 4-step flow with deep reasoning
-const DIRECT_MODE_PROMPT = `你是 Flash Flow Agent，一个专业的工作流设计AI。你的任务是**深度理解**用户需求，而不是简单复述。
+const DIRECT_MODE_PROMPT_BASE = `你是 Flash Flow Agent，一个专业的工作流设计AI。你的任务是**深度理解**用户需求，而不是简单复述。
 
 ## 🧠 核心原则
 1. **不要复述** - 用户说的话他们自己知道，你要挖掘他们没说的
@@ -614,16 +655,21 @@ ${'{直接一句话描述核心目标，禁止使用"我理解"、"用户想要"
 - 节点必须带 [type:xxx] 标记，支持: input, llm, rag, tool, imagegen, branch, output
 - 任何 <step> 内容里都禁止输出 JSON 或 \`\`\` 代码块；JSON 仅允许在最后一段输出且必须是唯一输出
 - 最后一段 JSON 后不要输出任何额外文本
+`;
+
+function buildDirectModePrompt(nodeReference: string) {
+    return `${DIRECT_MODE_PROMPT_BASE}
 
 ${CORE_RULES}
 
-${NODE_REFERENCE}
+${nodeReference}
 
 ${VARIABLE_RULES}
 
 ${EDGE_RULES}
 
 ${FULL_EXAMPLES}`;
+}
 
 // ============ Main Handler ============
 export async function POST(req: Request) {
@@ -665,22 +711,68 @@ export async function POST(req: Request) {
                     const modelName = DEFAULT_MODEL;
                     const provider = getProviderForModel(modelName);
                     const config = PROVIDER_CONFIG[provider];
+                    const apiKey = config.getApiKey();
+                    if (!apiKey) {
+                        emit({ type: "step", stepType: "error", status: "error", content: `API key for ${provider} is not configured.` });
+                        finish();
+                        return;
+                    }
 
-                    const client = new OpenAI({
-                        apiKey: config.getApiKey(),
-                        baseURL: config.baseURL
+                    const providerInstance = createOpenAI({
+                        apiKey,
+                        baseURL: config.baseURL,
                     });
 
-                    const scenario = detectIntentFromPrompt(prompt);
+                    const enableAgentSkills = process.env.AGENT_SKILLS_ENABLED !== "false";
+                    const classifierEnabled = process.env.AGENT_SKILL_CLASSIFIER_ENABLED !== "false";
+                    const allowlist = (process.env.AGENT_SKILL_ALLOWLIST || "")
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                    const envDefaults = (process.env.AGENT_SKILL_DEFAULTS || "")
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                    const maxSkillCount = Number(process.env.AGENT_SKILL_CLASSIFIER_MAX_SKILLS || 3);
+
+                    const candidateSkills = enableAgentSkills
+                        ? await listSkillDefinitions("agent", allowlist)
+                        : [];
+
+                    const routingResult = enableAgentSkills && classifierEnabled && candidateSkills.length > 0
+                        ? await routeAgentSkills(prompt, candidateSkills, { maxSkills: maxSkillCount })
+                        : null;
+                    if (routingResult && process.env.NODE_ENV === "development") {
+                        console.log(
+                            `[AgentSkillRouting] scenario=${routingResult.scenario} confidence=${routingResult.confidence} skills=${routingResult.skillIds.join(",") || "none"} clarify=${routingResult.clarifyDimensions.join(",") || "none"}`
+                        );
+                    }
+
+                    const selectedSkillIds = enableAgentSkills
+                        ? (routingResult?.skillIds?.length
+                            ? routingResult.skillIds
+                            : getDefaultSkillIds(candidateSkills, envDefaults))
+                        : [];
+
+                    const skillSetup = enableAgentSkills && selectedSkillIds.length > 0
+                        ? await createSkillTool({ scope: "agent", allowlist: selectedSkillIds })
+                        : null;
+                    const skillInstructions =
+                        skillSetup && skillSetup.skills.length > 0
+                            ? `\n## 🧩 可用技能\n${formatSkillIndex(skillSetup.skills)}\n请在开始前依次调用所有可用技能。`
+                            : "";
+                    const tools = skillSetup && skillSetup.skills.length > 0 ? { skill: skillSetup.skillTool } : undefined;
+
+                    const scenario = routingResult?.scenario || detectIntentFromPrompt(prompt);
                     const practice = BEST_PRACTICES[scenario];
                     const practices = practice ? practice.tips : [];
                     const practicesPrompt = practices.length > 0
                         ? `\n## 💡 针对此场景的最佳实践\n${practices.map((p: string, i: number) => `${i + 1}. ${p}`).join("\n")}`
                         : "";
-
-                    emit({ type: "thinking-start" });
+                    const extraInstructions = `${practicesPrompt}${skillInstructions}`;
 
                     const isPlanConfirmed = typeof prompt === "string" && (prompt.includes("[PLAN_CONFIRMED]") || prompt.includes("<approved_plan>"));
+                    emit({ type: "thinking-start" });
                     let approvedPlanBlock: string | null = null;
                     let phase: "plan" | "generation" = "generation";
                     let planConfirmStatus: string = "idle";
@@ -692,41 +784,87 @@ export async function POST(req: Request) {
 
                     const parser = new StreamXmlParser((event) => {
                         if (event.type === 'tag_open') {
-                             if (event.tagName === 'step') {
-                                 if (phase === "generation" && planConfirmStatus === "streaming") {
-                                     emit({ type: "step", stepType: "plan_confirm", status: "completed", content: "" });
-                                     planConfirmStatus = "completed";
-                                 }
-                                 currentStepType = event.attributes?.type || null;
-                             } else if (event.tagName === 'plan') {
-                                 isPlanTag = true;
-                             }
+                            if (event.tagName === 'step') {
+                                if (phase === "generation" && planConfirmStatus === "streaming") {
+                                    emit({ type: "step", stepType: "plan_confirm", status: "completed", content: "" });
+                                    planConfirmStatus = "completed";
+                                }
+                                currentStepType = event.attributes?.type || null;
+                            } else if (event.tagName === 'plan') {
+                                isPlanTag = true;
+                            }
                         } else if (event.type === 'content') {
-                             if (currentStepType && event.content) {
-                                 emit({ type: "step", stepType: currentStepType, status: "streaming", content: event.content });
-                                 if (currentStepType === 'analysis') {
-                                     emit({ type: "thinking", content: event.content });
-                                 }
-                             } else if (isPlanTag && event.content) {
-                                 planBuffer += event.content;
-                             }
+                            if (currentStepType && event.content) {
+                                emit({ type: "step", stepType: currentStepType, status: "streaming", content: event.content });
+                                if (currentStepType === 'analysis') {
+                                    emit({ type: "thinking", content: event.content });
+                                }
+                            } else if (isPlanTag && event.content) {
+                                planBuffer += event.content;
+                            }
                         } else if (event.type === 'tag_close') {
-                             if (event.tagName === 'step') {
-                                 const closingStepType = currentStepType;
-                                 if (closingStepType) {
-                                     emit({ type: "step", stepType: closingStepType, status: "completed", content: "" });
-                                 }
-                                 if (phase === "plan" && closingStepType === "analysis" && planConfirmStatus === "idle") {
-                                     emit({ type: "step", stepType: "plan_confirm", status: "streaming", content: "" });
-                                     planConfirmStatus = "streaming";
-                                 }
-                                 currentStepType = null;
-                             } else if (event.tagName === 'plan') {
-                                 isPlanTag = false;
-                             }
+                            if (event.tagName === 'step') {
+                                const closingStepType = currentStepType;
+                                if (closingStepType) {
+                                    emit({ type: "step", stepType: closingStepType, status: "completed", content: "" });
+                                }
+                                if (phase === "plan" && closingStepType === "analysis" && planConfirmStatus === "idle") {
+                                    emit({ type: "step", stepType: "plan_confirm", status: "streaming", content: "" });
+                                    planConfirmStatus = "streaming";
+                                }
+                                currentStepType = null;
+                            } else if (event.tagName === 'plan') {
+                                isPlanTag = false;
+                            }
                         }
                     });
 
+                    const streamWithParser = async (system: string, userContent: string, temperature: number, abortSignal?: AbortSignal) => {
+                        const stopWhen =
+                            tools
+                                ? ({ steps }: { steps: Array<{ toolCalls?: Array<unknown> }> }) => {
+                                    const hadToolCall = steps.some(step => (step.toolCalls?.length ?? 0) > 0);
+                                    const last = steps[steps.length - 1];
+                                    const lastToolCalls = last?.toolCalls?.length ?? 0;
+                                    if (!hadToolCall) {
+                                        return steps.length >= 1;
+                                    }
+                                    return steps.length >= 2 && lastToolCalls === 0;
+                                }
+                                : undefined;
+
+                        const result = streamText({
+                            model: providerInstance.chat(modelName),
+                            system,
+                            messages: [{ role: "user", content: userContent }],
+                            temperature,
+                            tools,
+                            abortSignal,
+                            stopWhen,
+                        });
+                        for await (const part of result.fullStream) {
+                            if (part.type === "text-delta" && part.text) {
+                                fullText += part.text;
+                                parser.process(part.text);
+                            } else if (part.type === "reasoning-delta") {
+                                const chunk = (part as { delta?: string; text?: string }).delta || (part as { text?: string }).text || "";
+                                if (chunk) {
+                                    fullText += chunk;
+                                    parser.process(chunk);
+                                }
+                            } else if (part.type === "tool-input-available") {
+                                emit({ type: "tool-call", tool: part.toolName, args: part.input });
+                            } else if (part.type === "tool-output-available") {
+                                emit({ type: "tool-result", tool: part.toolCallId, result: part.output });
+                            } else if (part.type === "tool-output-error") {
+                                emit({ type: "tool-result", tool: part.toolCallId, result: { error: part.errorText } });
+                            }
+                        }
+                    };
+
+                    // ========== Intent is now pre-determined by frontend (via /api/intent-router) ==========
+                    // The frontend calls /api/intent-router before this endpoint and passes the result as enableClarification
+                    // We just use the value directly without re-detecting
                     const shouldRequestPlan = Boolean(enableClarification) && !isPlanConfirmed;
                     const shouldAutoPlan = !enableClarification && !isPlanConfirmed;
 
@@ -743,23 +881,12 @@ export async function POST(req: Request) {
                             const timeoutId = setTimeout(() => abortController.abort(), TIMEOUT_ANALYSIS_MS);
 
                             try {
-                                const completion = await client.chat.completions.create({
-                                    model: modelName,
-                                    temperature: 0.5,
-                                    messages: [
-                                        { role: "system", content: ANALYSIS_ONLY_PROMPT + practicesPrompt },
-                                        { role: "user", content: `用户需求: ${prompt}` },
-                                    ],
-                                    stream: true,
-                                }, { signal: abortController.signal });
-
-                                for await (const chunk of completion) {
-                                    const content = chunk.choices[0]?.delta?.content || "";
-                                    if (content) {
-                                        fullText += content;
-                                        parser.process(content);
-                                    }
-                                }
+                                await streamWithParser(
+                                    ANALYSIS_ONLY_PROMPT + extraInstructions,
+                                    `用户需求: ${prompt}`,
+                                    0.5,
+                                    abortController.signal
+                                );
                             } finally {
                                 clearTimeout(timeoutId);
                             }
@@ -777,6 +904,13 @@ export async function POST(req: Request) {
                             }
                             if (shouldRequestPlan) {
                                 const parsedPlan = parsePlanSections(planBlock);
+                                const clarifyDimensions = routingResult?.clarifyDimensions || [];
+                                const clarifiedQuestions = clarifyDimensions.length > 0
+                                    ? generateClarificationQuestions(clarifyDimensions)
+                                    : [];
+                                if (clarifiedQuestions.length > 0) {
+                                    parsedPlan.verificationQuestions = clarifiedQuestions;
+                                }
                                 emit({
                                     type: "plan",
                                     userPrompt: parsedPlan.refinedIntent || String(prompt),
@@ -784,7 +918,8 @@ export async function POST(req: Request) {
                                     refinedIntent: parsedPlan.refinedIntent,
                                     workflowNodes: parsedPlan.workflowNodes,
                                     useCases: parsedPlan.useCases,
-                                    howToUse: parsedPlan.howToUse
+                                    howToUse: parsedPlan.howToUse,
+                                    verificationQuestions: parsedPlan.verificationQuestions
                                 });
                             } else {
                                 approvedPlanBlock = planBlock;
@@ -806,7 +941,72 @@ export async function POST(req: Request) {
                     }
 
                     const shouldUseGenerationPrompt = isPlanConfirmed || Boolean(approvedPlanBlock);
-                    const systemPrompt = shouldUseGenerationPrompt ? (GENERATION_PROMPT + practicesPrompt) : (DIRECT_MODE_PROMPT + practicesPrompt);
+
+                    const enableNodeRag = process.env.AGENT_NODE_RAG_ENABLED !== "false";
+                    const ragTopK = Number(process.env.AGENT_NODE_RAG_TOP_K || 6);
+                    const ragThreshold = Number(process.env.AGENT_NODE_RAG_THRESHOLD || 0.6);
+                    const ragCategory = process.env.AGENT_NODE_RAG_CATEGORY || undefined;
+
+                    const planBlockForRag = approvedPlanBlock
+                        || (isPlanConfirmed ? extractTagBlock(String(prompt || ""), "<approved_plan>", "</approved_plan>") : null);
+
+                    const nodeReferenceResult = await getNodeReferenceForPrompt({
+                        prompt: String(prompt || ""),
+                        planBlock: planBlockForRag,
+                        enableRag: enableNodeRag,
+                        topK: ragTopK,
+                        threshold: ragThreshold,
+                        category: ragCategory,
+                    });
+
+                    const enableFlowCaseRag = process.env.AGENT_FLOW_CASE_RAG_ENABLED !== "false";
+                    const flowCaseTopK = Number(process.env.AGENT_FLOW_CASE_RAG_TOP_K || 1);
+                    const flowCaseThreshold = Number(process.env.AGENT_FLOW_CASE_RAG_THRESHOLD || 0.45);
+                    const flowCaseCategory = process.env.AGENT_FLOW_CASE_RAG_CATEGORY || "flow_case";
+
+                    const flowCaseResult = await getFlowCaseFewShots({
+                        prompt: String(prompt || ""),
+                        planBlock: planBlockForRag,
+                        enableRag: enableFlowCaseRag,
+                        topK: flowCaseTopK,
+                        threshold: flowCaseThreshold,
+                        category: flowCaseCategory,
+                    });
+
+                    if (process.env.NODE_ENV === "development") {
+                        console.log(
+                            `[AgentNodeReference] source=${nodeReferenceResult.source} types=${nodeReferenceResult.types.join(",") || "none"} ragCount=${nodeReferenceResult.ragCount ?? 0}`
+                        );
+                        console.log(
+                            `[AgentFlowCaseRag] source=${flowCaseResult.source} ragCount=${flowCaseResult.ragCount}`
+                        );
+                    }
+
+                    const showRagStep = process.env.NEXT_PUBLIC_AGENT_RAG_STEP_UI === "true"
+                        || process.env.AGENT_RAG_STEP_UI === "true";
+                    if (showRagStep) {
+                        const nodeRagSummary = nodeReferenceResult.source === "rag"
+                            ? `节点规范：命中 ${nodeReferenceResult.ragCount ?? 0} 条（${nodeReferenceResult.types.join(",") || "none"}）`
+                            : "节点规范：未命中（已用本地兜底）";
+                        const caseRagSummary = flowCaseResult.source === "rag"
+                            ? `案例：命中 ${flowCaseResult.ragCount} 条`
+                            : "案例：未命中（未注入）";
+                        emit({
+                            type: "step",
+                            stepType: "rag_context",
+                            status: "completed",
+                            content: `${nodeRagSummary}\n${caseRagSummary}`
+                        });
+                    }
+
+                    const nodeReference = nodeReferenceResult.reference;
+                    const caseInstructions = flowCaseResult.cases.length > 0
+                        ? `\n## ✅ 参考工作流案例（完整 JSON）\n以下案例仅用于结构与字段参考，不要照抄业务内容。\n${flowCaseResult.cases.map((item, i) => `\n### Case ${i + 1}: ${item.title || "Untitled"}\n${item.content}\n`).join("\n")}\n`
+                        : "";
+
+                    const systemPrompt = shouldUseGenerationPrompt
+                        ? (buildGenerationPrompt(nodeReference) + extraInstructions + caseInstructions)
+                        : (buildDirectModePrompt(nodeReference) + extraInstructions + caseInstructions);
                     const userContent = approvedPlanBlock && !isPlanConfirmed
                         ? `用户需求: ${prompt}
 
@@ -817,25 +1017,9 @@ ${approvedPlanBlock}
 
                     const abortController = new AbortController();
                     const timeoutId = setTimeout(() => abortController.abort(), TIMEOUT_GENERATION_MS);
-                    
+
                     try {
-                        const completion = await client.chat.completions.create({
-                            model: modelName,
-                            temperature: 0.2,
-                            messages: [
-                                { role: "system", content: systemPrompt },
-                                { role: "user", content: userContent },
-                            ],
-                            stream: true,
-                        }, { signal: abortController.signal });
-                        
-                        for await (const chunk of completion) {
-                            const content = chunk.choices[0]?.delta?.content || "";
-                            if (content) {
-                                fullText += content;
-                                parser.process(content);
-                            }
-                        }
+                        await streamWithParser(systemPrompt, userContent, 0.2, abortController.signal);
                     } finally {
                         clearTimeout(timeoutId);
                     }

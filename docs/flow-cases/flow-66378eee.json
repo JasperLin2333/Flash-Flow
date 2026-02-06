@@ -1,0 +1,240 @@
+{
+  "title": "智能旅游助手",
+  "goal": "",
+  "tags": [
+    "node:input",
+    "node:llm",
+    "node:tool",
+    "node:output"
+  ],
+  "workflow": {
+    "title": "智能旅游助手",
+    "nodes": [
+      {
+        "id": "input",
+        "data": {
+          "label": "旅行需求输入",
+          "status": "idle",
+          "greeting": "请输入目的地和天数，例如'重庆 3天'",
+          "fileConfig": {
+            "maxCount": 10,
+            "maxSizeMB": 50,
+            "allowedTypes": [
+              "image/*",
+              ".pdf",
+              ".doc",
+              ".docx",
+              ".txt",
+              ".md",
+              ".csv",
+              ".xlsx"
+            ]
+          },
+          "formFields": [],
+          "fileRequired": false,
+          "textRequired": true,
+          "enableFileInput": true,
+          "enableTextInput": true,
+          "enableStructuredForm": false
+        },
+        "type": "input",
+        "measured": {
+          "width": 240,
+          "height": 239
+        },
+        "position": {
+          "x": 50,
+          "y": 50
+        }
+      },
+      {
+        "id": "llm_parse",
+        "data": {
+          "label": "需求解析",
+          "model": "qwen-flash",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.1,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "解析用户输入，提取目的地名称和天数，输出JSON格式：{\"destination\": \"目的地\", \"days\": 天数}",
+          "inputMappings": {
+            "user_input": "{{旅行需求输入.user_input}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "json_object"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 257
+        },
+        "position": {
+          "x": 490,
+          "y": 50
+        }
+      },
+      {
+        "id": "tool_food",
+        "data": {
+          "label": "美食搜索",
+          "inputs": {
+            "query": "{{需求解析.response.destination}} 必吃美食 推荐餐厅 不吃辣",
+            "maxResults": 5
+          },
+          "status": "idle",
+          "toolType": "web_search"
+        },
+        "type": "tool",
+        "measured": {
+          "width": 240,
+          "height": 239
+        },
+        "position": {
+          "x": 930,
+          "y": 50
+        },
+        "selected": true
+      },
+      {
+        "id": "tool_sight",
+        "data": {
+          "label": "景点搜索",
+          "inputs": {
+            "query": "{{需求解析.response.destination}} 热门景点 必去地点",
+            "maxResults": 5
+          },
+          "status": "idle",
+          "toolType": "web_search"
+        },
+        "type": "tool",
+        "measured": {
+          "width": 240,
+          "height": 239
+        },
+        "position": {
+          "x": 930,
+          "y": 250
+        }
+      },
+      {
+        "id": "llm_plan",
+        "data": {
+          "label": "行程规划",
+          "model": "doubao-seed-1-6-251015",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.3,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "基于目的地、天数、美食和景点信息，规划不走回头路的特种兵行程。注意：用户不吃辣，请推荐不辣的餐厅。输出初步行程框架。",
+          "inputMappings": {
+            "user_input": "目的地：{{需求解析.response.destination}}，天数：{{需求解析.response.days}}天，美食：{{美食搜索.results}}，景点：{{景点搜索.results}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "text"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 257
+        },
+        "position": {
+          "x": 1370,
+          "y": 50
+        },
+        "selected": false
+      },
+      {
+        "id": "llm_detail",
+        "data": {
+          "label": "时间表细化",
+          "model": "doubao-seed-1-6-251015",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.2,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "将行程框架细化为详细的每日时间表，加入交通建议和实用提示。要求输出严格的表格形式，包含时间、活动、地点、交通方式、备注等列。",
+          "inputMappings": {
+            "user_input": "{{行程规划.response}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "text"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 257
+        },
+        "position": {
+          "x": 1810,
+          "y": 50
+        },
+        "selected": false
+      },
+      {
+        "id": "output",
+        "data": {
+          "label": "最终行程输出",
+          "status": "idle",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{时间表细化.response}}"
+              }
+            ]
+          }
+        },
+        "type": "output",
+        "measured": {
+          "width": 240,
+          "height": 239
+        },
+        "position": {
+          "x": 2250,
+          "y": 50
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-input-llm_parse-DOaG",
+        "source": "input",
+        "target": "llm_parse"
+      },
+      {
+        "id": "e-llm_parse-tool_food-vMgG",
+        "source": "llm_parse",
+        "target": "tool_food"
+      },
+      {
+        "id": "e-llm_parse-tool_sight-ZEgq",
+        "source": "llm_parse",
+        "target": "tool_sight"
+      },
+      {
+        "id": "e-tool_food-llm_plan-JsqX",
+        "source": "tool_food",
+        "target": "llm_plan"
+      },
+      {
+        "id": "e-tool_sight-llm_plan-BoiH",
+        "source": "tool_sight",
+        "target": "llm_plan"
+      },
+      {
+        "id": "e-llm_plan-llm_detail-pGsM",
+        "source": "llm_plan",
+        "target": "llm_detail"
+      },
+      {
+        "id": "e-llm_detail-output-kpGX",
+        "source": "llm_detail",
+        "target": "output"
+      }
+    ]
+  }
+}

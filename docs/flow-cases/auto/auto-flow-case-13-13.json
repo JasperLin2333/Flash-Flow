@@ -1,0 +1,142 @@
+{
+  "title": "简历优化助手",
+  "goal": "根据岗位描述优化简历要点与措辞。",
+  "tags": [
+    "求职",
+    "简历",
+    "写作"
+  ],
+  "workflow": {
+    "title": "简历优化助手",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_1",
+        "type": "Input",
+        "data": {
+          "label": "简历优化输入",
+          "greeting": "请提供您的原始简历内容和目标岗位描述，我将为您优化要点与措辞。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": true,
+          "formFields": [
+            {
+              "type": "text",
+              "name": "resume_content",
+              "label": "原始简历内容",
+              "placeholder": "请粘贴您的简历文本...",
+              "required": true
+            },
+            {
+              "type": "text",
+              "name": "job_description",
+              "label": "目标岗位描述",
+              "placeholder": "请粘贴招聘岗位的职位描述...",
+              "required": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "LLM",
+        "data": {
+          "label": "简历优化专家",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位资深简历优化专家和职业顾问。你的任务是根据用户提供的原始简历和目标岗位描述，精准优化简历的要点和措辞，使其更匹配目标岗位的要求，提升通过率。\n\n优化原则：\n1.  **关键词匹配**：从岗位描述中提取核心技能、工具、经验要求等关键词，并自然地融入简历。\n2.  **成就量化**：将简历中的职责描述转化为可量化的成就，使用 STAR 原则（情境、任务、行动、结果）。\n3.  **措辞专业化**：使用行业标准、积极有力的动词和术语，提升专业感。\n4.  **结构清晰**：保持简历结构（如教育背景、工作经验、技能等）的清晰与逻辑性。\n5.  **保持真实**：所有优化必须基于用户提供的原始信息，不得虚构。\n\n请输出一个结构化的优化建议报告，包含以下部分：\n- **岗位匹配度分析**：简要分析原始简历与目标岗位的匹配点与差距。\n- **核心优化要点**：列出3-5个最关键的优化方向。\n- **优化后简历示例**：提供一段或多段针对关键经历/技能的优化后文本示例，清晰展示优化前后的对比。\n- **行动建议**：给用户1-2条后续调整建议。",
+          "temperature": 0.3,
+          "responseFormat": "text",
+          "inputMappings": {
+            "user_input": "原始简历：{{简历优化输入.resume_content}}\n\n目标岗位描述：{{简历优化输入.job_description}}\n\n请根据以上信息，按照系统提示的要求进行简历优化。"
+          }
+        }
+      },
+      {
+        "id": "output_1",
+        "type": "Output",
+        "data": {
+          "label": "优化结果",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{简历优化专家.response}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：根据岗位描述优化简历要点与措辞。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_1",
+        "target": "llm_1",
+        "sourceHandle": null,
+        "id": "edge_input_1_llm_1_0"
+      },
+      {
+        "source": "llm_1",
+        "target": "output_1",
+        "sourceHandle": null,
+        "id": "edge_llm_1_output_1_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_1",
+        "id": "edge_auto_input_input_1_2"
+      },
+      {
+        "source": "output_1",
+        "target": "auto_output",
+        "id": "edge_output_1_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1_1",
+        "source": "auto_input",
+        "target": "llm_1_1"
+      },
+      {
+        "id": "edge_llm_1_1_auto_output",
+        "source": "llm_1_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

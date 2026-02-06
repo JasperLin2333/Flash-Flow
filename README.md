@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="public/images/首页.png" alt="Flash Flow Homepage" width="100%">
-</p>
-
 <h1 align="center">⚡ Flash Flow</h1>
 
 <p align="center">
@@ -17,10 +13,6 @@
     <img src="https://img.shields.io/badge/国外试用-Click%20Here-green?style=for-the-badge&logo=vercel" alt="国外试用">
   </a>
 </p>
-
-<br>
-
-
 
 <br>
 
@@ -71,18 +63,6 @@ Flash Flow 不仅仅是一个工作流生成器，更是一个拥有 **Agentic C
 | 🏗️ **模块化执行器** | 重构节点执行架构，支持独立调试和测试 |
 
 <br>
-
----
-
-## 🎬 产品展示
-
-<p align="center">
-  <img src="public/images/工作流.png" alt="Flash Flow Workflow" width="100%">
-</p>
-
-<br>
-
----
 
 ## 🔧 节点能力
 

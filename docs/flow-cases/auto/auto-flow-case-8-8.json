@@ -1,0 +1,121 @@
+{
+  "title": "单词卡片生成",
+  "goal": "根据主题生成单词表，并给出例句与中文释义。",
+  "tags": [
+    "学习",
+    "英语",
+    "词汇"
+  ],
+  "workflow": {
+    "title": "主题单词表生成器",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_theme",
+        "type": "Input",
+        "data": {
+          "label": "主题输入",
+          "greeting": "请输入一个主题（例如：旅行、科技、美食），我将为您生成相关的单词表。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "llm_generate",
+        "type": "LLM",
+        "data": {
+          "label": "单词表生成",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位专业的英语教师。请根据用户提供的主题，生成一份包含10个核心单词的单词表。\n\n输出要求（必须严格遵守以下JSON格式）：\n{\n  \"theme\": \"用户输入的主题\",\n  \"vocabulary\": [\n    {\n      \"word\": \"单词\",\n      \"phonetic\": \"音标\",\n      \"part_of_speech\": \"词性\",\n      \"chinese_meaning\": \"中文释义\",\n      \"example_sentence\": \"英文例句\",\n      \"chinese_translation\": \"例句中文翻译\"\n    }\n  ]\n}",
+          "temperature": 0.7,
+          "responseFormat": "json_object",
+          "inputMappings": {
+            "user_input": "{{主题输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "output_result",
+        "type": "Output",
+        "data": {
+          "label": "单词表输出",
+          "inputMappings": {
+            "mode": "template",
+            "template": "主题：{{单词表生成.response.theme}}\n\n为您生成的单词表如下：\n\n{{#each 单词表生成.response.vocabulary}}\n{{inc @index}}. **{{this.word}}** ({{this.phonetic}}) _{{this.part_of_speech}}_\n   - 释义：{{this.chinese_meaning}}\n   - 例句：{{this.example_sentence}}\n   - 翻译：{{this.chinese_translation}}\n{{/each}}\n\n希望这份单词表对您有帮助！"
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：根据主题生成单词表，并给出例句与中文释义。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_theme",
+        "target": "llm_generate",
+        "sourceHandle": null,
+        "id": "edge_input_theme_llm_generate_0"
+      },
+      {
+        "source": "llm_generate",
+        "target": "output_result",
+        "sourceHandle": null,
+        "id": "edge_llm_generate_output_result_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_theme",
+        "id": "edge_auto_input_input_theme_2"
+      },
+      {
+        "source": "output_result",
+        "target": "auto_output",
+        "id": "edge_output_result_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

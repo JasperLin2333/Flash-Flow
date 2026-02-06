@@ -1,0 +1,126 @@
+{
+  "title": "英语写作润色",
+  "goal": "润色用户英文文本，提升语法准确性与表达自然度。",
+  "tags": [
+    "学习",
+    "英语",
+    "写作"
+  ],
+  "workflow": {
+    "title": "英文文本语法润色与表达优化",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入1"
+        }
+      },
+      {
+        "id": "input_1",
+        "type": "Input",
+        "data": {
+          "label": "用户输入",
+          "greeting": "请输入您需要润色的英文文本",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "LLM",
+        "data": {
+          "label": "英文润色专家",
+          "model": "deepseek-chat",
+          "systemPrompt": "你是一位专业的英文编辑。你的任务是润色用户提供的英文文本，使其语法更准确、表达更自然流畅。请直接输出润色后的完整文本，无需额外解释。",
+          "temperature": 0.3,
+          "responseFormat": "text",
+          "inputMappings": {
+            "user_input": "{{用户输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "output_1",
+        "type": "Output",
+        "data": {
+          "label": "润色结果",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{英文润色专家.response}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入1.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：润色用户英文文本，提升语法准确性与表达自然度。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_1",
+        "target": "llm_1",
+        "sourceHandle": null,
+        "id": "edge_input_1_llm_1_0"
+      },
+      {
+        "source": "llm_1",
+        "target": "output_1",
+        "sourceHandle": null,
+        "id": "edge_llm_1_output_1_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_1",
+        "id": "edge_auto_input_input_1_2"
+      },
+      {
+        "source": "output_1",
+        "target": "auto_output",
+        "id": "edge_output_1_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1_1",
+        "source": "auto_input",
+        "target": "llm_1_1"
+      },
+      {
+        "id": "edge_llm_1_1_auto_output",
+        "source": "llm_1_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

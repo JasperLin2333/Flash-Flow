@@ -1,0 +1,197 @@
+{
+  "title": "梦境画师",
+  "goal": "",
+  "tags": [
+    "node:input",
+    "node:llm",
+    "node:imagegen",
+    "node:output"
+  ],
+  "workflow": {
+    "title": "梦境画师",
+    "nodes": [
+      {
+        "id": "input_1",
+        "data": {
+          "label": "梦境输入",
+          "status": "idle",
+          "greeting": "请详细描述你的梦境，越详细越好，系统将为你分析潜意识含义并生成超现实主义画作",
+          "formFields": [],
+          "fileRequired": false,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableTextInput": true,
+          "enableStructuredForm": false
+        },
+        "type": "input",
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 50,
+          "y": 50
+        }
+      },
+      {
+        "id": "llm_analysis",
+        "data": {
+          "label": "梦境分析",
+          "model": "deepseek-chat",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.3,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "你是一位专业的梦境心理学家，请基于弗洛伊德和荣格的心理学理论分析用户梦境的潜意识含义。输出结构化的心理学分析报告，包含：1. 梦境象征意义 2. 可能的潜意识冲突 3. 心理建议",
+          "inputMappings": {
+            "user_input": "{{梦境输入.user_input}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "text"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 930,
+          "y": 50
+        }
+      },
+      {
+        "id": "llm_prompt",
+        "data": {
+          "label": "绘画提示词生成",
+          "model": "qwen-flash",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.7,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "将梦境描述转化为高质量的英文AI绘画提示词，要求：1. 超现实主义风格 2. 包含梦境核心元素 3. 艺术化描述 4. 适合AI绘画模型理解。只输出提示词文本，不要解释",
+          "inputMappings": {
+            "user_input": "{{梦境输入.user_input}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "text"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 490,
+          "y": 250
+        }
+      },
+      {
+        "id": "image_gen",
+        "data": {
+          "cfg": 7.5,
+          "label": "梦境绘画",
+          "model": "Kwai-Kolors/Kolors",
+          "prompt": "{{绘画提示词生成.response}}",
+          "status": "idle",
+          "imageSize": "1024x1024",
+          "negativePrompt": "",
+          "numInferenceSteps": 25,
+          "referenceImageMode": "static",
+          "referenceImageVariable": "",
+          "referenceImage2Variable": "",
+          "referenceImage3Variable": ""
+        },
+        "type": "imagegen",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 930,
+          "y": 250
+        }
+      },
+      {
+        "id": "llm_card",
+        "data": {
+          "label": "卡片设计",
+          "model": "deepseek-chat",
+          "status": "idle",
+          "skillIds": [],
+          "temperature": 0.2,
+          "enableMemory": false,
+          "enableSkills": false,
+          "systemPrompt": "设计一个精美的HTML卡片，包含心理学分析和梦境画作。输出JSON格式：{\"html\": \"完整的HTML代码\", \"title\": \"卡片标题\"}",
+          "inputMappings": {
+            "user_input": "心理学分析：{{梦境分析.response}}\n梦境画作URL：{{梦境绘画.imageUrl}}"
+          },
+          "memoryMaxTurns": 10,
+          "responseFormat": "json_object"
+        },
+        "type": "llm",
+        "measured": {
+          "width": 240,
+          "height": 189
+        },
+        "position": {
+          "x": 1370,
+          "y": 50
+        }
+      },
+      {
+        "id": "output_1",
+        "data": {
+          "label": "梦境卡片",
+          "status": "idle",
+          "inputMappings": {
+            "mode": "template",
+            "template": "{{卡片设计.response.html}}"
+          }
+        },
+        "type": "output",
+        "measured": {
+          "width": 240,
+          "height": 170
+        },
+        "position": {
+          "x": 1810,
+          "y": 50
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-input_1-llm_analysis-IXNd",
+        "source": "input_1",
+        "target": "llm_analysis"
+      },
+      {
+        "id": "e-input_1-llm_prompt-hZSw",
+        "source": "input_1",
+        "target": "llm_prompt"
+      },
+      {
+        "id": "e-llm_analysis-llm_card-toaq",
+        "source": "llm_analysis",
+        "target": "llm_card"
+      },
+      {
+        "id": "e-llm_prompt-image_gen-86Jm",
+        "source": "llm_prompt",
+        "target": "image_gen"
+      },
+      {
+        "id": "e-image_gen-llm_card-f-Bh",
+        "source": "image_gen",
+        "target": "llm_card"
+      },
+      {
+        "id": "e-llm_card-output_1-UVR5",
+        "source": "llm_card",
+        "target": "output_1"
+      }
+    ]
+  }
+}

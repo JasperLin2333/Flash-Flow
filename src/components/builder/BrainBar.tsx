@@ -64,9 +64,9 @@ function NodeLibraryDialog({
             <DialogContent className="sm:max-w-[520px] rounded-2xl border border-gray-200 shadow-xl">
                 <DialogHeader>
                     <DialogTitle className="text-base font-bold">智能体能力库</DialogTitle>
-              <DialogDescription className="text-xs text-gray-500">
-                选择能力模块，组装你的专属智能体
-              </DialogDescription>
+                    <DialogDescription className="text-xs text-gray-500">
+                        选择能力模块，组装你的专属智能体
+                    </DialogDescription>
                 </DialogHeader>
                 <div className="grid grid-cols-2 gap-3 pt-2">
                     {CONFIG.nodeTypes.map(({ label, type }) => (
@@ -255,16 +255,44 @@ export default function BrainBar() {
     const confirmGenerate = async () => {
         setConfirmOpen(false);
         setIsGenerating(true);
-        setCopilotBackdrop("overlay");
+
         try {
-            // Prefer Agent Copilot if:
-            // 1. Interactive clarification is enabled
-            // 2. OR user is in "Agent Mode" (thinking process enabled)
-            // 3. OR user explicitly selected Agent Mode in the UI
-            if (enableClarification || urlAgentMode || generationMode === "agent") {
-                // Pass enableClarification flag - if false, it just runs Agent Mode without questions
-                await startAgentCopilot(prompt, { enableClarification });
+            // ========== Step 1: Intent Routing (lightweight, before heavy overlay) ==========
+            // Call /api/intent-router to determine if user needs planning mode or direct mode
+            let shouldEnableClarification = enableClarification;
+
+            // Only auto-detect if user is in "agent" mode (thinking mode)
+            // Quick mode always goes to startCopilot directly
+            if (generationMode === "agent" || urlAgentMode) {
+                try {
+                    const routerResp = await fetch("/api/intent-router", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ prompt }),
+                    });
+
+                    if (routerResp.ok) {
+                        const routerResult = await routerResp.json();
+                        // PLAN_MODE = vague request, need clarification
+                        // DIRECT_MODE = clear request, skip confirmation
+                        shouldEnableClarification = routerResult.mode === "PLAN_MODE";
+                        console.log(`[BrainBar] Intent detected: ${routerResult.mode} (confidence: ${routerResult.confidence})`);
+                    }
+                } catch (err) {
+                    console.warn("[BrainBar] Intent router failed, using default:", err);
+                    // On error, default to planning mode (safer)
+                    shouldEnableClarification = true;
+                }
+            }
+
+            // ========== Step 2: Dispatch to appropriate flow ==========
+            setCopilotBackdrop("overlay");
+
+            if (generationMode === "agent" || urlAgentMode) {
+                // Agent mode: use shouldEnableClarification determined by router
+                await startAgentCopilot(prompt, { enableClarification: shouldEnableClarification });
             } else {
+                // Quick mode: skip agent overlay entirely
                 await startCopilot(prompt);
             }
             setPrompt("");

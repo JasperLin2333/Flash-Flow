@@ -1,14 +1,16 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useWatch } from "react-hook-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { TrackedSwitch } from "@/components/ui/tracked-switch";
-import { BrainCircuit, Thermometer, Braces, MessageSquare, Bot } from "lucide-react";
+import { BrainCircuit, Thermometer, Braces, MessageSquare, Bot, Wrench } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { llmModelsAPI, type LLMModel } from "@/services/llmModelsAPI";
+import { skillsAPI, type SkillInfo } from "@/services/skillsAPI";
 import { LLM_EXECUTOR_CONFIG } from "@/store/constants/executorConfig";
 import { NODE_FORM_STYLES, type BaseNodeFormProps, CapabilityItem } from "./shared";
 
@@ -32,6 +34,11 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
   const [models, setModels] = useState<LLMModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [allowedModels, setAllowedModels] = useState<string[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [skillQuery, setSkillQuery] = useState("");
 
   const loadModels = async () => {
     try {
@@ -47,9 +54,77 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
     }
   };
 
+  const loadSkills = async () => {
+    try {
+      setSkillsLoading(true);
+      setSkillsError(null);
+      const data = await skillsAPI.listRuntimeSkills();
+      setSkills(data.skills);
+      setAllowedModels(data.allowedModels);
+    } catch (err) {
+      console.error("Failed to load skills:", err);
+      setSkillsError("无法加载技能列表，请稍后重试");
+    } finally {
+      setSkillsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadModels();
+    loadSkills();
   }, []);
+
+  const enableSkills = useWatch({ control: form.control, name: "enableSkills" }) === true;
+  const selectedSkillIds = useWatch({ control: form.control, name: "skillIds" }) as string[] | undefined;
+  const selectedModel = useWatch({ control: form.control, name: "model" }) as string | undefined;
+  const selectedSkills = Array.isArray(selectedSkillIds) ? selectedSkillIds : [];
+  const modelAllowed = allowedModels.length === 0 || (selectedModel ? allowedModels.includes(selectedModel) : false);
+  const toolSupportState = !selectedModel
+    ? "unknown"
+    : allowedModels.length === 0
+      ? "default"
+      : modelAllowed
+        ? "allowed"
+        : "blocked";
+  const toolSupportLabel =
+    toolSupportState === "unknown"
+      ? "未选择模型"
+      : toolSupportState === "default"
+        ? "默认允许"
+        : toolSupportState === "allowed"
+          ? "支持"
+          : "不支持";
+  const toolSupportDesc =
+    toolSupportState === "unknown"
+      ? "选择模型后显示工具调用能力"
+      : toolSupportState === "default"
+        ? "未配置白名单，默认允许工具调用"
+        : toolSupportState === "allowed"
+          ? "该模型在技能白名单中"
+          : "该模型不在技能白名单中";
+  const filteredSkills = skills.filter((skill) => {
+    const q = skillQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      skill.id.toLowerCase().includes(q) ||
+      skill.name.toLowerCase().includes(q) ||
+      (skill.description || "").toLowerCase().includes(q)
+    );
+  });
+
+  useEffect(() => {
+    if (!modelAllowed && enableSkills) {
+      form.setValue("enableSkills", false, { shouldDirty: true });
+      form.setValue("skillIds", [], { shouldDirty: true });
+    }
+  }, [modelAllowed, enableSkills, form]);
+
+  const toggleSkill = (id: string) => {
+    const next = selectedSkills.includes(id)
+      ? selectedSkills.filter((skillId) => skillId !== id)
+      : [...selectedSkills, id];
+    form.setValue("skillIds", next, { shouldDirty: true });
+  };
 
   return (
     <div className="space-y-4 px-1 pb-4">
@@ -112,6 +187,21 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                 </FormItem>
                 )}
             />
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  toolSupportState === "allowed"
+                    ? "bg-emerald-500"
+                    : toolSupportState === "blocked"
+                      ? "bg-rose-500"
+                      : toolSupportState === "default"
+                        ? "bg-amber-500"
+                        : "bg-gray-300"
+                }`}
+              />
+              <span className="font-medium text-gray-700">工具调用：{toolSupportLabel}</span>
+              <span className="text-gray-400">{toolSupportDesc}</span>
+            </div>
       </div>
 
       <div className={STYLES.SECTION_DIVIDER} />
@@ -306,6 +396,125 @@ export function LLMNodeForm({ form }: BaseNodeFormProps) {
                     </CapabilityItem>
                 )}
             />
+        </div>
+      </div>
+
+      <div className={STYLES.SECTION_DIVIDER} />
+
+      {/* 5. 工具/技能 */}
+      <div className="space-y-2">
+        <div className={STYLES.SECTION_TITLE}>工具 / 技能</div>
+        <div className={`${STYLES.CARD} p-0 overflow-hidden divide-y divide-gray-100`}>
+          <FormField
+            control={form.control}
+            name="enableSkills"
+            render={({ field }) => (
+              <CapabilityItem
+                icon={<Wrench className="w-4 h-4" />}
+                iconColorClass="bg-amber-50 text-amber-600"
+                title="启用技能"
+                description="允许模型调用本地 skills/runtime 下的技能"
+                isExpanded={field.value}
+                rightElement={
+                  <TrackedSwitch
+                    trackingName="enableSkills"
+                    nodeType="llm"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={!modelAllowed}
+                  />
+                }
+              >
+                <div className="py-2 pr-4 space-y-2">
+                  {skillsError ? (
+                    <div className="text-xs text-red-500">{skillsError}</div>
+                  ) : skillsLoading ? (
+                    <div className="text-xs text-gray-500">正在加载技能列表…</div>
+                  ) : skills.length === 0 ? (
+                    <div className="text-xs text-gray-500">
+                      未发现技能，请在 <span className="font-mono">skills/runtime</span> 下添加技能。
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {!modelAllowed && (
+                        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
+                          当前模型未在技能白名单中，无法启用技能。
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-500">已选择技能</div>
+                        {selectedSkills.length === 0 ? (
+                          <div className="text-xs text-gray-400">尚未选择技能</div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {selectedSkills.map((skillId) => (
+                              <button
+                                key={skillId}
+                                type="button"
+                                onClick={() => toggleSkill(skillId)}
+                                className="flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] text-gray-700 hover:border-gray-300"
+                                disabled={!enableSkills}
+                              >
+                                <span className="font-mono">{skillId}</span>
+                                <span className="text-gray-400">×</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-500">选择技能</div>
+                        <Input
+                          value={skillQuery}
+                          onChange={(e) => setSkillQuery(e.target.value)}
+                          placeholder="搜索技能…"
+                          className={STYLES.INPUT}
+                          disabled={!enableSkills || !modelAllowed}
+                        />
+                        {allowedModels.length > 0 && (
+                          <div className="text-[11px] text-gray-400">
+                            技能白名单模型: {allowedModels.join(", ")}
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          {filteredSkills.map((skill) => (
+                            <label
+                              key={skill.id}
+                              className={`flex items-start gap-3 rounded-lg border px-3 py-2 text-xs transition-colors ${
+                                enableSkills && modelAllowed
+                                  ? "border-gray-200 hover:border-gray-300"
+                                  : "border-gray-100 text-gray-400 cursor-not-allowed"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={selectedSkills.includes(skill.id)}
+                                onChange={() => toggleSkill(skill.id)}
+                                disabled={!enableSkills || !modelAllowed}
+                              />
+                              <div className="space-y-1">
+                                <div className="text-sm font-semibold text-gray-900">{skill.name}</div>
+                                {skill.description && (
+                                  <div className="text-xs text-gray-500">{skill.description}</div>
+                                )}
+                                <div className="text-[11px] text-gray-400 font-mono">id: {skill.id}</div>
+                              </div>
+                            </label>
+                          ))}
+                          {filteredSkills.length === 0 && (
+                            <div className="text-xs text-gray-400">没有匹配的技能</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CapabilityItem>
+            )}
+          />
         </div>
       </div>
     </div>

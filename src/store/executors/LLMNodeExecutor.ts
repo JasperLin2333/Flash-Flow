@@ -239,10 +239,12 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
 
           let fullResponse = "";
           let fullReasoning = "";
+          const debugEvents: Array<Record<string, unknown>> = [];
           for (let attempt = 0; attempt <= maxRetries; attempt++) {
             // Reset buffers for this attempt
             fullResponse = "";
             fullReasoning = "";
+            debugEvents.length = 0;
 
             if (shouldStream && streamMode === 'single' && attempt > 0) {
                // On retry, clear previous partial streaming output
@@ -272,6 +274,8 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
                     input: inputContent,
                     conversationHistory: memoryEnabled ? conversationHistory : undefined,
                     responseFormat: llmData.responseFormat,
+                    enableSkills: llmData.enableSkills === true,
+                    skillIds: Array.isArray(llmData.skillIds) ? llmData.skillIds : [],
                     }),
                     signal: attemptController.signal,
                 });
@@ -339,6 +343,20 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
                                         }
                                     }
                                 }
+                                if (parsed.debug) {
+                                    debugEvents.push(parsed.debug as Record<string, unknown>);
+                                }
+                                if (parsed.debugSummary) {
+                                    if (Array.isArray(parsed.debugSummary)) {
+                                        for (const item of parsed.debugSummary) {
+                                            if (item && typeof item === "object") {
+                                                debugEvents.push(item as Record<string, unknown>);
+                                            }
+                                        }
+                                    } else if (typeof parsed.debugSummary === "object") {
+                                        debugEvents.push(parsed.debugSummary as Record<string, unknown>);
+                                    }
+                                }
                                 if (parsed.error) throw new Error(parsed.error);
                             } catch (e: any) {
                                 if (e.name === 'AbortError' || e.message === 'Aborted') throw e;
@@ -397,6 +415,7 @@ export class LLMNodeExecutor extends BaseNodeExecutor {
           return {
             response: parsed.response,
             reasoning: fullReasoning,
+            debug: debugEvents.length > 0 ? debugEvents : undefined,
           };
 
 

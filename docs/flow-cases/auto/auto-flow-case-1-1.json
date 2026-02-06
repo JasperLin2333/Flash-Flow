@@ -1,0 +1,174 @@
+{
+  "title": "智能旅游助手",
+  "goal": "用户输入城市和天数，联网搜索美食和景点，生成不走回头路的行程表和交通建议。",
+  "tags": [
+    "旅行",
+    "规划",
+    "交通"
+  ],
+  "workflow": {
+    "title": "城市旅行规划助手",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_1",
+        "type": "Input",
+        "data": {
+          "label": "旅行需求",
+          "greeting": "请输入您想去的城市和旅行天数，我将为您规划行程。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": true,
+          "formFields": [
+            {
+              "type": "text",
+              "name": "city",
+              "label": "城市",
+              "placeholder": "例如：北京",
+              "required": true
+            },
+            {
+              "type": "select",
+              "name": "days",
+              "label": "天数",
+              "options": [
+                "1天",
+                "2天",
+                "3天",
+                "4天",
+                "5天",
+                "6天",
+                "7天"
+              ],
+              "required": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "search_tool",
+        "type": "Tool",
+        "data": {
+          "label": "信息搜索",
+          "toolType": "web_search",
+          "inputs": {
+            "query": "{{旅行需求.city}} 美食 景点 必去 推荐",
+            "maxResults": 5
+          }
+        }
+      },
+      {
+        "id": "planner_llm",
+        "type": "LLM",
+        "data": {
+          "label": "行程规划师",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位专业的旅行规划师。请根据用户提供的城市、天数和搜索到的信息，生成一份详细、合理、不走回头路的旅行行程表。行程应包含每日的景点、美食推荐、交通建议和大致的时间安排。请确保行程流畅，景点和美食地点在逻辑上顺路。",
+          "temperature": 0.7,
+          "responseFormat": "text",
+          "inputMappings": {
+            "user_input": "城市：{{旅行需求.city}}， 天数：{{旅行需求.days}}。\n\n以下是关于该城市的搜索信息：\n{{信息搜索.results}}"
+          }
+        }
+      },
+      {
+        "id": "output_1",
+        "type": "Output",
+        "data": {
+          "label": "最终行程",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{行程规划师.response}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：用户输入城市和天数，联网搜索美食和景点，生成不走回头路的行程表和交通建议。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_1",
+        "target": "search_tool",
+        "sourceHandle": null,
+        "id": "edge_input_1_search_tool_0"
+      },
+      {
+        "source": "input_1",
+        "target": "planner_llm",
+        "sourceHandle": null,
+        "id": "edge_input_1_planner_llm_1"
+      },
+      {
+        "source": "search_tool",
+        "target": "planner_llm",
+        "sourceHandle": null,
+        "id": "edge_search_tool_planner_llm_2"
+      },
+      {
+        "source": "planner_llm",
+        "target": "output_1",
+        "sourceHandle": null,
+        "id": "edge_planner_llm_output_1_3"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_1",
+        "id": "edge_auto_input_input_1_4"
+      },
+      {
+        "source": "output_1",
+        "target": "auto_output",
+        "id": "edge_output_1_auto_output_5"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

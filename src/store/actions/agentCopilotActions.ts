@@ -234,6 +234,7 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
                                                 // Add a thought to the feed to indicate what happened (visible in chain of thought)
                                                 newFeed = handleThinking(newFeed, "\n[System] Detcted clarification request but skipped it (Auto-mode active). Continuing...");
                                             } else {
+                                                newFeed = handleStep(newFeed, "analysis", "completed", "", true);
                                                 newFeed = handleClarification(newFeed, parsed.questions);
                                                 // Important: Set status to awaiting_input so UI stays open and interactive
                                                 set({ copilotStatus: "awaiting_input" });
@@ -262,7 +263,8 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
                                                 refinedIntent: parsed.refinedIntent,
                                                 workflowNodes: parsed.workflowNodes,
                                                 useCases: parsed.useCases,
-                                                howToUse: parsed.howToUse
+                                                howToUse: parsed.howToUse,
+                                                verificationQuestions: parsed.verificationQuestions
                                             });
                                         }
                                         break;

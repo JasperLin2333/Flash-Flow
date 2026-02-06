@@ -27,6 +27,9 @@ export interface LLMNodeData extends BaseNodeData {
   // 对话记忆配置
   enableMemory?: boolean;           // 是否启用记忆，默认 false
   memoryMaxTurns?: number;          // 最大记忆轮数，默认 10
+  // 技能配置
+  enableSkills?: boolean;           // 是否启用技能调用
+  skillIds?: string[];              // 允许使用的技能 id 列表
   // 高级输出配置
   responseFormat?: 'text' | 'json_object'; // 响应格式（已实现 UI）
   // 输入映射配置
@@ -339,6 +342,7 @@ export interface PlanItem extends BaseFeedItem {
   }[];
   useCases?: string[];         // 适用场景
   howToUse?: string[];         // 使用方法步骤
+  verificationQuestions?: string[];  // 验证问题（用于迭代式规划确认）
 }
 
 export type FeedItem = ThoughtItem | ToolCallItem | SuggestionItem | ProgressItem | StepItem | ClarificationItem | PlanItem;
@@ -617,4 +621,5 @@ export interface SSEEvent {
   workflowNodes?: { type: string; label: string; description: string }[];
   useCases?: string[];
   howToUse?: string[];
+  verificationQuestions?: string[];
 }

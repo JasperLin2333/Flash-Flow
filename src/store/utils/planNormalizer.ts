@@ -189,6 +189,8 @@ function normalizeLLMNode(node: PlanNode, data: PlanNodeData, label: string): Ap
         systemPrompt: String(getProp<string>(node, data, 'systemPrompt') || ""),
         enableMemory: getProp<boolean>(node, data, 'enableMemory') ?? LLM_EXECUTOR_CONFIG.DEFAULT_MEMORY_ENABLED,
         memoryMaxTurns: getProp<number>(node, data, 'memoryMaxTurns') ?? LLM_EXECUTOR_CONFIG.DEFAULT_MEMORY_MAX_TURNS,
+        enableSkills: getProp<boolean>(node, data, 'enableSkills') ?? false,
+        skillIds: Array.isArray(getProp<unknown>(node, data, 'skillIds')) ? (getProp<string[]>(node, data, 'skillIds') || []).filter(Boolean) : [],
         responseFormat: (getProp<string>(node, data, 'responseFormat') as 'text' | 'json_object' | undefined) ?? LLM_EXECUTOR_CONFIG.DEFAULT_RESPONSE_FORMAT,
         inputMappings,
     } as AppNodeData;

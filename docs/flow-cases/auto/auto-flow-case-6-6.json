@@ -1,0 +1,142 @@
+{
+  "title": "学习计划生成器",
+  "goal": "根据考试/课程目标与可用时间，输出分阶段学习计划。",
+  "tags": [
+    "学习",
+    "计划",
+    "效率"
+  ],
+  "workflow": {
+    "title": "智能学习计划生成器",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "input_1",
+        "type": "Input",
+        "data": {
+          "label": "学习目标与时间",
+          "greeting": "请输入您的学习目标（例如：通过XX考试、掌握XX课程）以及您可用的总学习时间（例如：30天，每天2小时）。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": true,
+          "formFields": [
+            {
+              "type": "text",
+              "name": "learning_goal",
+              "label": "学习目标",
+              "placeholder": "例如：通过PMP认证考试",
+              "required": true
+            },
+            {
+              "type": "text",
+              "name": "total_time",
+              "label": "可用总时间",
+              "placeholder": "例如：30天，每天2小时",
+              "required": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "LLM",
+        "data": {
+          "label": "计划制定专家",
+          "model": "deepseek-chat",
+          "systemPrompt": "你是一位资深的学习规划师。请根据用户提供的学习目标和可用时间，制定一份详细、可执行的分阶段学习计划。计划应包含：1. 总体目标拆解。2. 分阶段（如基础、强化、冲刺）的时间分配与核心任务。3. 每个阶段的具体学习行动建议（如阅读材料、练习题量）。4. 关键里程碑与自我检查点。请确保计划合理、有弹性，并鼓励用户。输出格式请使用清晰的Markdown，方便用户阅读。",
+          "temperature": 0.7,
+          "responseFormat": "text",
+          "inputMappings": {
+            "user_input": "用户需要为以下目标制定学习计划：\n学习目标：{{学习目标与时间.learning_goal}}\n可用时间：{{学习目标与时间.total_time}}"
+          }
+        }
+      },
+      {
+        "id": "output_1",
+        "type": "Output",
+        "data": {
+          "label": "学习计划",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{计划制定专家.response}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：根据考试/课程目标与可用时间，输出分阶段学习计划。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_1",
+        "target": "llm_1",
+        "sourceHandle": null,
+        "id": "edge_input_1_llm_1_0"
+      },
+      {
+        "source": "llm_1",
+        "target": "output_1",
+        "sourceHandle": null,
+        "id": "edge_llm_1_output_1_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "input_1",
+        "id": "edge_auto_input_input_1_2"
+      },
+      {
+        "source": "output_1",
+        "target": "auto_output",
+        "id": "edge_output_1_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1_1",
+        "source": "auto_input",
+        "target": "llm_1_1"
+      },
+      {
+        "id": "edge_llm_1_1_auto_output",
+        "source": "llm_1_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

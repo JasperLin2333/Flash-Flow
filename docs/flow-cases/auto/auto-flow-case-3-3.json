@@ -1,0 +1,126 @@
+{
+  "title": "邮件回复助手",
+  "goal": "根据用户提供的邮件内容，生成礼貌专业的回复草稿。",
+  "tags": [
+    "办公",
+    "邮件",
+    "写作"
+  ],
+  "workflow": {
+    "title": "邮件智能回复助手",
+    "nodes": [
+      {
+        "id": "auto_input",
+        "type": "input",
+        "data": {
+          "label": "用户输入"
+        }
+      },
+      {
+        "id": "email_input",
+        "type": "Input",
+        "data": {
+          "label": "邮件输入",
+          "greeting": "请粘贴或输入您收到的邮件内容，我将为您生成礼貌的回复草稿。",
+          "enableTextInput": true,
+          "textRequired": true,
+          "enableFileInput": false,
+          "enableStructuredForm": false
+        }
+      },
+      {
+        "id": "reply_generator",
+        "type": "LLM",
+        "data": {
+          "label": "回复生成器",
+          "model": "qwen-flash",
+          "systemPrompt": "你是一位专业的邮件回复助手。请根据用户提供的原始邮件内容，生成一封礼貌、专业、得体的回复草稿。回复应包含恰当的问候、对来信要点的回应、清晰的行动建议或下一步安排，以及正式的结尾。请直接输出回复正文，无需额外解释。",
+          "temperature": 0.7,
+          "responseFormat": "text",
+          "inputMappings": {
+            "user_input": "{{邮件输入.user_input}}"
+          }
+        }
+      },
+      {
+        "id": "final_output",
+        "type": "Output",
+        "data": {
+          "label": "回复草稿",
+          "inputMappings": {
+            "mode": "direct",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{回复生成器.response}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "auto_output",
+        "type": "output",
+        "data": {
+          "label": "最终输出",
+          "inputMappings": {
+            "mode": "select",
+            "sources": [
+              {
+                "type": "variable",
+                "value": "{{用户输入.user_input}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "llm_1",
+        "type": "llm",
+        "data": {
+          "label": "任务处理",
+          "model": "deepseek-v3-2-251201",
+          "systemPrompt": "你是一个专业助手。目标：根据用户提供的邮件内容，生成礼貌专业的回复草稿。。请根据用户输入生成结果。",
+          "temperature": 0.4,
+          "inputMappings": {
+            "user_input": "{{auto_input.user_input}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "email_input",
+        "target": "reply_generator",
+        "sourceHandle": null,
+        "id": "edge_email_input_reply_generator_0"
+      },
+      {
+        "source": "reply_generator",
+        "target": "final_output",
+        "sourceHandle": null,
+        "id": "edge_reply_generator_final_output_1"
+      },
+      {
+        "source": "auto_input",
+        "target": "email_input",
+        "id": "edge_auto_input_email_input_2"
+      },
+      {
+        "source": "final_output",
+        "target": "auto_output",
+        "id": "edge_final_output_auto_output_3"
+      },
+      {
+        "id": "edge_auto_input_llm_1",
+        "source": "auto_input",
+        "target": "llm_1"
+      },
+      {
+        "id": "edge_llm_1_auto_output",
+        "source": "llm_1",
+        "target": "auto_output"
+      }
+    ]
+  }
+}

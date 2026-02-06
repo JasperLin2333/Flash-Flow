@@ -329,8 +329,9 @@ export default function PromptBubble(props: PromptBubbleProps) {
         {/* Left: Config Buttons */}
         <div className="flex items-center gap-2">
           {/* Generation Mode Hover Menu */}
-          {/* Clarification Toggle */}
-          {onToggleClarification && (
+          {/* Clarification Toggle - HIDDEN: Now controlled by AI intent recognition */}
+          {/* To re-enable manually, set NEXT_PUBLIC_SHOW_PLANNING_TOGGLE=true */}
+          {process.env.NEXT_PUBLIC_SHOW_PLANNING_TOGGLE === "true" && onToggleClarification && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <div

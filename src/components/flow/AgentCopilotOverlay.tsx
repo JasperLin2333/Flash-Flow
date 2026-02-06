@@ -204,7 +204,7 @@ function UnifiedStep({
                 {isStreaming && (
                     <div className="absolute inset-0 bg-current opacity-10 animate-pulse" />
                 )}
-                
+
                 {isCompleted ? (
                     <Check className="w-4 h-4" />
                 ) : isPending ? (
@@ -237,9 +237,9 @@ function UnifiedStep({
                     {/* Status Indicators - Only show when actually streaming */}
                     {isStreaming && (
                         <div className="flex gap-1 items-center h-3 mb-0.5 ml-2">
-                             <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse" />
-                             <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse delay-75" />
-                             <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse delay-150" />
+                            <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse" />
+                            <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse delay-75" />
+                            <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse delay-150" />
                         </div>
                     )}
 
@@ -269,8 +269,8 @@ function UnifiedStep({
                                 onScroll={handleInternalScroll}
                                 className={cn(
                                     "rounded-xl border p-4 shadow-sm transition-all duration-300 mb-2 max-h-60 overflow-y-auto custom-scrollbar",
-                                    isStreaming 
-                                        ? "bg-white/90 border-blue-200/60 shadow-blue-500/5 ring-1 ring-blue-500/10" 
+                                    isStreaming
+                                        ? "bg-white/90 border-blue-200/60 shadow-blue-500/5 ring-1 ring-blue-500/10"
                                         : "bg-slate-50/50 border-slate-200/60"
                                 )}>
                                 {children}
@@ -328,7 +328,8 @@ function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) 
         verification: { icon: Check, label: "安全检查", color: "text-emerald-600", bg: "bg-emerald-50/50 border-emerald-100/50" },
         result_prep: { icon: FileJson, label: "生成并保存", color: "text-slate-600", bg: "bg-slate-50/50 border-slate-100/50" },
         validation: { icon: Check, label: "结构检查", color: "text-amber-700", bg: "bg-amber-50/60 border-amber-100/60" },
-        validation_fix: { icon: Wrench, label: "自动修复", color: "text-amber-700", bg: "bg-amber-50/60 border-amber-100/60" }
+        validation_fix: { icon: Wrench, label: "自动修复", color: "text-amber-700", bg: "bg-amber-50/60 border-amber-100/60" },
+        rag_context: { icon: Database, label: "RAG 上下文", color: "text-teal-700", bg: "bg-teal-50/60 border-teal-100/60" }
     };
 
     let config = stepConfig[item.stepType] || {
@@ -535,8 +536,12 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
     };
 
     // Check if we have the new structured data
-    const { refinedIntent, workflowNodes, useCases, howToUse } = item;
+    const { refinedIntent, workflowNodes, useCases, howToUse, verificationQuestions } = item;
     const hasNewFormat = !!(refinedIntent || (workflowNodes && workflowNodes.length > 0));
+
+    // DEBUG: Trace verificationQuestions data
+    console.log('[PlanPreviewCard] item:', item);
+    console.log('[PlanPreviewCard] verificationQuestions:', verificationQuestions);
 
     // Helper to get icon for node type
     const getNodeIcon = (type: string) => {
@@ -651,6 +656,28 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                             </div>
                         )}
                     </div>
+
+                    {/* 5. Verification Questions - NEW */}
+                    {verificationQuestions && verificationQuestions.length > 0 && (
+                        <div className="bg-amber-50/60 rounded-xl p-4 border border-amber-200/50">
+                            <div className="text-xs font-bold text-amber-700 mb-3 flex items-center gap-1.5">
+                                <HelpCircle className="w-3.5 h-3.5" /> 确认几个问题
+                            </div>
+                            <ul className="space-y-2">
+                                {verificationQuestions.map((question, i) => (
+                                    <li key={i} className="text-sm text-slate-700 flex items-start gap-2 leading-relaxed">
+                                        <span className="mt-0.5 w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0 text-xs font-bold">
+                                            {i + 1}
+                                        </span>
+                                        <span>{question}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                            <p className="text-xs text-slate-500 mt-3 pt-2 border-t border-amber-200/40">
+                                如果以上问题的答案不是"是"，请点击"修改方案"告诉我你的想法。
+                            </p>
+                        </div>
+                    )}
                 </div>
             ) : (
                 /* Legacy View */
@@ -931,12 +958,7 @@ export default function AgentCopilotOverlay() {
     const isAwaitingInput = copilotStatus === "awaiting_input";
     const isAwaitingPlanConfirm = copilotStatus === "awaiting_plan_confirm";
 
-    const filteredFeed = useMemo(() => {
-        if (isAwaitingInput) {
-            return feed.filter(f => f.type !== 'clarification');
-        }
-        return feed;
-    }, [feed, isAwaitingInput]);
+    const filteredFeed = useMemo(() => feed, [feed]);
 
     const lastPlanIndex = useMemo(() => {
         for (let i = filteredFeed.length - 1; i >= 0; i--) {
@@ -967,12 +989,12 @@ export default function AgentCopilotOverlay() {
                         {!isCompleted && (
                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
                         )}
-                        
+
                         <div className="flex items-center gap-3 relative z-10">
                             <div className={cn(
                                 "p-2 rounded-xl transition-all shadow-sm ring-1 ring-inset",
-                                isCompleted 
-                                    ? "bg-emerald-50/80 text-emerald-600 ring-emerald-500/10" 
+                                isCompleted
+                                    ? "bg-emerald-50/80 text-emerald-600 ring-emerald-500/10"
                                     : "bg-indigo-50/80 text-indigo-600 ring-indigo-500/10"
                             )}>
                                 {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
