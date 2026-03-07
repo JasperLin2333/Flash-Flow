@@ -19,6 +19,7 @@ import { getFlowCaseFewShots } from "@/lib/agent/flowCaseRag";
 import { formatSkillIndex, listSkillDefinitions } from "@/lib/skills/skillRegistry";
 import { getDefaultSkillIds, routeAgentSkills } from "@/lib/agent/skillRouting";
 import { generateClarificationQuestions } from "@/lib/agent/intentRecognition";
+import { getClarificationPolicyForUser } from "@/lib/agent/clarificationExperiment";
 
 // 🔧 根本性修复：校验并修正AI生成的节点配置
 function validateAndFixGeneratedNodes(nodes: any[]): any[] {
@@ -54,7 +55,6 @@ function validateAndFixGeneratedNodes(nodes: any[]): any[] {
             // 检查template模式中的非法语法
             if (mappings.mode === 'template' && mappings.template) {
                 let template = mappings.template;
-                let hasIllegalSyntax = false;
                 let fixApplied = false;
 
                 // 检测并移除Handlebars逻辑标签
@@ -75,7 +75,6 @@ function validateAndFixGeneratedNodes(nodes: any[]): any[] {
 
                 for (const { pattern, name } of illegalPatterns) {
                     if (pattern.test(template)) {
-                        hasIllegalSyntax = true;
                         fixApplied = true;
                         const matches = template.match(pattern) || [];
                         console.log(`[FIX] Output节点 "${node.data.label || node.id}" 检测到非法语法: ${name} (${matches.join(', ')})`);
@@ -677,7 +676,7 @@ export async function POST(req: Request) {
 
     try {
         const body = await reqClone.json();
-        const { prompt, enableClarification, skipAutomatedValidation } = body;
+        const { prompt, enableClarification, skipAutomatedValidation, experiment } = body;
         const shouldSkipAutomatedValidation = skipAutomatedValidation === true;
 
         const user = await getAuthenticatedUser(req);
@@ -691,6 +690,21 @@ export async function POST(req: Request) {
             const res = pointsExceededResponse(pointsCheck.balance, pointsCheck.required);
             return createSseResponse(res.status, { type: "step", stepType: "error", status: "error", content: `积分不足，当前余额 ${pointsCheck.balance}，需要 ${pointsCheck.required}。` });
         }
+
+        let clarificationPolicy = getClarificationPolicyForUser(user.id);
+
+        // A/B Testing override
+        console.log(`[API /agent/plan] Received body experiment: ${experiment}, initial policy: ${clarificationPolicy}`);
+        if (experiment === 'B') {
+            clarificationPolicy = "never";
+            console.log(`[API /agent/plan] Policy overridden to 'never' due to experiment=B`);
+        }
+
+        const effectiveEnableClarification = clarificationPolicy === "never"
+            ? false
+            : Boolean(enableClarification);
+
+        console.log(`[API /agent/plan] effectiveEnableClarification: ${effectiveEnableClarification}`);
 
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
@@ -852,12 +866,12 @@ export async function POST(req: Request) {
                                     fullText += chunk;
                                     parser.process(chunk);
                                 }
-                            } else if (part.type === "tool-input-available") {
+                            } else if (part.type === "tool-call") {
                                 emit({ type: "tool-call", tool: part.toolName, args: part.input });
-                            } else if (part.type === "tool-output-available") {
+                            } else if (part.type === "tool-result") {
                                 emit({ type: "tool-result", tool: part.toolCallId, result: part.output });
-                            } else if (part.type === "tool-output-error") {
-                                emit({ type: "tool-result", tool: part.toolCallId, result: { error: part.errorText } });
+                            } else if (part.type === "tool-error") {
+                                emit({ type: "tool-result", tool: part.toolCallId, result: { error: part.error } });
                             }
                         }
                     };
@@ -865,8 +879,9 @@ export async function POST(req: Request) {
                     // ========== Intent is now pre-determined by frontend (via /api/intent-router) ==========
                     // The frontend calls /api/intent-router before this endpoint and passes the result as enableClarification
                     // We just use the value directly without re-detecting
-                    const shouldRequestPlan = Boolean(enableClarification) && !isPlanConfirmed;
-                    const shouldAutoPlan = !enableClarification && !isPlanConfirmed;
+                    const shouldForceDirectGeneration = clarificationPolicy === "never";
+                    const shouldRequestPlan = effectiveEnableClarification && !isPlanConfirmed;
+                    const shouldAutoPlan = !shouldForceDirectGeneration && !effectiveEnableClarification && !isPlanConfirmed;
 
                     if (shouldRequestPlan || shouldAutoPlan) {
                         phase = "plan";

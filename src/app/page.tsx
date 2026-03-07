@@ -119,9 +119,13 @@ export default function Home() {
     // 🔥 修复返回问题：使用replace避免路由历史污染
     const modeParam = generationMode === "agent" ? "&mode=agent" : "";
     const clarificationParam = enableClarification ? "&enableClarification=true" : "";
-    
+
+    // A/B Testing: Forward experiment parameter to builder page
+    const experimentParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('experiment') : null;
+    const experimentQuery = experimentParam ? `&experiment=${experimentParam}` : "";
+
     // 直接导航到带参数的页面，避免产生空白页面历史记录
-    router.push(`/builder?initialPrompt=${encodeURIComponent(prompt)}${modeParam}${clarificationParam}`);
+    router.push(`/builder?initialPrompt=${encodeURIComponent(prompt)}${modeParam}${clarificationParam}${experimentQuery}`);
   };
 
   return (

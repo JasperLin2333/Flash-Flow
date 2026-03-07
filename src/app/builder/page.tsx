@@ -111,8 +111,7 @@ function BuilderContent() {
                             content: '',
                             timestamp: Date.now()
                         }],
-                        currentCopilotPrompt: initialPrompt,
-                        error: null
+                        currentCopilotPrompt: initialPrompt
                     });
                 }
 
@@ -120,10 +119,11 @@ function BuilderContent() {
                 // ONLY for agent mode: call /api/intent-router to auto-detect
                 if (mode === "agent" && !enableClarification) {
                     try {
+                        const experimentParam = searchParams.get("experiment");
                         const routerResp = await fetch("/api/intent-router", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ prompt: initialPrompt }),
+                            body: JSON.stringify({ prompt: initialPrompt, experiment: experimentParam }),
                         });
 
                         if (routerResp.ok) {

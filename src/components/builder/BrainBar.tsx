@@ -265,10 +265,11 @@ export default function BrainBar() {
             // Quick mode always goes to startCopilot directly
             if (generationMode === "agent" || urlAgentMode) {
                 try {
+                    const experimentParam = searchParams?.get("experiment");
                     const routerResp = await fetch("/api/intent-router", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ prompt }),
+                        body: JSON.stringify({ prompt, experiment: experimentParam }),
                     });
 
                     if (routerResp.ok) {

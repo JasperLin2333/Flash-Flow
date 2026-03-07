@@ -84,7 +84,35 @@ function ThinkingIndicator() {
     );
 }
 
-function formatToolLabel(tool: string) {
+function getSkillNameFromArgs(args: unknown): string | null {
+    if (!args) return null;
+    try {
+        let parsedArgs = args;
+        // Handle double-stringified JSON which happens often with tool calls
+        if (typeof parsedArgs === 'string') {
+            parsedArgs = JSON.parse(parsedArgs);
+        }
+        if (typeof parsedArgs === 'string') {
+            parsedArgs = JSON.parse(parsedArgs);
+        }
+
+        if (parsedArgs && typeof (parsedArgs as any).skillId === 'string') {
+            const skillId = (parsedArgs as any).skillId;
+            const skillNameMapping: Record<string, string> = {
+                'flow-template': '工作流模板库',
+                'flow-clarifier': '需求分析手册',
+                'structured-outline': '大纲提取规范',
+                'text-cleaner': '文本清洗规范'
+            };
+            return skillNameMapping[skillId] || skillId;
+        }
+    } catch (e) {
+        // ignore
+    }
+    return null;
+}
+
+function formatToolLabel(tool: string, args?: unknown) {
     const labels: Record<string, string> = {
         web_search: "联网搜索",
         url_reader: "读取网页内容",
@@ -93,8 +121,18 @@ function formatToolLabel(tool: string) {
         code_interpreter: "代码执行",
         validate_flow: "工作流校验",
         rag_search: "知识库检索",
+        skill: "查阅技能库",
     };
-    const base = labels[tool] || tool.replace(/_/g, " ");
+
+    let base = labels[tool] || tool.replace(/_/g, " ");
+
+    if (tool === 'skill') {
+        const skillName = getSkillNameFromArgs(args);
+        if (skillName) {
+            return `查阅技能：${skillName}`;
+        }
+    }
+
     return `${base}（${tool}）`;
 }
 
@@ -305,13 +343,17 @@ function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) 
     if (item.stepType === "retry") {
         return null;
     }
+    if (item.stepType === "rag_context") {
+        return null;
+    }
 
     const visibleContent = sanitizeNoJson(item.content || "");
     const isTitleOnly = item.stepType === "plan_confirm" || item.stepType === "plan_adjust" || item.stepType === "result_prep";
+    const isCompleted = item.status === 'completed';
     const titleOnlyDescriptions: Record<string, string> = {
-        plan_confirm: "确认这份方案后，我会按这个流程开始生成工作流。",
-        plan_adjust: "正在按你的反馈调整方案。完成后，我会请你再确认一次。",
-        result_prep: "正在把方案转换成节点和连线，并自动排版后保存。"
+        plan_confirm: isCompleted ? "已确认方案，开始按此流程生成工作流。" : "确认这份方案后，我会按这个流程开始生成工作流。",
+        plan_adjust: isCompleted ? "已按你的反馈调整方案。" : "正在按你的反馈调整方案。完成后，我会请你再确认一次。",
+        result_prep: isCompleted ? "已把方案转换成节点和连线，并自动排版后保存。" : "正在把方案转换成节点和连线，并自动排版后保存。"
     };
     const titleOnlyDescription = titleOnlyDescriptions[item.stepType] || "";
 
@@ -347,7 +389,7 @@ function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) 
             bg={config.bg}
             status={item.status}
             isLast={isLast}
-            previewText={sanitizeNoJson(item.content || "").replace(/[#*`]/g, '')}
+            previewText={isTitleOnly ? titleOnlyDescription : sanitizeNoJson(item.content || "").replace(/[#*`]/g, '')}
         >
             {isTitleOnly
                 ? (titleOnlyDescription ? (
@@ -372,26 +414,76 @@ function StepBlockRender({ item, isLast }: { item: StepItem, isLast: boolean }) 
 }
 
 function ToolCallBlockRender({ item, isLast }: { item: ToolCallItem, isLast: boolean }) {
-    // Hide 'validate_flow' if it's already covered by the Validation Step to reduce noise
-    // But keep others
+    // Hide internal/technical tool calls to keep the UI clean
     if (item.tool === 'validate_flow') return null;
+    if (item.tool === 'skill') return null;
+    if (item.tool === 'rag_search') return null;
 
     const rawResultText = typeof item.result === "string" ? item.result : "";
     const visibleResultText = isEntireJson(rawResultText) ? "" : sanitizeNoJson(rawResultText);
     const shouldHideResult = typeof item.result !== "string" || !visibleResultText;
 
+    const isSkill = item.tool === 'skill';
+    const DefaultIcon = isSkill ? BookOpen : Terminal;
+
+    const skillName = isSkill ? getSkillNameFromArgs((item as any).args) : null;
+    const dynamicSkillText = skillName ? `${skillName}` : "专家参考库";
+
+    // 针对 Skill 的特化渲染：提取专家知识的具体内容展示出来
+    // 后端返回的 skill result 通常是一个 JSON 字符串，包含 { instructions: string } 或 { content: string }
+    let skillInstructionContent = "";
+    if (isSkill && typeof item.result === "string") {
+        try {
+            let parsedResult = item.result as any;
+            if (typeof parsedResult === 'string') parsedResult = JSON.parse(parsedResult);
+            if (typeof parsedResult === 'string') parsedResult = JSON.parse(parsedResult);
+            skillInstructionContent = parsedResult.instructions || parsedResult.content || "";
+        } catch (e) {
+            skillInstructionContent = item.result; // 退化为纯文本
+        }
+    }
+
+    // 自定义进行中的状态文案
+    let streamingText = "正在执行中…";
+    if (isSkill) streamingText = `正在查阅 ${dynamicSkillText}…`;
+    else if (item.tool === 'web_search') streamingText = "正在检索全网信息…";
+
     return (
         <UnifiedStep
-            icon={Terminal}
-            label={`调用工具：${formatToolLabel(item.tool)}`}
-            color="text-indigo-600"
-            bg="bg-indigo-50/50 border-indigo-100/50"
+            icon={DefaultIcon}
+            label={formatToolLabel(item.tool, (item as any).args)}
+            color={isSkill ? "text-emerald-600" : "text-indigo-600"}
+            bg={isSkill ? "bg-emerald-50/50 border-emerald-100/50" : "bg-indigo-50/50 border-indigo-100/50"}
             status={item.status === 'calling' ? 'streaming' : item.status === 'error' ? 'error' : 'completed'}
             isLast={isLast}
-            previewText={shouldHideResult ? "已隐藏结果（结构数据）" : visibleResultText}
+            previewText={
+                item.status === 'calling' ? streamingText :
+                    shouldHideResult ? (isSkill ? `已加载完整的【${dynamicSkillText}】` : "已隐藏结果（结构数据）") : visibleResultText
+            }
         >
-            {shouldHideResult ? (
-                <div className="text-xs leading-relaxed text-slate-500/80 py-2">已隐藏结果（包含结构数据）</div>
+            {item.status === 'calling' ? (
+                <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>{streamingText}</span>
+                </div>
+            ) : isSkill && skillInstructionContent ? (
+                <div className="mt-2 relative">
+                    <div className="text-xs font-semibold text-emerald-700/80 mb-1 flex items-center gap-1.5">
+                        <BookOpen className="w-3.5 h-3.5" />
+                        提取到的核心规范：
+                    </div>
+                    <div className="text-xs leading-relaxed text-slate-600/90 whitespace-pre-wrap break-all max-h-48 overflow-y-auto custom-scrollbar bg-white/50 p-2.5 rounded-md border border-emerald-100/50">
+                        <MarkdownRenderer
+                            content={skillInstructionContent}
+                            isStreaming={false}
+                            className="prose-p:my-1 prose-pre:my-2 prose-li:my-0.5 [&>p]:leading-relaxed [&>ul]:my-1 prose-headings:text-emerald-800 prose-headings:font-semibold prose-headings:my-1"
+                        />
+                    </div>
+                </div>
+            ) : shouldHideResult ? (
+                <div className="text-xs leading-relaxed text-slate-500/80 py-2">
+                    {isSkill ? `已提取【${dynamicSkillText}】的核心规范作为下一步上下文。` : "已隐藏结果（包含结构数据）"}
+                </div>
             ) : (
                 <div className="text-xs leading-relaxed font-mono text-slate-600/90 whitespace-pre-wrap break-all max-h-60 overflow-y-auto custom-scrollbar">
                     {visibleResultText}
@@ -674,7 +766,7 @@ function PlanPreviewCard({ item }: { item: PlanItem }) {
                                 ))}
                             </ul>
                             <p className="text-xs text-slate-500 mt-3 pt-2 border-t border-amber-200/40">
-                                如果以上问题的答案不是"是"，请点击"修改方案"告诉我你的想法。
+                                如果以上问题的答案不是 &quot;是&quot;，请点击 &quot;修改方案&quot; 告诉我你的想法。
                             </p>
                         </div>
                     )}

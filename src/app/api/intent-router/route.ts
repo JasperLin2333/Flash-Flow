@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { detectUserIntent } from "@/lib/agent/intentRecognition";
+import { getClarificationPolicyForUser } from "@/lib/agent/clarificationExperiment";
+import { getAuthenticatedUser } from "@/lib/authEdge";
 
 export const runtime = 'edge';
 
@@ -17,13 +19,30 @@ export const runtime = 'edge';
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { prompt } = body;
+        const { prompt, experiment } = body;
 
         if (!prompt?.trim()) {
             return NextResponse.json(
                 { error: "Prompt is required", mode: "PLAN_MODE" },
                 { status: 400 }
             );
+        }
+
+        const user = await getAuthenticatedUser(req);
+        let policy = getClarificationPolicyForUser(user?.id);
+
+        console.log(`[API /intent-router] Received body experiment: ${experiment}, initial policy: ${policy}`);
+        // A/B Testing override
+        if (experiment === 'B') {
+            policy = "never";
+            console.log(`[API /intent-router] Policy overridden to 'never' due to experiment=B`);
+        }
+
+        if (policy === "never") {
+            return NextResponse.json({
+                mode: "DIRECT_MODE",
+                confidence: "high",
+            });
         }
 
         const result = await detectUserIntent(prompt);

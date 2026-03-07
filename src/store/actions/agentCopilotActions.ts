@@ -117,11 +117,23 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
             const enableValidateWorkflow = process.env.NEXT_PUBLIC_FLOW_VALIDATE_WORKFLOW_ENABLED === "true";
             const skipAutomatedValidation = !enableValidateWorkflow;
 
+            // A/B testing experiment parameter
+            let experimentParam = null;
+            if (typeof window !== 'undefined') {
+                experimentParam = new URLSearchParams(window.location.search).get('experiment');
+            }
+
             // ========== 调用 Agent API ==========
             const resp = await fetch("/api/agent/plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt, ownerId, enableClarification: options?.enableClarification, skipAutomatedValidation }),
+                body: JSON.stringify({
+                    prompt,
+                    ownerId,
+                    enableClarification: options?.enableClarification,
+                    skipAutomatedValidation,
+                    experiment: experimentParam
+                }),
             });
 
             if (!resp.body) {
@@ -171,7 +183,7 @@ export const createAgentCopilotActions = (set: any, get: any) => ({
                                     case "tool-call":
                                         newStep = 2;
                                         if (parsed.tool) {
-                                            newFeed = handleToolCall(newFeed, parsed.tool);
+                                            newFeed = handleToolCall(newFeed, parsed.tool, parsed.args);
                                         }
                                         break;
 
