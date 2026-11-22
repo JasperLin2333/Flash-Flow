@@ -237,7 +237,7 @@ Flash Flow 实现了直观、无歧义的跨节点变量引用协议：
 
 ```bash
 git clone https://github.com/JasperLin2333/Flash-Flow.git
-cd flash-flow
+cd Flash-Flow
 ```
 
 ### 2️⃣ 安装依赖
