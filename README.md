@@ -293,6 +293,10 @@ TAVILY_API_KEY=your_tavily_api_key
 E2B_API_KEY=your_e2b_api_key
 ```
 
+### 常见问题：邮箱注册失败
+
+如果本地部署后无法通过邮箱注册，请先核对 `.env.local` 中的 `NEXT_PUBLIC_SUPABASE_ANON_KEY` 是否填写正确，并确认其与 `NEXT_PUBLIC_SUPABASE_URL` 对应同一个 Supabase 项目。已有用户反馈因该配置错误导致注册失败，修正后恢复正常（见 [Issue #1](https://github.com/JasperLin2333/Flash-Flow/issues/1)）。
+
 ### 4️⃣ 启动开发服务器
 
 ```bash
